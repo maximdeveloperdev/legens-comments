@@ -29,7 +29,6 @@ export const dashboardNav: NavItem[] = [
     href: "/settings",
     items: [
       { title: "Подписки", href: "/settings/subscription" },
-      { title: "Telegram", href: "/settings/telegram" },
       { title: "Логи действий в трекере", href: "/settings/tracker" },
       { title: "Логи действий Ads Power", href: "/settings/adspower" },
       { title: "Мониторинг сервера", href: "/settings/server" },

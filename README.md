@@ -78,7 +78,50 @@ npm run build
 
 Target server: Ubuntu 24.04/22.04, Docker Compose, AdsPower running on the host in headless Local API mode.
 
-### 1. Prepare the server
+### Quick domain setup
+
+1. Create a DNS `A` record for your domain:
+
+```text
+app.example.com -> SERVER_IP
+```
+
+2. Copy the project to the VPS:
+
+```bash
+rsync -av --exclude node_modules --exclude .next --exclude .env ./ root@SERVER_IP:/opt/legends-comments/
+```
+
+3. SSH to the server and run setup:
+
+```bash
+ssh root@SERVER_IP
+cd /opt/legends-comments
+chmod +x scripts/vps-setup.sh
+./scripts/vps-setup.sh
+```
+
+The script asks for:
+
+- domain
+- admin email
+- admin password
+- AdsPower API key, optional during first run
+- OpenAI API key, optional
+
+It then installs Docker and Caddy, creates `.env`, starts the app, configures HTTPS, and closes public access to ports `3000` and `50325`.
+
+Open:
+
+```text
+https://your-domain.com
+```
+
+### Manual setup
+
+Use this only if you do not want the setup script.
+
+#### 1. Prepare the server
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -93,13 +136,14 @@ Firewall:
 
 ```bash
 sudo ufw allow OpenSSH
-sudo ufw allow 3000/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
 Do not open AdsPower Local API port `50325` to the internet. The app talks to AdsPower through `127.0.0.1`.
 
-### 2. Install AdsPower on the VPS
+#### 2. Install AdsPower on the VPS
 
 Download the current Linux `.deb` from the official AdsPower download page:
 
@@ -141,7 +185,7 @@ Check Local API:
 curl -H "Authorization: Bearer $ADSPOWER_API_KEY" http://127.0.0.1:50325/status
 ```
 
-### 3. Deploy the app
+#### 3. Deploy the app
 
 Copy the project to the server, then create the environment file:
 
@@ -173,15 +217,21 @@ docker compose up -d --build
 docker compose logs -f web
 ```
 
-Open:
+Configure Caddy:
 
-```text
-http://SERVER_IP:3000
+```bash
+sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
+your-domain.com {
+  encode gzip zstd
+  reverse_proxy 127.0.0.1:3000
+}
+EOF
+sudo systemctl reload caddy
 ```
 
-### 4. Runtime notes
+#### 4. Runtime notes
 
-`docker-compose.yml` runs the web container in host network mode so it can reach AdsPower on `127.0.0.1:50325`. Postgres still runs in Docker and is exposed only on the server as `127.0.0.1:5433` from the app perspective.
+`docker-compose.yml` runs the web container in host network mode so it can reach AdsPower on `127.0.0.1:50325`. The Next.js server binds to `127.0.0.1:3000`, and Caddy is the public HTTPS entrypoint. Postgres still runs in Docker and is exposed only on the server as `127.0.0.1:5433` from the app perspective.
 
 Start with:
 

@@ -12,7 +12,7 @@ services:
     volumes:
       - legends_comments_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U legends -d legends_comments"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-legends}\" -d \"$${POSTGRES_DB:-legends_comments}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -26,6 +26,8 @@ services:
       - legends_comments_uploads:/app/public/uploads
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://legends:legends@127.0.0.1:5433/legends_comments}
+      PORT: ${PORT:-3000}
+      HOSTNAME: ${HOSTNAME:-127.0.0.1}
       AUTH_SECRET: ${AUTH_SECRET}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
