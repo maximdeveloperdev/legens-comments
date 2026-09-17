@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: legends-comments-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-legends}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-legends}
+      POSTGRES_DB: ${POSTGRES_DB:-legends_comments}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - legends_comments_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legends -d legends_comments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    container_name: legends-comments-web
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - legends_comments_uploads:/app/public/uploads
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://legends:legends@127.0.0.1:5433/legends_comments}
+      AUTH_SECRET: ${AUTH_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADSPOWER_API_URL: ${ADSPOWER_API_URL:-http://127.0.0.1:50325}
+      ADSPOWER_API_KEY: ${ADSPOWER_API_KEY}
+      FARM_QUEUE_MAX_PARALLEL: ${FARM_QUEUE_MAX_PARALLEL:-20}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  legends_comments_pg:
+  legends_comments_uploads:

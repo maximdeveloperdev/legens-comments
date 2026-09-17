@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String
+  passwordHash      String
+  role              UserRole @default(USER)
+  twoFactorEnabled  Boolean  @default(false)
+  twoFactorSecret   String?
+  avatarUrl         String?
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+}
+
+enum CommentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Comment {
+  id         String        @id @default(cuid())
+  authorName String
+  body       String
+  status     CommentStatus @default(PENDING)
+  createdAt  DateTime      @default(now())
+}
+
+model Country {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  code3     String   @unique
+  numeric   String?
+  nameEn    String
+  nameRu    String
+  flagEmoji String
+  flagSvg   String
+  region    String?
+  createdAt DateTime @default(now())
+}
+
+model ActionLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  userName  String
+  action    String
+  detail    String
+  level     String   @default("info")
+  source    String   @default("adspower")
+  profileId String?
+
+  @@index([createdAt])
+  @@index([source, createdAt])
+}
+
+model FacebookFan {
+  id             String   @id @default(cuid())
+  adsPowerUserId String
+  name           String
+  position       Int
+  current        Boolean  @default(false)
+  syncedAt       DateTime @default(now())
+
+  @@unique([adsPowerUserId, position])
+  @@index([adsPowerUserId])
+}
+
+enum FarmJobStatus {
+  PENDING
+  RUNNING
+  DONE
+  ERROR
+}
+
+model FarmTask {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  createdBy String
+  action    String
+  total     Int
+  jobs      FarmJob[]
+}
+
+model FarmJob {
+  id         String        @id @default(cuid())
+  createdAt  DateTime      @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  status     FarmJobStatus @default(PENDING)
+  action     String
+  profileId  String
+  fanName    String        @default("")
+  url        String
+  message    String
+  error      String?
+  taskId     String
+  task       FarmTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([taskId, createdAt])
+}
