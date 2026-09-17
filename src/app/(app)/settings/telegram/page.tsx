@@ -1,10 +1,5 @@
-import { SettingsSection } from "../settings-section"
-import { TelegramForm } from "../telegram-form"
+import { redirect } from "next/navigation"
 
 export default function TelegramSettingsPage() {
-  return (
-    <SettingsSection title="Telegram" description="Подключение бота для уведомлений.">
-      <TelegramForm />
-    </SettingsSection>
-  )
+  redirect("/settings/subscription")
 }
