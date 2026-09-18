@@ -6,6 +6,11 @@ type AdsPowerResponse<T> = {
   data?: T
 }
 
+type AdsPowerKernelDownload = {
+  status?: string
+  progress?: number
+}
+
 export type AdsPowerConnection = {
   ok: boolean
   url: string
@@ -191,6 +196,11 @@ function startFailed(message: string) {
   return /failed to start|не вдалося запустити|не удалось запустить|100001/i.test(message)
 }
 
+function missingChromeKernel(message: string) {
+  const match = message.match(/SunBrowser\s+(\d+)\s+is\s+not\s+ready/i)
+  return match?.[1] ?? ""
+}
+
 function startErrorMessage(message: string) {
   if (startFailed(message)) {
     return "AdsPower не смог открыть профиль (100001): занят прошлым запуском или ещё закрывается."
@@ -232,6 +242,41 @@ async function lookupActiveDebug(userId: string) {
   return { open: false, browserWs: undefined, debugPort: undefined }
 }
 
+async function ensureChromeKernel(kernel: string) {
+  for (let step = 0; step < 60; step += 1) {
+    const result = await adspowerFetch<AdsPowerKernelDownload>(
+      "/api/v2/browser-profile/download-kernel",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          kernel_type: "Chrome",
+          kernel_version: kernel,
+        }),
+        timeoutMs: 60_000,
+      },
+    )
+
+    if (result.code !== 0) {
+      return {
+        ok: false,
+        message: result.msg || `Не удалось скачать SunBrowser ${kernel}`,
+      }
+    }
+
+    const status = String(result.data?.status ?? "")
+    if (status === "completed") {
+      return { ok: true, message: `SunBrowser ${kernel} установлен` }
+    }
+    if (status === "failed") {
+      return { ok: false, message: `Скачивание SunBrowser ${kernel} завершилось ошибкой` }
+    }
+
+    await wait(status === "pending" ? 6000 : 3000)
+  }
+
+  return { ok: false, message: `SunBrowser ${kernel} долго скачивается, попробуйте позже` }
+}
+
 export type AdsPowerStartResult = {
   ok: boolean
   message: string
@@ -244,6 +289,7 @@ export async function startAdsPowerBrowser(userId: string): Promise<AdsPowerStar
   if (!id) {
     return { ok: false, message: "Нет ID профиля" }
   }
+  const installingKernels = new Set<string>()
 
   try {
     for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -278,6 +324,16 @@ export async function startAdsPowerBrowser(userId: string): Promise<AdsPowerStar
           browserWs: debug.browserWs,
           debugPort: debug.debugPort,
         }
+      }
+
+      const missingKernel = missingChromeKernel(msg)
+      if (missingKernel && !installingKernels.has(missingKernel)) {
+        installingKernels.add(missingKernel)
+        const kernel = await ensureChromeKernel(missingKernel)
+        if (!kernel.ok) {
+          return { ok: false, message: kernel.message }
+        }
+        continue
       }
 
       if (result.code === 0 || alreadyOpen(msg) || startFailed(msg)) {
