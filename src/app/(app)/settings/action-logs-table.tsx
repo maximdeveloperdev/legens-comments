@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, Trash2Icon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, Trash2Icon } from "lucide-react"
 import { clearActionLogs } from "@/app/actions/action-logs"
 import type { ActionLogSource } from "@/lib/action-log"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -60,7 +60,8 @@ export function ActionLogsTable({
   const [page, setPage] = useState(Math.max(1, initialPage))
   const [pageSize, setPageSize] = useState(safeInitialPageSize)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
+  const [isClearing, startClear] = useTransition()
+  const [isRefreshing, startRefresh] = useTransition()
 
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -114,7 +115,7 @@ export function ActionLogsTable({
 
   function handleClearLogs() {
     if (!clearSource) return
-    startTransition(async () => {
+    startClear(async () => {
       const result = await clearActionLogs(clearSource)
       if (result.error) {
         pushAppNotification("Очистка логов", result.error, { tone: "error" })
@@ -157,15 +158,28 @@ export function ActionLogsTable({
               </option>
             ))}
           </select>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={isRefreshing}
+            title="Обновить"
+            aria-label="Обновить логи"
+            onClick={() => startRefresh(() => router.refresh())}
+          >
+            <RefreshCwIcon className={isRefreshing ? "animate-spin" : undefined} />
+          </Button>
           {clearSource ? (
             <Button
               type="button"
               variant="destructive"
-              disabled={rows.length === 0 || isPending}
+              size="icon"
+              disabled={rows.length === 0 || isClearing}
+              title="Очистить"
+              aria-label="Очистить логи"
               onClick={() => setConfirmOpen(true)}
             >
-              {isPending ? <Trash2Icon className="animate-pulse" /> : <Trash2Icon />}
-              Очистить логи
+              {isClearing ? <Trash2Icon className="animate-pulse" /> : <Trash2Icon />}
             </Button>
           ) : null}
         </div>
@@ -237,10 +251,10 @@ export function ActionLogsTable({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose render={<Button type="button" variant="outline" disabled={isPending} />}>
+            <DialogClose render={<Button type="button" variant="outline" disabled={isClearing} />}>
               Отмена
             </DialogClose>
-            <Button type="button" variant="destructive" disabled={isPending} onClick={handleClearLogs}>
+            <Button type="button" variant="destructive" disabled={isClearing} onClick={handleClearLogs}>
               <Trash2Icon />
               Очистить
             </Button>

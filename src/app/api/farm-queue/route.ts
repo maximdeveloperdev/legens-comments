@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { UserRole } from "@prisma/client"
 import { kickFarmQueue, listFarmQueue } from "@/lib/farm-queue"
 import { getActiveSession, requireAdminSession } from "@/lib/session"
 
@@ -11,9 +10,7 @@ export async function GET() {
     return NextResponse.json({ error: "Нужно войти в аккаунт" }, { status: 401 })
   }
 
-  const data = await listFarmQueue(
-    session.role === UserRole.ADMIN ? undefined : { createdBy: session.name },
-  )
+  const data = await listFarmQueue()
   return NextResponse.json(data)
 }
 

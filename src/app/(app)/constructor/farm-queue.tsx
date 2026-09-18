@@ -193,6 +193,7 @@ function taskTab(task: QueueTask): QueueTab {
 function TasksTable({
   tasks,
   totalTasks,
+  queuePositions,
   query,
   page,
   totalPages,
@@ -208,10 +209,12 @@ function TasksTable({
   onToggleSelected,
   onTogglePage,
   canManage,
+  currentUserName,
   tools = false,
 }: {
   tasks: QueueTask[]
   totalTasks: number
+  queuePositions: Map<string, number>
   query: string
   page: number
   totalPages: number
@@ -227,6 +230,7 @@ function TasksTable({
   onToggleSelected: (taskId: string, checked: boolean) => void
   onTogglePage: (checked: boolean) => void
   canManage: boolean
+  currentUserName?: string
   tools?: boolean
 }) {
   const busy = busyId !== null
@@ -296,6 +300,7 @@ function TasksTable({
                   />
                 </TableHead>
               ) : null}
+              <TableHead>Очередь</TableHead>
               <TableHead>Юзер</TableHead>
               <TableHead>Задача</TableHead>
               <TableHead>Статус</TableHead>
@@ -307,8 +312,10 @@ function TasksTable({
             {tasks.map((task) => {
               const status = taskStatus(task)
               const busy = busyId === task.id || busyId === "all"
+              const mine = Boolean(currentUserName && task.createdBy === currentUserName)
+              const position = queuePositions.get(task.id)
               return (
-                <TableRow key={task.id}>
+                <TableRow key={task.id} className={mine ? "bg-primary/5" : undefined}>
                   {tools && canManage ? (
                     <TableCell>
                       <Checkbox
@@ -318,7 +325,15 @@ function TasksTable({
                       />
                     </TableCell>
                   ) : null}
-                  <TableCell className="whitespace-nowrap font-medium">{task.createdBy}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">
+                    {position ? `#${position}` : "—"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      {task.createdBy}
+                      {mine ? <Badge variant="secondary">Моя</Badge> : null}
+                    </span>
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {actionLabel[task.action] || task.action} · {task.total} шт.
                   </TableCell>
@@ -536,10 +551,29 @@ export function FarmQueue({
         .slice(0, 120),
     [tasks],
   )
-  const workTasks = useMemo(() => tasks.filter((task) => taskTab(task) === "work"), [tasks])
-  const completedTasks = useMemo(
-    () => tasks.filter((task) => taskTab(task) === "completed"),
+  const workTasks = useMemo(
+    () =>
+      tasks
+        .filter((task) => taskTab(task) === "work")
+        .sort((left, right) => {
+          const leftStatus = taskStatus(left)
+          const rightStatus = taskStatus(right)
+          const leftRank = leftStatus === "RUNNING" ? 0 : 1
+          const rightRank = rightStatus === "RUNNING" ? 0 : 1
+          return leftRank - rightRank || left.createdAt.localeCompare(right.createdAt)
+        }),
     [tasks],
+  )
+  const completedTasks = useMemo(
+    () =>
+      tasks
+        .filter((task) => taskTab(task) === "completed")
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [tasks],
+  )
+  const queuePositions = useMemo(
+    () => new Map(workTasks.map((task, index) => [task.id, index + 1])),
+    [workTasks],
   )
   const taskStats = useMemo(() => {
     const next = { ...emptyStats }
@@ -803,6 +837,7 @@ export function FarmQueue({
           <TasksTable
             tasks={pagedTasks}
             totalTasks={filteredTasks.length}
+            queuePositions={queuePositions}
             query={query}
             page={currentPage}
             totalPages={totalPages}
@@ -818,6 +853,7 @@ export function FarmQueue({
             onToggleSelected={toggleSelected}
             onTogglePage={togglePage}
             canManage={canManage}
+            currentUserName={currentUserName}
             tools={tableTools}
           />
         ) : (

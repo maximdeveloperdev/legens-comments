@@ -240,7 +240,6 @@ export async function listFarmQueue(options: { createdBy?: string } = {}) {
     prisma.farmTask.findMany({
       where: taskWhere,
       orderBy: { createdAt: "desc" },
-      take: 40,
       include: {
         jobs: { orderBy: { createdAt: "asc" } },
       },
