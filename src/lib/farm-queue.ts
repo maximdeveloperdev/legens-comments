@@ -2,6 +2,9 @@ import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
 import { runFacebookComment } from "@/lib/facebook-page-switch"
+import { readFacebookPostForAi } from "@/lib/facebook-post"
+import { getOpenAiConfig } from "@/lib/openai-account"
+import { generateCommentsWithGpt } from "@/lib/openai-comment"
 
 const STALE_MS = 8 * 60_000
 const DEFAULT_MAX_PARALLEL = 10
@@ -29,6 +32,67 @@ export async function farmQueueIsBusy() {
     where: { status: FarmJobStatus.RUNNING },
   })
   return running > 0
+}
+
+function isLimitError(value: string) {
+  return /insufficient_quota|quota|billing|limit|credits|credit balance|exceeded/i.test(value)
+}
+
+async function checkOpenAiBeforeQueueGeneration() {
+  const { apiKey } = getOpenAiConfig()
+  if (!apiKey) return "Добавь OPENAI_API_KEY в .env"
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    })
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string; code?: string }
+    } | null
+    const message = payload?.error?.message || payload?.error?.code || ""
+    if (response.status === 429 || isLimitError(message)) return "no limit"
+    if (!response.ok) return message || `OpenAI ${response.status}`
+  } catch (error) {
+    return error instanceof Error ? error.message : "OpenAI не ответил"
+  }
+
+  return ""
+}
+
+async function resolveJobMessage(job: FarmJob, log: (line: { level: "info" | "ok" | "error"; text: string }) => void) {
+  if (!job.aiComment) return job.message
+
+  log({ level: "info", text: "ChatGPT: проверяем лимит" })
+  const preflightError = await checkOpenAiBeforeQueueGeneration()
+  if (preflightError) {
+    throw new Error(preflightError)
+  }
+
+  log({ level: "info", text: "ChatGPT: открываем пост и готовим комментарий" })
+  const post = await readFacebookPostForAi({
+    url: job.url,
+    profileId: job.profileId,
+    ignoreQueueBusy: true,
+  })
+  const generated = await generateCommentsWithGpt({
+    posts: [post],
+    authors: [{ name: job.fanName || job.profileId }],
+    count: 1,
+  })
+  const message = generated.comments[0]?.trim()
+  if (!message) {
+    throw new Error("ChatGPT не вернул комментарий")
+  }
+  await prisma.farmJob.update({
+    where: { id: job.id },
+    data: { message },
+  })
+  log({
+    level: "ok",
+    text: `ChatGPT: комментарий готов · ${generated.postKind}`,
+  })
+  return message
 }
 
 async function claimNextJob(maxParallel: number) {
@@ -59,28 +123,30 @@ async function runFarmJob(job: FarmJob) {
   const likeOnly = job.action === "likeonly"
   const likeWithComment = job.action === "like" || job.action === "subscribe"
   const subscribePage = job.action === "subscribe"
+  const log = (line: { level: "info" | "ok" | "error"; text: string }) => {
+    void writeActionLog({
+      userName: "очередь",
+      action: "Очередь",
+      detail: `${job.fanName || job.profileId}: ${line.text}`,
+      level: line.level,
+      profileId: job.profileId,
+      source: "adspower",
+    })
+  }
 
   try {
+    const message = likeOnly ? "" : await resolveJobMessage(job, log)
     const result = await runFacebookComment(
       {
         profileId: job.profileId,
         url: job.url,
-        message: job.message,
+        message,
         fanName: job.fanName || undefined,
         likeOnly,
         likeWithComment,
         subscribePage,
       },
-      (line) => {
-        void writeActionLog({
-          userName: "очередь",
-          action: "Очередь",
-          detail: `${job.fanName || job.profileId}: ${line.text}`,
-          level: line.level,
-          profileId: job.profileId,
-          source: "adspower",
-        })
-      },
+      log,
     )
     await prisma.farmJob.updateMany({
       where: { id: job.id, status: FarmJobStatus.RUNNING },
@@ -209,6 +275,7 @@ export async function listFarmQueue(options: { createdBy?: string } = {}) {
           profileId: job.profileId,
           url: job.url,
           message: job.message,
+          aiComment: job.aiComment,
           error: job.error,
           taskId: job.taskId,
         })),

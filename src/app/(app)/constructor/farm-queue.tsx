@@ -53,6 +53,7 @@ type QueueJob = {
   profileId: string
   url: string
   message: string
+  aiComment: boolean
   error: string | null
   taskId: string
 }
@@ -570,7 +571,7 @@ export function FarmQueue({
           job.fanName,
           job.profileId,
           job.url,
-          job.message,
+          job.aiComment ? "ChatGPT" : job.message,
           job.error || "",
           statusLabel[job.status],
         ]),

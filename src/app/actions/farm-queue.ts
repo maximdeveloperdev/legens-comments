@@ -43,6 +43,7 @@ export async function enqueueFarmTask(input: {
     fanName?: string
     url: string
     message: string
+    aiComment?: boolean
   }>
 }): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
@@ -61,8 +62,9 @@ export async function enqueueFarmTask(input: {
       fanName: (job.fanName || "").trim(),
       url: normalizeFacebookUrl(job.url),
       message: job.message.trim(),
+      aiComment: action !== "likeonly" && job.aiComment === true,
     }))
-    .filter((job) => job.profileId && isFacebookUrl(job.url) && (action === "likeonly" || job.message))
+    .filter((job) => job.profileId && isFacebookUrl(job.url) && (action === "likeonly" || job.aiComment || job.message))
 
   if (jobs.length === 0) {
     return { error: "Нет заданий для очереди" }
@@ -86,6 +88,7 @@ export async function enqueueFarmTask(input: {
           fanName: job.fanName,
           url: job.url,
           message: job.message,
+          aiComment: job.aiComment,
         })),
       },
     },

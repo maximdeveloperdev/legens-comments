@@ -1,6 +1,7 @@
+import { FarmJobStatus } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
+import { prisma } from "@/lib/db"
 import { captureFacebookPost } from "@/lib/facebook-page-switch"
-import { farmQueueIsBusy } from "@/lib/farm-queue"
 
 export type FacebookPostKind = "text" | "image" | "image_text" | "unknown"
 
@@ -12,6 +13,13 @@ export type FacebookPostRead = {
   kind: FacebookPostKind
   via: "browser" | "preview"
   screenshotJpeg?: string
+}
+
+async function farmQueueHasRunningJobs() {
+  const running = await prisma.farmJob.count({
+    where: { status: FarmJobStatus.RUNNING },
+  })
+  return running > 0
 }
 
 function decodeHtml(value: string) {
@@ -99,6 +107,7 @@ export async function readFacebookPost(url: string) {
 export async function readFacebookPostForAi(input: {
   url: string
   profileId?: string
+  ignoreQueueBusy?: boolean
 }): Promise<FacebookPostRead> {
   const preview = await readFacebookPost(input.url)
   const previewImage = preview.image ? await fetchImageJpeg(preview.image) : undefined
@@ -113,7 +122,7 @@ export async function readFacebookPostForAi(input: {
   }
 
   if (!input.profileId) return fallback
-  if (await farmQueueIsBusy()) return fallback
+  if (!input.ignoreQueueBusy && (await farmQueueHasRunningJobs())) return fallback
 
   try {
     const captured = await captureFacebookPost(

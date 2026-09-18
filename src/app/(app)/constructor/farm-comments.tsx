@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { CheckCheck, Heart, Loader2, Play, Plus, RefreshCw, Sparkles, UserPlus, X } from "lucide-react"
-import { generateAiComments } from "@/app/actions/ai-comments"
 import { enqueueFarmTask } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -38,7 +37,6 @@ type FarmPage = AdsPowerProfile & {
 
 type FarmAction = "comment" | "like" | "likeonly" | "subscribe"
 type ContentMode = "same" | "split" | "ai"
-type PostKind = "text" | "image" | "image_text" | "unknown"
 
 type LiveLog = {
   id: string
@@ -237,11 +235,6 @@ export function FarmComments({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [splitMessages, setSplitMessages] = useState<Record<string, string>>({})
-  const [aiSummary, setAiSummary] = useState("")
-  const [aiKind, setAiKind] = useState<PostKind | "">("")
-  const [aiVia, setAiVia] = useState<"browser" | "preview" | "">("")
-  const [aiError, setAiError] = useState("")
-  const [aiPending, setAiPending] = useState(false)
   const [profileQuery, setProfileQuery] = useState("")
   const [pageQuery, setPageQuery] = useState("")
   const [activeGroups, setActiveGroups] = useState<string[]>([])
@@ -251,8 +244,6 @@ export function FarmComments({
   const [enqueueing, setEnqueueing] = useState(false)
   const [liveLogs, setLiveLogs] = useState<LiveLog[]>([])
   const liveLogRef = useRef<HTMLOListElement>(null)
-  const aiLock = useRef(false)
-  const autoAiKeys = useRef(new Set<string>())
 
   const groups = useMemo(() => {
     const buckets = new Map<string, AdsPowerProfile[]>()
@@ -316,14 +307,8 @@ export function FarmComments({
   const visibleIds = pageList.map((page) => page.listId)
   const selectedPages = pageList.filter((page) => selectedIds.includes(page.listId))
   const postUrls = posts.map((value) => value.trim()).filter(Boolean)
-  const activeProfileId = activeProfiles[0]?.id
-  const postUrlsKey = postUrls.join("\n")
-  const selectedPagesKey = selectedPages
-    .map((page) => `${page.listId}:${page.displayName}`)
-    .join("|")
-  const aiGenerationKey = [postUrlsKey, selectedPagesKey, activeProfileId ?? ""].join("::")
   const splitPerPage =
-    contentMode === "split" || (contentMode === "ai" && selectedPages.length > 1)
+    contentMode === "split"
 
   useEffect(() => {
     liveLogRef.current?.scrollTo({ top: liveLogRef.current.scrollHeight })
@@ -363,79 +348,7 @@ export function FarmComments({
     setMessage("")
     setSplitMessages({})
     setSelectedIds([])
-    setAiSummary("")
-    setAiKind("")
-    setAiVia("")
-    setAiError("")
-    autoAiKeys.current.clear()
   }
-
-  async function onGenerateAi(source: "auto" | "manual" = "manual") {
-    if (aiLock.current || postUrls.length === 0) return
-    if (source === "auto" && autoAiKeys.current.has(aiGenerationKey)) return
-    autoAiKeys.current.add(aiGenerationKey)
-    aiLock.current = true
-    setAiError("")
-    setAiPending(true)
-    try {
-      const authors = selectedPages.map((page) => ({
-        name: page.displayName,
-        country: page.ipCountry || undefined,
-      }))
-      const result = await generateAiComments({
-        urls: postUrls,
-        authors,
-        profileId: selectedPages[0]?.browserId || activeProfileId,
-      })
-      if (result.error || !result.comments?.length) {
-        setAiError(result.error || "ChatGPT не вернул комментарии")
-        return
-      }
-      setAiSummary(result.postSummary || "")
-      setAiKind(result.postKind || "")
-      setAiVia(result.via || "")
-      if (selectedPages.length > 0) {
-        const next: Record<string, string> = {}
-        postUrls.forEach((_, postIndex) => {
-          selectedPages.forEach((page, pageIndex) => {
-            const index = postIndex * selectedPages.length + pageIndex
-            next[messageKey(postIndex, page.listId)] =
-              result.comments?.[index] || result.comments?.[pageIndex] || result.comments?.[0] || ""
-          })
-        })
-        setSplitMessages((current) => ({ ...current, ...next }))
-      } else {
-        setMessage(result.comments[0] || "")
-      }
-      pushAppNotification(
-        "ChatGPT",
-        `Готово · ${result.comments.length} комментар.`,
-        { tone: "success" },
-      )
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "ChatGPT не ответил")
-    } finally {
-      aiLock.current = false
-      setAiPending(false)
-    }
-  }
-
-  useEffect(() => {
-    if (contentMode !== "ai" || action === "likeonly") return
-    if (postUrls.length === 0) return
-    const timer = window.setTimeout(() => {
-      void onGenerateAi("auto")
-    }, 700)
-    return () => window.clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- generate from the latest form state after debounce
-  }, [
-    contentMode,
-    action,
-    postUrlsKey,
-    selectedPagesKey,
-    activeProfileId,
-    aiGenerationKey,
-  ])
 
   async function onLaunch() {
     const jobs = selectedPages.flatMap((page) =>
@@ -443,7 +356,8 @@ export function FarmComments({
         profileId: page.browserId,
         fanName: page.displayName,
         url,
-        message: messageFor(page.listId, postIndex),
+        message: contentMode === "ai" ? "" : messageFor(page.listId, postIndex),
+        aiComment: contentMode === "ai",
       })),
     )
 
@@ -543,10 +457,10 @@ export function FarmComments({
 
   const needsMessage = action !== "likeonly"
   const canLaunch =
-    !aiPending &&
     selectedPages.length > 0 &&
     postUrls.length > 0 &&
     (!needsMessage ||
+      contentMode === "ai" ||
       (splitPerPage
         ? postUrls.every((_, postIndex) =>
             selectedPages.every((page) => (splitMessages[messageKey(postIndex, page.listId)] ?? "").trim()),
@@ -627,7 +541,6 @@ export function FarmComments({
               <button
                 key={option.id}
                 type="button"
-                disabled={aiPending}
                 onClick={() => setContentMode(option.id)}
                 className={cn(
                   "inline-flex h-full items-center justify-center gap-1 truncate rounded-full px-2 text-xs font-medium whitespace-nowrap transition-colors",
@@ -642,96 +555,7 @@ export function FarmComments({
             ))}
           </div>
 
-          {contentMode === "ai" ? (
-            <div className="grid gap-3">
-            <div className="grid gap-2 rounded-xl border bg-muted/30 p-3">
-              <p className="text-xs text-muted-foreground">
-                Заходим на пост, смотрим текст и картинки (в том числе надписи на фото) и пишем
-                комментарий от каждой выбранной фанки: имя, пол, не только хвала — ещё вопросы по теме.
-              </p>
-              {aiKind ? (
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">
-                    {aiKind === "image_text"
-                      ? "Картинка и текст"
-                      : aiKind === "image"
-                        ? "Картинка"
-                        : aiKind === "text"
-                          ? "Только текст"
-                          : "Не разобрали"}
-                  </Badge>
-                  {aiVia ? (
-                    <Badge variant="secondary">
-                      {aiVia === "browser" ? "Зашли на пост" : "Превью (очередь занята)"}
-                    </Badge>
-                  ) : null}
-                </div>
-              ) : null}
-              {aiSummary ? (
-                <p className="text-xs text-muted-foreground">Пост: {aiSummary}</p>
-              ) : null}
-              {aiError ? <p className="text-sm text-destructive">{aiError}</p> : null}
-              <Button
-                type="button"
-                variant="outline"
-                disabled={aiPending || postUrls.length === 0}
-                onClick={() => void onGenerateAi()}
-              >
-                {aiPending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                {aiPending
-                  ? "Заходим на пост…"
-                  : postUrls.length === 0
-                    ? "Сначала вставь ссылку"
-                    : "Сгенерировать ещё раз"}
-              </Button>
-            </div>
-            {splitPerPage ? (
-            selectedIds.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Выбери страницы справа — появится поле на каждую.
-              </p>
-            ) : (
-              <div className="grid gap-3">
-                {postUrls.map((url, postIndex) => (
-                  <div key={`${postIndex}-${url}`} className="grid gap-2">
-                    {postUrls.length > 1 ? (
-                      <p className="truncate text-xs font-medium text-muted-foreground">
-                        Пост {postIndex + 1}: {url}
-                      </p>
-                    ) : null}
-                    {selectedPages.map((page) => (
-                      <label key={messageKey(postIndex, page.listId)} className="grid gap-1.5">
-                        <span className="text-sm font-medium">{page.displayName}</span>
-                        <Textarea
-                          value={splitMessages[messageKey(postIndex, page.listId)] ?? ""}
-                          onChange={(event) =>
-                            setSplitMessages((current) => ({
-                              ...current,
-                              [messageKey(postIndex, page.listId)]: event.target.value,
-                            }))
-                          }
-                          placeholder={aiPending ? "Пишем комментарий…" : "Текст комментария"}
-                          rows={3}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )
-            ) : (
-            <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Сообщение</span>
-              <Textarea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder={aiPending ? "Пишем комментарий…" : "Комментарий появится здесь"}
-                rows={4}
-              />
-            </label>
-            )}
-            </div>
-          ) : splitPerPage ? (
+          {contentMode === "ai" ? null : splitPerPage ? (
             selectedIds.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Выбери страницы справа — появится поле на каждую.
@@ -1067,29 +891,29 @@ export function FarmComments({
               label="Контент"
               value={
                 contentMode === "ai"
-                  ? splitPerPage
-                    ? "ChatGPT · разный текст на каждый пост и страницу"
-                    : "ChatGPT · один текст"
+                  ? "ChatGPT · сгенерирует при выполнении"
                   : splitPerPage
                     ? "Разный текст на каждый пост и страницу"
                     : "Один текст для всех"
               }
             />
-            <ConfirmRow
-              label="Сообщение"
-              value={
-                splitPerPage
-                  ? postUrls.flatMap((url, postIndex) =>
-                      selectedPages.map((page) => (
-                        <span key={messageKey(postIndex, page.listId)} className="block">
-                          {postUrls.length > 1 ? `Пост ${postIndex + 1} · ` : ""}
-                          {page.displayName}: {(splitMessages[messageKey(postIndex, page.listId)] ?? "").trim() || "—"}
-                        </span>
-                      )),
-                    )
-                  : message.trim()
-              }
-            />
+            {contentMode === "ai" ? null : (
+              <ConfirmRow
+                label="Сообщение"
+                value={
+                  splitPerPage
+                    ? postUrls.flatMap((url, postIndex) =>
+                        selectedPages.map((page) => (
+                          <span key={messageKey(postIndex, page.listId)} className="block">
+                            {postUrls.length > 1 ? `Пост ${postIndex + 1} · ` : ""}
+                            {page.displayName}: {(splitMessages[messageKey(postIndex, page.listId)] ?? "").trim() || "—"}
+                          </span>
+                        )),
+                      )
+                    : message.trim()
+                }
+              />
+            )}
               </>
             )}
           </dl>

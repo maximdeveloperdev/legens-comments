@@ -1,0 +1,1 @@
+ALTER TABLE "FarmJob" ADD COLUMN "aiComment" BOOLEAN NOT NULL DEFAULT false;
