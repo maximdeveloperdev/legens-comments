@@ -1,4 +1,4 @@
-import { FarmJobStatus, type FarmJob } from "@prisma/client"
+import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
 import { runFacebookComment } from "@/lib/facebook-page-switch"
@@ -158,14 +158,21 @@ async function processFarmQueue() {
   if (leftover > 0 && running === 0) kickFarmQueue()
 }
 
-export async function listFarmQueue() {
+export async function listFarmQueue(options: { createdBy?: string } = {}) {
   const maxParallel = getFarmQueueMaxParallel()
+  const taskWhere: Prisma.FarmTaskWhereInput | undefined = options.createdBy
+    ? { createdBy: options.createdBy }
+    : undefined
+  const jobOwnerWhere: Prisma.FarmJobWhereInput = options.createdBy
+    ? { task: { createdBy: options.createdBy } }
+    : {}
   const [pending, running, done, error, tasks] = await Promise.all([
-    prisma.farmJob.count({ where: { status: FarmJobStatus.PENDING } }),
-    prisma.farmJob.count({ where: { status: FarmJobStatus.RUNNING } }),
-    prisma.farmJob.count({ where: { status: FarmJobStatus.DONE } }),
-    prisma.farmJob.count({ where: { status: FarmJobStatus.ERROR } }),
+    prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.PENDING } }),
+    prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.RUNNING } }),
+    prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.DONE } }),
+    prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.ERROR } }),
     prisma.farmTask.findMany({
+      where: taskWhere,
       orderBy: { createdAt: "desc" },
       take: 40,
       include: {
