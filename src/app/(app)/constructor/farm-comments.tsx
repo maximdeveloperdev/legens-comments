@@ -252,6 +252,7 @@ export function FarmComments({
   const [liveLogs, setLiveLogs] = useState<LiveLog[]>([])
   const liveLogRef = useRef<HTMLOListElement>(null)
   const aiLock = useRef(false)
+  const autoAiKeys = useRef(new Set<string>())
 
   const groups = useMemo(() => {
     const buckets = new Map<string, AdsPowerProfile[]>()
@@ -320,6 +321,7 @@ export function FarmComments({
   const selectedPagesKey = selectedPages
     .map((page) => `${page.listId}:${page.displayName}`)
     .join("|")
+  const aiGenerationKey = [postUrlsKey, selectedPagesKey, activeProfileId ?? ""].join("::")
   const splitPerPage =
     contentMode === "split" || (contentMode === "ai" && selectedPages.length > 1)
 
@@ -365,10 +367,13 @@ export function FarmComments({
     setAiKind("")
     setAiVia("")
     setAiError("")
+    autoAiKeys.current.clear()
   }
 
-  async function onGenerateAi() {
+  async function onGenerateAi(source: "auto" | "manual" = "manual") {
     if (aiLock.current || postUrls.length === 0) return
+    if (source === "auto" && autoAiKeys.current.has(aiGenerationKey)) return
+    autoAiKeys.current.add(aiGenerationKey)
     aiLock.current = true
     setAiError("")
     setAiPending(true)
@@ -419,7 +424,7 @@ export function FarmComments({
     if (contentMode !== "ai" || action === "likeonly") return
     if (postUrls.length === 0) return
     const timer = window.setTimeout(() => {
-      void onGenerateAi()
+      void onGenerateAi("auto")
     }, 700)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- generate from the latest form state after debounce
@@ -429,6 +434,7 @@ export function FarmComments({
     postUrlsKey,
     selectedPagesKey,
     activeProfileId,
+    aiGenerationKey,
   ])
 
   async function onLaunch() {
