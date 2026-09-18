@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { ListTree, MessageCircle, Play, Server } from "lucide-react"
 import type { AdsPowerProfile } from "@/lib/adspower"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "cn"
 import { FarmComments, type CountryInfo } from "./farm-comments"
@@ -55,15 +54,6 @@ export function ConstructorFarm({
           </span>
           <h1 className="font-heading min-w-0 text-lg font-medium">Ферма комментариев</h1>
         </div>
-        {canManage ? (
-          <Badge
-            variant="outline"
-            className="h-7 w-fit gap-1.5 rounded-full border-emerald-200 bg-emerald-50 px-3 font-medium text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
-          >
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            {profiles.filter((profile) => profile.open).length}/{profiles.length} соц
-          </Badge>
-        ) : null}
       </section>
 
       <div className="flex w-fit flex-wrap items-center gap-1 rounded-full bg-muted p-1">
