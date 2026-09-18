@@ -128,7 +128,7 @@ async function wait(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export async function listAdsPowerProfiles(): Promise<{
+export async function listAdsPowerProfiles(options: { includeOpen?: boolean } = {}): Promise<{
   ok: boolean
   message: string
   profiles: AdsPowerProfile[]
@@ -138,18 +138,21 @@ export async function listAdsPowerProfiles(): Promise<{
   }
 
   try {
-    const status = await adspowerFetch<unknown>("/status")
-    if (status.code !== 0) {
-      return { ok: false, message: status.msg || "AdsPower не отвечает", profiles: [] }
-    }
+    let openIds = new Set<string>()
+    if (options.includeOpen) {
+      const status = await adspowerFetch<unknown>("/status")
+      if (status.code !== 0) {
+        return { ok: false, message: status.msg || "AdsPower не отвечает", profiles: [] }
+      }
 
-    const active = await adspowerFetch<{ list?: unknown[] }>("/api/v1/browser/local-active")
-    const openIds = new Set(
-      asList(active.data).map((item) => {
-        const row = asRecord(item)
-        return String(row.user_id ?? row.profile_id ?? "")
-      }).filter(Boolean),
-    )
+      const active = await adspowerFetch<{ list?: unknown[] }>("/api/v1/browser/local-active")
+      openIds = new Set(
+        asList(active.data).map((item) => {
+          const row = asRecord(item)
+          return String(row.user_id ?? row.profile_id ?? "")
+        }).filter(Boolean),
+      )
+    }
 
     const pageSize = 100
     const rows: AdsPowerProfile[] = []

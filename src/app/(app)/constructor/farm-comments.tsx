@@ -224,9 +224,11 @@ async function readSwitchEvents(
 export function FarmComments({
   profiles,
   countries = {},
+  canSyncFans,
 }: {
   profiles: AdsPowerProfile[]
   countries: Record<string, CountryInfo>
+  canSyncFans: boolean
 }) {
   const router = useRouter()
   const [posts, setPosts] = useState<string[]>([""])
@@ -789,13 +791,15 @@ export function FarmComments({
             Страницы ({selectedIds.length} выбрано)
           </h2>
           <div className="flex shrink-0 items-center gap-0.5">
-            <PagesIconButton
-              label="Синхронизировать фанки"
-              disabled={syncPending || activeProfiles.length === 0}
-              onClick={() => void onSyncFans()}
-            >
-              {syncPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            </PagesIconButton>
+            {canSyncFans ? (
+              <PagesIconButton
+                label="Синхронизировать фанки"
+                disabled={syncPending || activeProfiles.length === 0}
+                onClick={() => void onSyncFans()}
+              >
+                {syncPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              </PagesIconButton>
+            ) : null}
             <PagesIconButton
               label="Выбрать видимые"
               disabled={visibleIds.length === 0}
@@ -983,7 +987,7 @@ export function FarmComments({
                             </span>
                             {page.synced ? null : (
                               <span className="block text-xs text-muted-foreground">
-                                Имя AdsPower · синхронизируй фанки
+                                Имя AdsPower
                               </span>
                             )}
                           </span>

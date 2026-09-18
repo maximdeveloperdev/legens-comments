@@ -18,7 +18,8 @@ function constructorTab(value: string | undefined) {
 export default async function ConstructorPage({ searchParams }: ConstructorPageProps) {
   const user = await getActiveSession()
   const { tab } = await searchParams
-  const result = await listAdsPowerProfiles()
+  const canManage = user?.role === "ADMIN"
+  const result = await listAdsPowerProfiles({ includeOpen: canManage })
   const fansByProfile = await listFacebookFansByProfile(result.profiles.map((profile) => profile.id))
   const profiles = result.profiles.map((profile) => ({
     ...profile,
@@ -46,7 +47,7 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
       profiles={profiles}
       countries={countries}
       error={result.ok ? undefined : result.message}
-      canManage={user?.role === "ADMIN"}
+      canManage={canManage}
       currentUserName={user?.name}
       initialTab={constructorTab(tab)}
     />
