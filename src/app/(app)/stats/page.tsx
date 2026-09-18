@@ -32,6 +32,7 @@ export default async function StatsPage({ searchParams }: StatsPageProps) {
         tableTools
         canManage={user?.role === "ADMIN"}
         currentUserName={user?.name}
+        queueScope={user?.role === "ADMIN" ? "all" : "own"}
         initialQuery={params.q ?? ""}
         initialPage={parsePage(params.page)}
         initialPageSize={parsePageSize(params.size)}

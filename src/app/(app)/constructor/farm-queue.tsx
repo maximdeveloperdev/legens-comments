@@ -168,11 +168,16 @@ function JobTable({ jobs }: { jobs: QueueJob[] }) {
 const emptyStats: QueueStats = { pending: 0, running: 0, done: 0, error: 0 }
 
 type QueueSnapshot = { stats: QueueStats; tasks: QueueTask[] }
+type QueueScope = "all" | "own"
 
-let cachedQueue: QueueSnapshot | null = null
+const cachedQueues = new Map<QueueScope, QueueSnapshot>()
 
-function rememberQueue(stats: QueueStats, tasks: QueueTask[]) {
-  cachedQueue = { stats, tasks }
+function getRememberedQueue(scope: QueueScope) {
+  return cachedQueues.get(scope) ?? null
+}
+
+function rememberQueue(scope: QueueScope, stats: QueueStats, tasks: QueueTask[]) {
+  cachedQueues.set(scope, { stats, tasks })
 }
 
 function QueueLoading() {
@@ -454,6 +459,7 @@ export function FarmQueue({
   initialPage = 1,
   initialPageSize = 50,
   currentUserName,
+  queueScope = "all",
 }: {
   full?: boolean
   cards?: boolean
@@ -466,13 +472,16 @@ export function FarmQueue({
   initialPage?: number
   initialPageSize?: number
   currentUserName?: string
+  queueScope?: QueueScope
 }) {
+  const initialQueue = getRememberedQueue(queueScope)
+  const queueApiUrl = queueScope === "own" ? "/api/farm-queue?scope=own" : "/api/farm-queue"
   const safeInitialPageSize = PAGE_SIZES.includes(initialPageSize as (typeof PAGE_SIZES)[number])
     ? initialPageSize
     : 50
-  const [stats, setStats] = useState<QueueStats>(() => cachedQueue?.stats ?? emptyStats)
-  const [tasks, setTasks] = useState<QueueTask[]>(() => cachedQueue?.tasks ?? [])
-  const [loaded, setLoaded] = useState(() => cachedQueue !== null)
+  const [stats, setStats] = useState<QueueStats>(() => initialQueue?.stats ?? emptyStats)
+  const [tasks, setTasks] = useState<QueueTask[]>(() => initialQueue?.tasks ?? [])
+  const [loaded, setLoaded] = useState(() => initialQueue !== null)
   const [error, setError] = useState("")
   const [busyId, setBusyId] = useState<string | null>(null)
   const [tab, setTab] = useState<QueueTab>(initialTab)
@@ -489,7 +498,7 @@ export function FarmQueue({
 
     async function load() {
       try {
-        const response = await fetch("/api/farm-queue", { cache: "no-store" })
+        const response = await fetch(queueApiUrl, { cache: "no-store" })
         const data = (await response.json()) as {
           error?: string
           stats?: QueueStats
@@ -525,7 +534,7 @@ export function FarmQueue({
         setError("")
         setStats(nextStats)
         setTasks(nextTasks)
-        rememberQueue(nextStats, nextTasks)
+        rememberQueue(queueScope, nextStats, nextTasks)
         setLoaded(true)
       } catch {
         if (!cancelled) {
@@ -541,7 +550,7 @@ export function FarmQueue({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [active, currentUserName])
+  }, [active, currentUserName, queueApiUrl, queueScope])
 
   const recentJobs = useMemo(
     () =>
@@ -686,11 +695,11 @@ export function FarmQueue({
         current.filter((id) => data.tasks?.some((task) => task.id === id)),
       )
     }
-    if (data.stats && data.tasks) rememberQueue(data.stats, data.tasks)
+    if (data.stats && data.tasks) rememberQueue(queueScope, data.stats, data.tasks)
   }
 
   async function refreshQueue() {
-    const response = await fetch("/api/farm-queue", { cache: "no-store" })
+    const response = await fetch(queueApiUrl, { cache: "no-store" })
     const data = (await response.json()) as { stats?: QueueStats; tasks?: QueueTask[] }
     applyQueueSnapshot(data)
   }
@@ -708,7 +717,7 @@ export function FarmQueue({
         href: "/queue?tab=completed",
         tone: "queue",
       })
-      void fetch("/api/farm-queue", { cache: "no-store" })
+      void fetch(queueApiUrl, { cache: "no-store" })
         .then((response) => response.json())
         .then((data: { stats?: QueueStats; tasks?: QueueTask[] }) => applyQueueSnapshot(data))
         .catch(() => undefined)
