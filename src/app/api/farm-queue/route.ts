@@ -4,6 +4,22 @@ import { getActiveSession, requireAdminSession } from "@/lib/session"
 
 export const maxDuration = 30
 
+type FarmQueueData = Awaited<ReturnType<typeof listFarmQueue>>
+
+function hideOtherUsersQueue(data: FarmQueueData, currentUserName: string) {
+  return {
+    ...data,
+    tasks: data.tasks.map((task) => {
+      if (task.createdBy === currentUserName) return task
+      return {
+        ...task,
+        createdBy: "Другой пользователь",
+        jobs: [],
+      }
+    }),
+  }
+}
+
 export async function GET(request: Request) {
   const session = await getActiveSession()
   if (!session) {
@@ -12,8 +28,13 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url)
   const ownOnly = url.searchParams.get("scope") === "own"
-  const data = await listFarmQueue(ownOnly ? { createdBy: session.name } : undefined)
-  return NextResponse.json(data)
+  if (ownOnly) {
+    const data = await listFarmQueue({ createdBy: session.name })
+    return NextResponse.json(data)
+  }
+
+  const data = await listFarmQueue()
+  return NextResponse.json(session.role === "ADMIN" ? data : hideOtherUsersQueue(data, session.name))
 }
 
 export async function POST() {

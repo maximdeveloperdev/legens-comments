@@ -91,6 +91,7 @@ export function ConstructorFarm({
             active={tab === "queue"}
             canManage={canManage}
             currentUserName={currentUserName}
+            queueScope={canManage ? "all" : "own"}
           />
         </div>
       ) : null}
