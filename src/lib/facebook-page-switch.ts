@@ -38,6 +38,8 @@ const COMMENT_ACTION_RE =
   /^(Comment|Комментарий|Комментировать|Коментар|Skomentuj|Comentar|Commenta|Commenter|Kommentieren)$/i
 const COMMENT_PHOTO_RE =
   /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add|camera|камера/i
+const SUSPENDED_PAGE_RE =
+  /we suspended your page|page has been suspended|мы приостановили.*страниц|сторінк.*призупин|страниц.*заблок|page.*suspended/i
 const COOKIE_ACCEPT_RE =
   /Allow all cookies|Accept all|Allow essential and optional cookies|Разрешить все|Принять все|Zezw[oó]l na wszystkie|Akceptuj wszystkie|Permitir todas|Aceptar todas|Aceitar todos|Consenti tutti|Accetta tutti|Autoriser tous|Tout accepter|Alle Cookies erlauben|Alle akzeptieren/i
 
@@ -486,6 +488,67 @@ async function describeOpenLayers(page: Page) {
   }
 }
 
+async function dismissSuspendedPageDialog(page: Page, log: (line: SwitchLog) => void) {
+  const found = await page
+    .evaluate((source) => {
+      const re = new RegExp(source, "i")
+      const vis = (el: Element) => {
+        const r = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          r.width > 80 &&
+          r.height > 80 &&
+          r.bottom > 0 &&
+          r.right > 0 &&
+          r.top < innerHeight &&
+          r.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
+        .filter(vis) as HTMLElement[]
+      const dialog = dialogs.find((node) => re.test(node.innerText || ""))
+      if (!dialog) return null
+      const lines = (dialog.innerText || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+      const suspendedAt = lines.findIndex((line) => /page has been suspended/i.test(line))
+      const pageName =
+        suspendedAt > 0
+          ? lines[suspendedAt - 1]
+          : lines.find((line) => line.length >= 2 && line.length <= 80 && !/what happened|see why|facebook|sep|page/i.test(line))
+      return { pageName: pageName || "", text: lines.slice(0, 6).join(" ") }
+    }, SUSPENDED_PAGE_RE.source)
+    .catch(() => null)
+
+  if (!found) return false
+
+  log({
+    level: "error",
+    text: found.pageName
+      ? `Facebook показал заблокированную страницу «${found.pageName}»`
+      : "Facebook показал окно заблокированной страницы",
+  })
+
+  const dialog = page.locator('[role="dialog"], [aria-modal="true"]').filter({
+    hasText: SUSPENDED_PAGE_RE,
+  }).last()
+  const close = dialog
+    .getByRole("button", { name: /close|закрыть|закрити|cerrar|fechar|chiudi|fermer|schließen/i })
+    .or(dialog.locator('[aria-label="Close"], [aria-label="Закрыть"], [aria-label="Закрити"]'))
+    .last()
+
+  if ((await visible(close)) && (await forceClick(close, 2500))) {
+    await pause(700)
+  } else {
+    await page.keyboard.press("Escape").catch(() => undefined)
+    await pause(700)
+  }
+  return true
+}
+
 async function findComposerCaret(page: Page) {
   return page.evaluate(() => {
     const commentRe =
@@ -752,10 +815,12 @@ async function clickFanRow(page: Page, name: string) {
 }
 
 async function clickNamedFan(page: Page, name: string, log: (line: SwitchLog) => void) {
+  await dismissSuspendedPageDialog(page, log)
   const searched = await typeFanSearch(page, name, log)
   if (searched && (await clickFanRow(page, name))) return
 
   for (let step = 0; step < 40; step += 1) {
+    await dismissSuspendedPageDialog(page, log)
     if (await clickFanRow(page, name)) return
     const more = await clickSeeMoreProfiles(page)
     await scrollProfilesDialog(page)
@@ -763,6 +828,7 @@ async function clickNamedFan(page: Page, name: string, log: (line: SwitchLog) =>
     if (!more && step > 6) break
   }
 
+  await dismissSuspendedPageDialog(page, log)
   if (await clickFanRow(page, name)) return
   const layers = await describeOpenLayers(page)
   throw new Error(
@@ -2041,11 +2107,10 @@ export async function runFacebookComment(
     onLog({ level: "error", text: message })
     await saveFailureArtifact(page, { profileId: id, phase: "job", message }, onLog)
     disconnectBrowser(browser)
-    if (isAdsPowerStartError(message)) {
-      onLog({ level: "info", text: "Закрываем зависший профиль, чтобы очередь могла идти дальше" })
-      await stopAdsPowerBrowser(id)
-    } else {
-      onLog({ level: "info", text: "Окно оставляем открытым, чтобы было видно, где остановились" })
+    onLog({ level: "info", text: "Закрываем профиль после ошибки, чтобы очередь шла дальше" })
+    const stopped = await stopAdsPowerBrowser(id)
+    if (!stopped.ok && !isAdsPowerStartError(message)) {
+      onLog({ level: "error", text: `Окно осталось открытым: ${stopped.message}` })
     }
     return { ok: false, message }
   }
