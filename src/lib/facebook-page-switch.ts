@@ -1656,18 +1656,7 @@ async function clickCommentSendArrow(page: Page, box: Locator) {
   ]
 
   for (const point of points) {
-    const clickable = await page
-      .evaluate(({ x, y }) => {
-        const element = document.elementFromPoint(x, y) as HTMLElement | null
-        if (!element) return false
-        const button = element.closest('[role="button"], button, [tabindex="0"]') as HTMLElement | null
-        if (!button) return false
-        const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`.toLowerCase()
-        return !/photo|фото|gif|sticker|emoji|attach|прикреп|прикріп|camera|камера/i.test(label)
-      }, point)
-      .catch(() => false)
-    if (!clickable) continue
-    await page.mouse.click(point.x, point.y).catch(() => undefined)
+    await page.mouse.click(point.x, point.y)
     return true
   }
 
