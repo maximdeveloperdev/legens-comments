@@ -1256,7 +1256,8 @@ async function pickFanFromComposer(page: Page, name: string, postUrl: string, lo
   }
 
   await page.keyboard.press("Escape").catch(() => undefined)
-  return false
+  await pause(700)
+  return sameFan(await commentAsName(page), name)
 }
 
 async function switchToFan(page: Page, name: string, log: (line: SwitchLog) => void) {
@@ -1306,7 +1307,19 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
     }
   }
 
-  await switchToFan(page, name, log)
+  try {
+    await switchToFan(page, name, log)
+  } catch (error) {
+    await page.keyboard.press("Escape").catch(() => undefined)
+    await pause(1000)
+    await revealCommentBox(page, log).catch(() => undefined)
+    who = await commentAsName(page)
+    if (sameFan(who, name)) {
+      log({ level: "ok", text: `Facebook уже переключил на «${name}»` })
+      return
+    }
+    throw error
+  }
   if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
     log({ level: "info", text: `Снова открываем пост ${postUrl}` })
     await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
