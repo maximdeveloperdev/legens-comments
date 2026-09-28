@@ -1560,6 +1560,38 @@ async function markCommentSubmitButton(page: Page) {
     .catch(() => false)
 }
 
+async function clickCommentSendArrow(page: Page, box: Locator) {
+  const rect = await box
+    .first()
+    .boundingBox({ timeout: 2000 })
+    .catch(() => null)
+  if (!rect) return false
+
+  const points = [
+    { x: rect.x + rect.width - 20, y: rect.y + rect.height - 22 },
+    { x: rect.x + rect.width - 18, y: rect.y + rect.height - 34 },
+    { x: rect.x + rect.width - 34, y: rect.y + rect.height - 22 },
+  ]
+
+  for (const point of points) {
+    const clickable = await page
+      .evaluate(({ x, y }) => {
+        const element = document.elementFromPoint(x, y) as HTMLElement | null
+        if (!element) return false
+        const button = element.closest('[role="button"], button, [tabindex="0"]') as HTMLElement | null
+        if (!button) return false
+        const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`.toLowerCase()
+        return !/photo|фото|gif|sticker|emoji|attach|прикреп|прикріп|camera|камера/i.test(label)
+      }, point)
+      .catch(() => false)
+    if (!clickable) continue
+    await page.mouse.click(point.x, point.y).catch(() => undefined)
+    return true
+  }
+
+  return false
+}
+
 async function sendPostComment(page: Page, box: Locator, text: string, log: (line: SwitchLog) => void) {
   await waitForCommentAttachment(page)
 
@@ -1569,13 +1601,23 @@ async function sendPostComment(page: Page, box: Locator, text: string, log: (lin
     if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
       log({ level: "info", text: "Нажали кнопку отправки комментария" })
     } else {
-      await box.first().click({ timeout: 3000 }).catch(() => undefined)
-      await page.keyboard.press(attempt % 2 === 0 ? "Control+Enter" : "Enter").catch(() => undefined)
-      log({ level: "info", text: "Отправляем комментарий с клавиатуры" })
+      const clickedArrow = await clickCommentSendArrow(page, box)
+      if (clickedArrow) {
+        log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
+      } else {
+        await box.first().click({ timeout: 3000 }).catch(() => undefined)
+        await page.keyboard.press(attempt % 2 === 0 ? "Control+Enter" : "Enter").catch(() => undefined)
+        log({ level: "info", text: "Отправляем комментарий с клавиатуры" })
+      }
     }
 
     await pause(1800)
     if (!(await commentComposerStillContains(page, text))) return true
+    if (await clickCommentSendArrow(page, box)) {
+      log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
+      await pause(1800)
+      if (!(await commentComposerStillContains(page, text))) return true
+    }
     await pause(700)
   }
 
