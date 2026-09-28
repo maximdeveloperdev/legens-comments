@@ -1663,36 +1663,85 @@ async function clickCommentSendArrow(page: Page, box: Locator) {
   return false
 }
 
+async function domClickCommentSendArrow(page: Page, box: Locator) {
+  const rect = await box
+    .first()
+    .boundingBox({ timeout: 2000 })
+    .catch(() => null)
+  if (!rect) return false
+
+  const point = { x: rect.x + rect.width - 20, y: rect.y + rect.height - 22 }
+  return page
+    .evaluate(({ x, y }) => {
+      const target = document.elementFromPoint(x, y) as HTMLElement | null
+      const button = target?.closest('[role="button"], button, [tabindex="0"]') as HTMLElement | null
+      if (!button) return false
+      button.focus()
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+        button.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: x,
+            clientY: y,
+          }),
+        )
+      }
+      button.click()
+      return true
+    }, point)
+    .catch(() => false)
+}
+
+async function submitCommentWithKeyboard(page: Page, box: Locator, shortcut: string) {
+  await box.first().click({ timeout: 3000 }).catch(() => undefined)
+  await pause(200)
+  await page.keyboard.press(shortcut)
+  return true
+}
+
+async function waitForSubmittedComment(
+  page: Page,
+  text: string,
+  previousTextCount: number,
+  previousReplyCount: number,
+  hadNoComments: boolean,
+) {
+  await pause(2500)
+  return commentAppearsOnPage(page, text, previousTextCount, previousReplyCount, hadNoComments)
+}
+
 async function sendPostComment(page: Page, box: Locator, text: string, log: (line: SwitchLog) => void) {
   await waitForCommentAttachment(page)
   const previousTextCount = await visibleSubmittedCommentCount(page, text)
   const previousReplyCount = await visibleCommentReplyActionCount(page)
   const hadNoComments = await noCommentsPlaceholderVisible(page)
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const clickedArrow = await clickCommentSendArrow(page, box)
-    if (clickedArrow) {
-      log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
-    } else {
-      await markCommentSubmitButton(page)
-      const scoped = page.locator('[data-farm-comment-submit="true"]').last()
-      if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
-        log({ level: "info", text: "Нажали кнопку отправки комментария" })
-      } else {
-        await box.first().click({ timeout: 3000 }).catch(() => undefined)
-        await page.keyboard.press(attempt % 2 === 0 ? "Enter" : "Control+Enter").catch(() => undefined)
-        log({ level: "info", text: "Отправляем комментарий с клавиатуры" })
-      }
-    }
+  const keyboardShortcuts = ["Enter", "Control+Enter", "Meta+Enter"]
 
-    await pause(2200)
-    if (await commentAppearsOnPage(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     if (await clickCommentSendArrow(page, box)) {
       log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
-      await pause(2200)
-      if (await commentAppearsOnPage(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
+      if (await waitForSubmittedComment(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
     }
-    await pause(700)
+
+    const shortcut = keyboardShortcuts[attempt] || "Enter"
+    await submitCommentWithKeyboard(page, box, shortcut).catch(() => undefined)
+    log({ level: "info", text: `Отправляем комментарий с клавиатуры (${shortcut})` })
+    if (await waitForSubmittedComment(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
+
+    if (await domClickCommentSendArrow(page, box)) {
+      log({ level: "info", text: "Нажали DOM-кнопку отправки комментария" })
+      if (await waitForSubmittedComment(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
+    }
+
+    await markCommentSubmitButton(page)
+    const scoped = page.locator('[data-farm-comment-submit="true"]').last()
+    if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
+      log({ level: "info", text: "Нажали найденную кнопку отправки комментария" })
+      if (await waitForSubmittedComment(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
+    }
   }
 
   return false
