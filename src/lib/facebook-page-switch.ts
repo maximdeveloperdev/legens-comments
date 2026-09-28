@@ -1163,6 +1163,25 @@ async function commentAsName(page: Page) {
   }
 }
 
+async function visibleActorName(page: Page) {
+  const commentName = await commentAsName(page)
+  if (commentName) return commentName
+
+  try {
+    return await page.evaluate(() => {
+      const text = document.body?.innerText || ""
+      const match =
+        text.match(/what['’]?s on your mind,\s*([^?\n]+)\?/i) ||
+        text.match(/что у вас нового,\s*([^?\n]+)\?/i) ||
+        text.match(/про що ви думаєте,\s*([^?\n]+)\?/i)
+      return match ? match[1].replace(/\s+/g, " ").trim() : ""
+    })
+  } catch (error) {
+    if (isDestroyed(error)) return ""
+    throw error
+  }
+}
+
 async function revealCommentBox(page: Page, log: (line: SwitchLog) => void) {
   const commentAction = page.getByRole("button", { name: COMMENT_ACTION_RE }).first()
   if (await clickIfVisible(commentAction, 4000)) {
@@ -1313,12 +1332,12 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
     await page.keyboard.press("Escape").catch(() => undefined)
     await pause(1000)
     await revealCommentBox(page, log).catch(() => undefined)
-    who = await commentAsName(page)
+    who = await visibleActorName(page)
     if (sameFan(who, name)) {
       log({ level: "ok", text: `Facebook уже переключил на «${name}»` })
-      return
+    } else {
+      throw error
     }
-    throw error
   }
   if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
     log({ level: "info", text: `Снова открываем пост ${postUrl}` })
