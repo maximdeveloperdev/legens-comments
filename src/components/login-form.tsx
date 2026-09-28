@@ -34,7 +34,7 @@ export function LoginForm({
                 <p className="text-balance text-muted-foreground">
                   {showTwoFactor
                     ? "Введите 6-значный код из Google Authenticator"
-                    : "Войдите в Legends Comments"}
+                    : "Войдите в Legends Tools"}
                 </p>
               </div>
               <Field>

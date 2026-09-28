@@ -113,3 +113,43 @@ model FarmJob {
   @@index([status, createdAt])
   @@index([taskId, createdAt])
 }
+
+model FbAutouploadBindingGroup {
+  id        Int                    @id @default(autoincrement())
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  name      String
+  bindings  FbAutouploadBinding[]
+  uploads   FbAutouploadUpload[]
+
+  @@index([createdAt])
+}
+
+model FbAutouploadBinding {
+  id        Int                       @id @default(autoincrement())
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  name      String
+  createdBy String?
+  config    Json
+  groupId   Int?
+  group     FbAutouploadBindingGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([groupId])
+}
+
+model FbAutouploadUpload {
+  id        Int                       @id @default(autoincrement())
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  name      String
+  status    String                    @default("draft")
+  payload   Json?
+  groupId   Int?
+  group     FbAutouploadBindingGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([groupId])
+  @@index([status])
+}

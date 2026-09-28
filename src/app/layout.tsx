@@ -19,8 +19,8 @@ const gilroy = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Legends Comments",
-  description: "Legends Comments",
+  title: "Legends Tools",
+  description: "Legends Tools",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -6,13 +6,22 @@ import Link from "next/link"
 import {
   BarChart3Icon,
   BlocksIcon,
+  CloudUploadIcon,
+  ClockIcon,
+  CircleUserRoundIcon,
+  FolderIcon,
+  Link2Icon,
   ListOrderedIcon,
+  MegaphoneIcon,
   MessageSquareTextIcon,
+  PanelsTopLeftIcon,
   Settings2Icon,
+  ServerIcon,
+  UploadIcon,
   UsersIcon,
 } from "lucide-react"
 
-import { NavMain } from "@/components/nav-main"
+import { NavMain, type NavMainItem } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -23,15 +32,51 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { dashboardNav } from "@/lib/nav"
+import { dashboardNav, type NavItem } from "@/lib/nav"
 
 const icons = {
   "/constructor": <BlocksIcon />,
   "/queue": <ListOrderedIcon />,
+  "/accounts": <CircleUserRoundIcon />,
+  "/accounts/ad-cabinets": <MegaphoneIcon />,
+  "/accounts/pages": <PanelsTopLeftIcon />,
+  "/accounts/proxies": <ServerIcon />,
+  "/accounts/groups": <FolderIcon />,
+  "/fb-autoupload": <CloudUploadIcon />,
+  "/fb-autoupload/bindings": <Link2Icon />,
+  "/fb-autoupload/binding-groups": <FolderIcon />,
+  "/fb-autoupload/uploads": <UploadIcon />,
   "/users": <UsersIcon />,
   "/stats": <BarChart3Icon />,
+  "/auto-rules": <ClockIcon />,
   "/templates": <MessageSquareTextIcon />,
   "/settings": <Settings2Icon />,
+}
+
+function filterNavItems(items: NavItem[], role: "ADMIN" | "USER"): NavItem[] {
+  return items
+    .filter((item) => {
+      if (item.adminOnly && role !== "ADMIN") return false
+      if (role === "ADMIN") return true
+      return item.href !== "/users" && !item.href.startsWith("/settings")
+    })
+    .map((item) => ({
+      ...item,
+      items: item.items ? filterNavItems(item.items, role) : undefined,
+    }))
+}
+
+function addNavIcons(items: NavItem[]): NavMainItem[] {
+  return items.map((item) => ({
+    title: item.title,
+    url: item.href,
+    badge: item.badge,
+    icon:
+      item.title === "Фарм комментариев"
+        ? <MessageSquareTextIcon />
+        : icons[item.href as keyof typeof icons],
+    items: item.items ? addNavIcons(item.items) : undefined,
+  }))
 }
 
 export function AppSidebar({
@@ -45,12 +90,7 @@ export function AppSidebar({
     role: "ADMIN" | "USER"
   }
 }) {
-  const visibleNav = dashboardNav.filter((item) => {
-    if (item.href === "/users" || item.href === "/settings") {
-      return user.role === "ADMIN"
-    }
-    return true
-  })
+  const visibleNav = filterNavItems(dashboardNav, user.role)
 
   return (
     <Sidebar
@@ -69,24 +109,14 @@ export function AppSidebar({
                 className="size-8 rounded-lg object-cover"
               />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">Legends Comments</span>
+                <span className="truncate font-medium">Legends Tools</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain
-          items={visibleNav.map((item) => ({
-            title: item.title,
-            url: item.href,
-            icon: icons[item.href as keyof typeof icons],
-            items: item.items?.map((sub) => ({
-              title: sub.title,
-              url: sub.href,
-            })),
-          }))}
-        />
+        <NavMain items={addNavIcons(visibleNav)} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

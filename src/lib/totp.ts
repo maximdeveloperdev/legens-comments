@@ -1,7 +1,7 @@
 import * as OTPAuth from "otpauth"
 import QRCode from "qrcode"
 
-const ISSUER = "Legends Comments"
+const ISSUER = "Legends Tools"
 
 export function createTotpSecret() {
   return new OTPAuth.Secret({ size: 20 }).base32
