@@ -1347,34 +1347,50 @@ function commentBox(page: Page) {
     .first()
 }
 
-async function commentAppearsOnPage(page: Page, text: string) {
+async function visibleSubmittedCommentCount(page: Page, text: string) {
   const sample = text.replace(/\s+/g, " ").trim().slice(0, 160)
-  if (sample.length < 8) return true
-  const deadline = Date.now() + 6000
-  while (Date.now() < deadline) {
-    const found = await page
-      .evaluate((needle) => {
-        const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
-        return normalize(document.body.innerText || "").includes(normalize(needle))
-      }, sample)
-      .catch(() => false)
-    if (found) return true
-    await pause(700)
-  }
-  return false
-}
-
-async function commentComposerStillContains(page: Page, text: string) {
-  const sample = text.replace(/\s+/g, " ").trim().slice(0, 120)
-  if (sample.length < 4) return false
+  if (sample.length < 4) return 0
   return page
     .evaluate((needle) => {
       const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
-      const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
-      if (!composer) return false
-      return normalize(composer.innerText || "").includes(normalize(needle))
+      const wanted = normalize(needle)
+      const composer = document.querySelector('[data-farm-comment-composer="true"]')
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 12 &&
+          box.height >= 8 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        )
+      }
+      const nodes = [...document.body.querySelectorAll("div, span")]
+        .filter((node) => !composer?.contains(node) && !node.contains(composer))
+        .filter((node) => visible(node) && normalize((node as HTMLElement).innerText || "").includes(wanted))
+
+      return nodes.filter((node) => {
+        return ![...node.children].some((child) => normalize((child as HTMLElement).innerText || "").includes(wanted))
+      }).length
     }, sample)
-    .catch(() => false)
+    .catch(() => 0)
+}
+
+async function commentAppearsOnPage(page: Page, text: string, previousCount = 0) {
+  const sample = text.replace(/\s+/g, " ").trim().slice(0, 160)
+  if (sample.length < 4) return true
+  const deadline = Date.now() + 18_000
+  while (Date.now() < deadline) {
+    const count = await visibleSubmittedCommentCount(page, sample)
+    if (count > previousCount) return true
+    await pause(1000)
+  }
+  return false
 }
 
 async function fillCommentText(page: Page, box: Locator, text: string) {
@@ -1607,29 +1623,30 @@ async function clickCommentSendArrow(page: Page, box: Locator) {
 
 async function sendPostComment(page: Page, box: Locator, text: string, log: (line: SwitchLog) => void) {
   await waitForCommentAttachment(page)
+  const previousCount = await visibleSubmittedCommentCount(page, text)
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    await markCommentSubmitButton(page)
-    const scoped = page.locator('[data-farm-comment-submit="true"]').last()
-    if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
-      log({ level: "info", text: "Нажали кнопку отправки комментария" })
+    const clickedArrow = await clickCommentSendArrow(page, box)
+    if (clickedArrow) {
+      log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
     } else {
-      const clickedArrow = await clickCommentSendArrow(page, box)
-      if (clickedArrow) {
-        log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
+      await markCommentSubmitButton(page)
+      const scoped = page.locator('[data-farm-comment-submit="true"]').last()
+      if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
+        log({ level: "info", text: "Нажали кнопку отправки комментария" })
       } else {
         await box.first().click({ timeout: 3000 }).catch(() => undefined)
-        await page.keyboard.press(attempt % 2 === 0 ? "Control+Enter" : "Enter").catch(() => undefined)
+        await page.keyboard.press(attempt % 2 === 0 ? "Enter" : "Control+Enter").catch(() => undefined)
         log({ level: "info", text: "Отправляем комментарий с клавиатуры" })
       }
     }
 
-    await pause(1800)
-    if (!(await commentComposerStillContains(page, text))) return true
+    await pause(2200)
+    if (await commentAppearsOnPage(page, text, previousCount)) return true
     if (await clickCommentSendArrow(page, box)) {
       log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
-      await pause(1800)
-      if (!(await commentComposerStillContains(page, text))) return true
+      await pause(2200)
+      if (await commentAppearsOnPage(page, text, previousCount)) return true
     }
     await pause(700)
   }
@@ -1651,14 +1668,9 @@ async function writePostComment(
 
   const sent = await sendPostComment(page, box, text, log)
   if (!sent) {
-    throw new Error("Фото прикреплено, но кнопку отправки комментария не удалось нажать")
+    throw new Error("Нажали отправку, но новый комментарий не появился на Facebook")
   }
-  await pause(1600)
-  if (!(await commentComposerStillContains(page, text)) || (await commentAppearsOnPage(page, text))) {
-    log({ level: "ok", text: "Комментарий отправлен" })
-  } else {
-    log({ level: "info", text: "Комментарий отправили, но DOM не подтвердил появление текста" })
-  }
+  log({ level: "ok", text: "Комментарий отправлен и появился на Facebook" })
 }
 
 const POST_LIKE_SELECTOR = [
