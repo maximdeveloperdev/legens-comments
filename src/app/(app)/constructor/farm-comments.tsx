@@ -38,13 +38,6 @@ type FarmPage = AdsPowerProfile & {
 type FarmAction = "comment" | "like" | "likeonly" | "subscribe"
 type ContentMode = "same" | "split" | "ai"
 
-type LiveLog = {
-  id: string
-  time: string
-  level: "info" | "ok" | "error"
-  text: string
-}
-
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const AVATAR_TONES = [
@@ -157,10 +150,6 @@ function actionLabel(action: FarmAction) {
   return "Комментарий"
 }
 
-function logTime() {
-  return new Date().toLocaleTimeString("ru-RU", { hour12: false })
-}
-
 function fileSizeLabel(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} КБ`
   return `${(size / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`
@@ -195,7 +184,7 @@ function PagesIconButton({
 
 async function readSwitchEvents(
   response: Response,
-  onEvent: (event: { type: string; level?: LiveLog["level"]; text?: string; ok?: boolean; message?: string }) => void,
+  onEvent: (event: { type: string; level?: "info" | "ok" | "error"; text?: string; ok?: boolean; message?: string }) => void,
 ) {
   if (!response.body) {
     throw new Error("Нет потока логов")
@@ -216,7 +205,7 @@ async function readSwitchEvents(
       if (!line) continue
       onEvent(JSON.parse(line.slice(6)) as {
         type: string
-        level?: LiveLog["level"]
+        level?: "info" | "ok" | "error"
         text?: string
         ok?: boolean
         message?: string
@@ -244,6 +233,9 @@ export function FarmComments({
   const [commentPhoto, setCommentPhoto] = useState<File | null>(null)
   const [commentPhotoError, setCommentPhotoError] = useState("")
   const [commentPhotoPreview, setCommentPhotoPreview] = useState("")
+  const [splitPhotos, setSplitPhotos] = useState<Record<string, File>>({})
+  const [splitPhotoErrors, setSplitPhotoErrors] = useState<Record<string, string>>({})
+  const [splitPhotoPreviews, setSplitPhotoPreviews] = useState<Record<string, string>>({})
   const [profileQuery, setProfileQuery] = useState("")
   const [pageQuery, setPageQuery] = useState("")
   const [activeGroups, setActiveGroups] = useState<string[]>([])
@@ -251,8 +243,6 @@ export function FarmComments({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [syncPending, setSyncPending] = useState(false)
   const [enqueueing, setEnqueueing] = useState(false)
-  const [liveLogs, setLiveLogs] = useState<LiveLog[]>([])
-  const liveLogRef = useRef<HTMLOListElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
 
   const groups = useMemo(() => {
@@ -321,21 +311,10 @@ export function FarmComments({
     contentMode === "split"
 
   useEffect(() => {
-    liveLogRef.current?.scrollTo({ top: liveLogRef.current.scrollHeight })
-  }, [liveLogs])
-
-  useEffect(() => {
     return () => {
       if (commentPhotoPreview) URL.revokeObjectURL(commentPhotoPreview)
     }
   }, [commentPhotoPreview])
-
-  function appendLiveLog(level: LiveLog["level"], text: string) {
-    setLiveLogs((current) => [
-      ...current,
-      { id: `${Date.now()}-${current.length}`, time: logTime(), level, text },
-    ])
-  }
 
   function toggleGroup(key: string) {
     setActiveGroups((current) => {
@@ -364,31 +343,39 @@ export function FarmComments({
     setMessage("")
     setSplitMessages({})
     setCommentPhoto(null)
+    for (const preview of Object.values(splitPhotoPreviews)) URL.revokeObjectURL(preview)
+    setSplitPhotos({})
+    setSplitPhotoErrors({})
+    setSplitPhotoPreviews({})
     setCommentPhotoPreview("")
     setCommentPhotoError("")
     if (photoInputRef.current) photoInputRef.current.value = ""
     setSelectedIds([])
   }
 
-  function onPhotoSelected(file: File | undefined) {
-    setCommentPhotoError("")
-    if (!file) return
+  function validatePhoto(file: File | undefined) {
+    if (!file) return { file: null }
     if (!file.type.startsWith("image/")) {
-      setCommentPhoto(null)
-      setCommentPhotoPreview("")
-      setCommentPhotoError("Можно прикрепить только фото")
-      if (photoInputRef.current) photoInputRef.current.value = ""
-      return
+      return { file: null, error: "Можно прикрепить только фото" }
     }
     if (file.size > MAX_COMMENT_PHOTO_SIZE) {
+      return { file: null, error: "Фото должно быть до 10 МБ" }
+    }
+    return { file }
+  }
+
+  function onPhotoSelected(file: File | undefined) {
+    setCommentPhotoError("")
+    const result = validatePhoto(file)
+    if (!result.file) {
       setCommentPhoto(null)
       setCommentPhotoPreview("")
-      setCommentPhotoError("Фото должно быть до 10 МБ")
+      if (result.error) setCommentPhotoError(result.error)
       if (photoInputRef.current) photoInputRef.current.value = ""
       return
     }
-    setCommentPhoto(file)
-    setCommentPhotoPreview(URL.createObjectURL(file))
+    setCommentPhoto(result.file)
+    setCommentPhotoPreview(URL.createObjectURL(result.file))
   }
 
   function removePhoto() {
@@ -396,6 +383,56 @@ export function FarmComments({
     setCommentPhotoPreview("")
     setCommentPhotoError("")
     if (photoInputRef.current) photoInputRef.current.value = ""
+  }
+
+  function onSplitPhotoSelected(key: string, file: File | undefined) {
+    const result = validatePhoto(file)
+    if (!result.file) {
+      setSplitPhotos((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setSplitPhotoPreviews((current) => {
+        if (current[key]) URL.revokeObjectURL(current[key])
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setSplitPhotoErrors((current) => ({ ...current, [key]: result.error || "" }))
+      return
+    }
+
+    const selectedFile = result.file
+    setSplitPhotos((current) => ({ ...current, [key]: selectedFile }))
+    setSplitPhotoPreviews((current) => {
+      if (current[key]) URL.revokeObjectURL(current[key])
+      return { ...current, [key]: URL.createObjectURL(selectedFile) }
+    })
+    setSplitPhotoErrors((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+
+  function removeSplitPhoto(key: string) {
+    setSplitPhotos((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+    setSplitPhotoPreviews((current) => {
+      if (current[key]) URL.revokeObjectURL(current[key])
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+    setSplitPhotoErrors((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
   }
 
   async function onLaunch() {
@@ -406,6 +443,7 @@ export function FarmComments({
         url,
         message: contentMode === "ai" ? "" : messageFor(page.listId, postIndex),
         aiComment: contentMode === "ai",
+        photoKey: splitPerPage ? messageKey(postIndex, page.listId) : undefined,
       })),
     )
 
@@ -416,7 +454,13 @@ export function FarmComments({
       const payload = { action, jobs }
       const formData = new FormData()
       formData.set("payload", JSON.stringify(payload))
-      if (commentPhoto) formData.set("photo", commentPhoto)
+      if (splitPerPage) {
+        for (const [key, file] of Object.entries(splitPhotos)) {
+          formData.set(`photo:${key}`, file)
+        }
+      } else if (commentPhoto) {
+        formData.set("photo", commentPhoto)
+      }
       const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
         pushAppNotification("Очередь", result.error, {
@@ -448,14 +492,6 @@ export function FarmComments({
     const ids = [...new Set(activeProfiles.map((profile) => profile.id))]
     if (ids.length === 0) return
     setSyncPending(true)
-    setLiveLogs([
-      {
-        id: "start",
-        time: logTime(),
-        level: "info",
-        text: `Синхронизация фанок · ${ids.length} профил.`,
-      },
-    ])
     pushAppNotification(
       "Синхронизация фанок",
       `Запущена · ${ids.length} профил.`,
@@ -466,8 +502,6 @@ export function FarmComments({
     let failCount = 0
     try {
       for (const profileId of ids) {
-        const profile = activeProfiles.find((item) => item.id === profileId)
-        appendLiveLog("info", `Читаем меню «${profile?.name || profileId}»`)
         const response = await fetch("/api/sync-fans", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -475,22 +509,15 @@ export function FarmComments({
         })
         let profileOk = false
         await readSwitchEvents(response, (event) => {
-          if (event.type === "log" && event.text) {
-            appendLiveLog(event.level || "info", event.text)
-          }
           if (event.type === "done") {
             profileOk = event.ok === true
-            if (event.message) {
-              appendLiveLog(event.ok ? "ok" : "error", event.message)
-            }
           }
         })
         if (profileOk) okCount += 1
         else failCount += 1
       }
-    } catch (error) {
+    } catch {
       failCount += 1
-      appendLiveLog("error", error instanceof Error ? error.message : "Синхронизация не запустилась")
     } finally {
       pushAppNotification(
         failCount === 0 ? "Синхронизация фанок" : "Синхронизация фанок · ошибка",
@@ -515,6 +542,7 @@ export function FarmComments({
             selectedPages.every((page) => (splitMessages[messageKey(postIndex, page.listId)] ?? "").trim()),
           )
         : message.trim().length > 0))
+  const splitPhotoCount = Object.keys(splitPhotos).length
 
   return (
     <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1.1fr)_minmax(16rem,0.9fr)]">
@@ -618,22 +646,34 @@ export function FarmComments({
                         Пост {postIndex + 1}: {url}
                       </p>
                     ) : null}
-                    {selectedPages.map((page) => (
-                      <label key={messageKey(postIndex, page.listId)} className="grid gap-1.5">
-                        <span className="text-sm font-medium">{page.displayName}</span>
-                        <Textarea
-                          value={splitMessages[messageKey(postIndex, page.listId)] ?? ""}
-                          onChange={(event) =>
-                            setSplitMessages((current) => ({
-                              ...current,
-                              [messageKey(postIndex, page.listId)]: event.target.value,
-                            }))
-                          }
-                          placeholder="Текст комментария"
-                          rows={3}
-                        />
-                      </label>
-                    ))}
+                    {selectedPages.map((page) => {
+                      const key = messageKey(postIndex, page.listId)
+                      return (
+                        <div key={key} className="grid gap-2">
+                          <label className="grid gap-1.5">
+                            <span className="text-sm font-medium">{page.displayName}</span>
+                            <Textarea
+                              value={splitMessages[key] ?? ""}
+                              onChange={(event) =>
+                                setSplitMessages((current) => ({
+                                  ...current,
+                                  [key]: event.target.value,
+                                }))
+                              }
+                              placeholder="Текст комментария"
+                              rows={3}
+                            />
+                          </label>
+                          <CommentPhotoPicker
+                            file={splitPhotos[key] || null}
+                            preview={splitPhotoPreviews[key] || ""}
+                            error={splitPhotoErrors[key] || ""}
+                            onSelect={(file) => onSplitPhotoSelected(key, file)}
+                            onRemove={() => removeSplitPhoto(key)}
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
@@ -649,29 +689,30 @@ export function FarmComments({
               />
             </label>
           )}
-          <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Фото к комментарию</p>
-                <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {commentPhoto ? (
-                  <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={removePhoto}>
-                    <Trash2 />
+          {!splitPerPage ? (
+            <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Фото к комментарию</p>
+                  <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {commentPhoto ? (
+                    <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={removePhoto}>
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => photoInputRef.current?.click()}
+                  >
+                    <Paperclip />
+                    Прикрепить
                   </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => photoInputRef.current?.click()}
-                >
-                  <Paperclip />
-                  Прикрепить
-                </Button>
+                </div>
               </div>
-            </div>
             <input
               ref={photoInputRef}
               type="file"
@@ -698,7 +739,8 @@ export function FarmComments({
             {commentPhotoError ? (
               <p className="text-sm text-destructive">{commentPhotoError}</p>
             ) : null}
-          </div>
+            </div>
+          ) : null}
             </>
           )}
         </div>
@@ -926,27 +968,6 @@ export function FarmComments({
                   })}
                 </ul>
               )}
-              {liveLogs.length > 0 ? (
-                <ol
-                  className="max-h-40 overflow-y-auto rounded-xl border bg-muted/40 p-3 font-mono text-xs leading-5"
-                  ref={liveLogRef}
-                >
-                  {liveLogs.map((log) => (
-                    <li
-                      key={`page-${log.id}`}
-                      className={
-                        log.level === "error"
-                          ? "text-destructive"
-                          : log.level === "ok"
-                            ? "text-emerald-700 dark:text-emerald-300"
-                            : "text-muted-foreground"
-                      }
-                    >
-                      <span className="text-muted-foreground">{log.time}</span> {log.text}
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
             </>
           )}
         </div>
@@ -996,7 +1017,12 @@ export function FarmComments({
                     : "Один текст для всех"
               }
             />
-            {commentPhoto ? (
+            {splitPerPage && splitPhotoCount > 0 ? (
+              <ConfirmRow
+                label="Фото"
+                value={`${splitPhotoCount} персонал.`}
+              />
+            ) : commentPhoto ? (
               <ConfirmRow
                 label="Фото"
                 value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
@@ -1047,6 +1073,64 @@ function ConfirmRow({ label, value }: { label: string; value: ReactNode }) {
     <div className="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 font-medium">{value}</dd>
+    </div>
+  )
+}
+
+function CommentPhotoPicker({
+  file,
+  preview,
+  error,
+  onSelect,
+  onRemove,
+}: {
+  file: File | null
+  preview: string
+  error: string
+  onSelect: (file: File | undefined) => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Фото к комментарию</p>
+          <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {file ? (
+            <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={onRemove}>
+              <Trash2 />
+            </Button>
+          ) : null}
+          <label className="inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-colors hover:bg-muted">
+            <Paperclip className="size-3.5" />
+            Прикрепить
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                onSelect(event.target.files?.[0])
+                event.currentTarget.value = ""
+              }}
+            />
+          </label>
+        </div>
+      </div>
+      {file ? (
+        <div className="flex items-center gap-3 rounded-lg border bg-background p-2">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt="" className="size-12 rounded-md object-cover" />
+          ) : null}
+          <div className="min-w-0 text-sm">
+            <p className="truncate font-medium">{file.name}</p>
+            <p className="text-xs text-muted-foreground">{fileSizeLabel(file.size)}</p>
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   )
 }

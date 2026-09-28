@@ -26,6 +26,7 @@ type EnqueueFarmInput = {
     url: string
     message: string
     aiComment?: boolean
+    photoKey?: string
   }>
 }
 
@@ -82,7 +83,10 @@ function isFacebookUrl(value: string) {
   }
 }
 
-async function createFarmTask(input: EnqueueFarmInput, photoPath = ""): Promise<EnqueueFarmResult> {
+async function createFarmTask(
+  input: EnqueueFarmInput,
+  photoPaths: Map<string, string> = new Map(),
+): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
   if (!session) {
     return { error: "Нужно войти в аккаунт" }
@@ -100,7 +104,10 @@ async function createFarmTask(input: EnqueueFarmInput, photoPath = ""): Promise<
       url: normalizeFacebookUrl(job.url),
       message: job.message.trim(),
       aiComment: action !== "likeonly" && job.aiComment === true,
-      photoPath: action !== "likeonly" ? photoPath : "",
+      photoPath:
+        action !== "likeonly"
+          ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
+          : "",
     }))
     .filter((job) => job.profileId && isFacebookUrl(job.url) && (action === "likeonly" || job.aiComment || job.message))
 
@@ -177,8 +184,22 @@ export async function enqueueFarmTaskForm(formData: FormData): Promise<EnqueueFa
   if (saved.error) {
     return { error: saved.error }
   }
+  const photoPaths = new Map<string, string>()
+  if (saved.photoPath) photoPaths.set("__global__", saved.photoPath)
 
-  return createFarmTask(input, saved.photoPath)
+  const photoKeys = [
+    ...new Set(input.jobs.map((job) => job.photoKey).filter((key): key is string => Boolean(key))),
+  ]
+  for (const key of photoKeys) {
+    const file = formData.get(`photo:${key}`)
+    const savedForJob = await saveCommentPhoto(file instanceof File ? file : null)
+    if (savedForJob.error) {
+      return { error: savedForJob.error }
+    }
+    if (savedForJob.photoPath) photoPaths.set(key, savedForJob.photoPath)
+  }
+
+  return createFarmTask(input, photoPaths)
 }
 
 export async function stopFarmTask(taskId?: string): Promise<{ error?: string; stopped?: number }> {
