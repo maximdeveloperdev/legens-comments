@@ -1381,13 +1381,66 @@ async function visibleSubmittedCommentCount(page: Page, text: string) {
     .catch(() => 0)
 }
 
-async function commentAppearsOnPage(page: Page, text: string, previousCount = 0) {
+async function visibleCommentReplyActionCount(page: Page) {
+  return page
+    .evaluate(() => {
+      const composer = document.querySelector('[data-farm-comment-composer="true"]')
+      const replyRe =
+        /^(reply|ответить|відповісти|odpowiedz|responder|rispondi|répondre|antworten)$/i
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 8 &&
+          box.height >= 8 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        )
+      }
+      return [...document.querySelectorAll("a, span, div, [role='button']")].filter((node) => {
+        if (composer?.contains(node) || node.contains(composer)) return false
+        if (!visible(node)) return false
+        const text = ((node as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()
+        if (!replyRe.test(text)) return false
+        return ![...node.children].some((child) => replyRe.test(((child as HTMLElement).innerText || "").trim()))
+      }).length
+    })
+    .catch(() => 0)
+}
+
+async function noCommentsPlaceholderVisible(page: Page) {
+  return page
+    .evaluate(() => {
+      const text = (document.body.innerText || "").replace(/\s+/g, " ")
+      return /no comments yet|be the first to comment|нет комментариев|немає коментарів|будьте первым|будь першим/i.test(
+        text,
+      )
+    })
+    .catch(() => false)
+}
+
+async function commentAppearsOnPage(
+  page: Page,
+  text: string,
+  previousTextCount = 0,
+  previousReplyCount = 0,
+  hadNoComments = false,
+) {
   const sample = text.replace(/\s+/g, " ").trim().slice(0, 160)
-  if (sample.length < 4) return true
   const deadline = Date.now() + 18_000
   while (Date.now() < deadline) {
-    const count = await visibleSubmittedCommentCount(page, sample)
-    if (count > previousCount) return true
+    if (sample.length >= 4) {
+      const count = await visibleSubmittedCommentCount(page, sample)
+      if (count > previousTextCount) return true
+    }
+    const replyCount = await visibleCommentReplyActionCount(page)
+    if (replyCount > previousReplyCount) return true
+    if (hadNoComments && !(await noCommentsPlaceholderVisible(page)) && replyCount > 0) return true
     await pause(1000)
   }
   return false
@@ -1623,7 +1676,9 @@ async function clickCommentSendArrow(page: Page, box: Locator) {
 
 async function sendPostComment(page: Page, box: Locator, text: string, log: (line: SwitchLog) => void) {
   await waitForCommentAttachment(page)
-  const previousCount = await visibleSubmittedCommentCount(page, text)
+  const previousTextCount = await visibleSubmittedCommentCount(page, text)
+  const previousReplyCount = await visibleCommentReplyActionCount(page)
+  const hadNoComments = await noCommentsPlaceholderVisible(page)
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const clickedArrow = await clickCommentSendArrow(page, box)
@@ -1642,11 +1697,11 @@ async function sendPostComment(page: Page, box: Locator, text: string, log: (lin
     }
 
     await pause(2200)
-    if (await commentAppearsOnPage(page, text, previousCount)) return true
+    if (await commentAppearsOnPage(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
     if (await clickCommentSendArrow(page, box)) {
       log({ level: "info", text: "Нажали синюю стрелку отправки комментария" })
       await pause(2200)
-      if (await commentAppearsOnPage(page, text, previousCount)) return true
+      if (await commentAppearsOnPage(page, text, previousTextCount, previousReplyCount, hadNoComments)) return true
     }
     await pause(700)
   }
