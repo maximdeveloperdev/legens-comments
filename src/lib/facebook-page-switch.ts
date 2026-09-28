@@ -36,6 +36,8 @@ const COMMENT_RE =
   /comment as|write a comment|write a public comment|напишите комментарий|оставьте комментарий|коммент|написати коментар|skomentuj jako|napisz komentarz|comentar como|escribe un comentario|escrever um comentário|escreva um comentário|commenta come|scrivi un commento|commenter en tant que|écrivez un commentaire|kommentieren als|schreibe einen kommentar/i
 const COMMENT_ACTION_RE =
   /^(Comment|Комментарий|Комментировать|Коментар|Skomentuj|Comentar|Commenta|Commenter|Kommentieren)$/i
+const COMMENT_PHOTO_RE =
+  /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add|camera|камера/i
 const COOKIE_ACCEPT_RE =
   /Allow all cookies|Accept all|Allow essential and optional cookies|Разрешить все|Принять все|Zezw[oó]l na wszystkie|Akceptuj wszystkie|Permitir todas|Aceptar todas|Aceitar todos|Consenti tutti|Accetta tutti|Autoriser tous|Tout accepter|Alle Cookies erlauben|Alle akzeptieren/i
 
@@ -1347,40 +1349,46 @@ async function attachCommentPhoto(
 
   await markCommentComposer(page, box)
   const composer = page.locator('[data-farm-comment-composer="true"]').last()
-  let input = composer
-    .locator('input[type="file"][accept*="image" i], input[type="file"][accept*="video" i], input[type="file"]')
-    .last()
 
-  if ((await input.count()) === 0) {
-    const attachButton = composer
-      .getByRole("button", {
-        name: /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add/i,
-      })
-      .last()
-    if (await visible(attachButton)) {
-      await forceClick(attachButton, 4000)
-      await pause(600)
-    }
-    input = composer
+  const uploadViaInput = async (scope: Locator) => {
+    const input = scope
       .locator('input[type="file"][accept*="image" i], input[type="file"][accept*="video" i], input[type="file"]')
       .last()
+    if ((await input.count()) === 0) return false
+    await input.setInputFiles(diskPath)
+    return true
   }
 
-  if ((await input.count()) === 0) {
-    input = page
-      .locator(
-        '[role="dialog"] input[type="file"][accept*="image" i], [role="dialog"] input[type="file"], body input[type="file"][accept*="image" i]',
-      )
-      .last()
+  const uploadViaFileChooser = async () => {
+    const buttons = composer
+      .getByRole("button", { name: COMMENT_PHOTO_RE })
+      .or(page.locator('[role="button"][aria-label]').filter({ hasText: COMMENT_PHOTO_RE }))
+    const count = await buttons.count()
+    for (let index = Math.min(count, 8) - 1; index >= 0; index -= 1) {
+      const button = buttons.nth(index)
+      if (!(await visible(button))) continue
+      const chooserPromise = page.waitForEvent("filechooser", { timeout: 2500 }).catch(() => null)
+      await forceClick(button, 4000)
+      const chooser = await chooserPromise
+      if (!chooser) continue
+      await chooser.setFiles(diskPath)
+      return true
+    }
+    return false
   }
 
-  if ((await input.count()) === 0) {
+  const uploaded =
+    (await uploadViaInput(composer)) ||
+    (await uploadViaFileChooser()) ||
+    (await uploadViaInput(page.locator('[role="dialog"]').last())) ||
+    (await uploadViaInput(page.locator("body")))
+
+  if (!uploaded) {
     throw new Error("Не нашли кнопку прикрепления фото в комментарии")
   }
 
-  await input.setInputFiles(diskPath)
   log({ level: "ok", text: "Фото прикреплено" })
-  await pause(1800)
+  await pause(2500)
 }
 
 async function writePostComment(
