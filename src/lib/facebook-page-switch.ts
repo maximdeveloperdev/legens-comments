@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { chromium, type Browser, type Locator, type Page } from "playwright-core"
-import { startAdsPowerBrowser, stopAdsPowerBrowser } from "@/lib/adspower"
+import { checkAdsPowerProfileProxy, startAdsPowerBrowser, stopAdsPowerBrowser } from "@/lib/adspower"
 import { replaceFacebookFans, type SyncedFan } from "@/lib/facebook-fans"
 
 export type SwitchLogLevel = "info" | "ok" | "error"
@@ -846,9 +846,24 @@ async function waitForFacebookReady(page: Page, log: (line: SwitchLog) => void) 
 async function openFacebookPage(profileId: string, log: (line: SwitchLog) => void) {
   log({
     level: "info",
+    text: `Проверяем прокси AdsPower ${profileId}`,
+  })
+  const proxyCheck = await checkAdsPowerProfileProxy(profileId)
+  if (!proxyCheck.ok) {
+    log({ level: "error", text: proxyCheck.message })
+    throw new Error(proxyCheck.message)
+  }
+  if (proxyCheck.checked) {
+    log({ level: "ok", text: proxyCheck.message })
+  } else {
+    log({ level: "info", text: proxyCheck.message })
+  }
+
+  log({
+    level: "info",
     text: `Запускаем профиль AdsPower ${profileId} без окна`,
   })
-  const started = await startAdsPowerBrowser(profileId)
+  const started = await startAdsPowerBrowser(profileId, { skipProxyCheck: true })
   if (!started.ok) {
     throw new Error(started.message)
   }

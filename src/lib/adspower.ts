@@ -1,3 +1,6 @@
+import net from "node:net"
+import tls from "node:tls"
+
 const DEFAULT_URL = "http://127.0.0.1:50325"
 
 type AdsPowerResponse<T> = {
@@ -46,6 +49,21 @@ export type AdsPowerProfile = {
   fans: AdsPowerFan[]
 }
 
+export type AdsPowerProxyCheckResult = {
+  ok: boolean
+  checked: boolean
+  message: string
+  proxy?: string
+}
+
+type AdsPowerProxyConfig = {
+  type: string
+  host: string
+  port: number
+  user: string
+  password: string
+}
+
 function baseUrl() {
   return (process.env.ADSPOWER_API_URL || DEFAULT_URL).replace(/\/$/, "")
 }
@@ -91,6 +109,17 @@ function asRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {}
 }
 
+function asMaybeJsonRecord(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      return asRecord(JSON.parse(value) as unknown)
+    } catch {
+      return {}
+    }
+  }
+  return asRecord(value)
+}
+
 function asList(value: unknown) {
   if (Array.isArray(value)) return value
   const data = asRecord(value)
@@ -121,6 +150,294 @@ function mapProfile(item: unknown, openIds: Set<string>): AdsPowerProfile {
     createdAt: unixSeconds(row.created_time),
     open: openIds.has(id),
     fans: [],
+  }
+}
+
+function proxyConfigFromRecord(value: unknown): AdsPowerProxyConfig | null {
+  const row = asMaybeJsonRecord(value)
+  const proxySoft = String(row.proxy_soft ?? "").toLowerCase()
+  const type = String(row.proxy_type ?? row.type ?? "").toLowerCase()
+  if (proxySoft === "no_proxy" || type === "no_proxy") return null
+
+  const host = String(row.proxy_host ?? row.host ?? "").trim()
+  const port = Number(row.proxy_port ?? row.port ?? "")
+  if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) return null
+
+  return {
+    type: type || "http",
+    host,
+    port,
+    user: String(row.proxy_user ?? row.user ?? "").trim(),
+    password: String(row.proxy_password ?? row.password ?? "").trim(),
+  }
+}
+
+function proxyLabel(proxy: AdsPowerProxyConfig) {
+  return `${proxy.type}://${proxy.host}:${proxy.port}`
+}
+
+async function findProfileRow(userId: string) {
+  const pageSize = 100
+
+  for (let page = 1; page <= 50; page += 1) {
+    if (page > 1) await wait(1100)
+    const result = await adspowerFetch<{ list?: unknown[] }>(
+      `/api/v1/user/list?page=${page}&page_size=${pageSize}`,
+      { timeoutMs: 30_000 },
+    )
+    if (result.code !== 0) {
+      return { ok: false, message: result.msg || "Не удалось получить профиль AdsPower" }
+    }
+
+    const rows = asList(result.data)
+    const found = rows.find((item) => {
+      const row = asRecord(item)
+      const id = String(row.user_id ?? row.profile_id ?? "")
+      return id === userId
+    })
+    if (found) return { ok: true, row: asRecord(found) }
+    if (rows.length < pageSize) break
+  }
+
+  return { ok: false, message: "Профиль AdsPower не найден" }
+}
+
+async function proxyFromProxyList(proxyId: string): Promise<AdsPowerProxyConfig | null> {
+  if (!proxyId) return null
+
+  const result = await adspowerFetch<{ list?: unknown[] }>(
+    "/api/v2/proxy-list/list",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        Proxy_id: [proxyId],
+        proxy_id: [proxyId],
+        page: "1",
+        limit: "1",
+      }),
+      timeoutMs: 30_000,
+    },
+  )
+  if (result.code !== 0) return null
+
+  for (const item of asList(result.data)) {
+    const row = asRecord(item)
+    const id = String(row.proxy_id ?? row.id ?? "")
+    if (!id || id === proxyId) {
+      const proxy = proxyConfigFromRecord(row)
+      if (proxy) return proxy
+    }
+  }
+
+  return null
+}
+
+async function getProfileProxy(userId: string): Promise<{
+  ok: boolean
+  message: string
+  proxy?: AdsPowerProxyConfig
+  hasProxy: boolean
+}> {
+  const profile = await findProfileRow(userId)
+  if (!profile.ok || !profile.row) {
+    return { ok: false, message: profile.message || "Профиль AdsPower не найден", hasProxy: false }
+  }
+
+  const row = profile.row
+  const direct = proxyConfigFromRecord(row.user_proxy_config) || proxyConfigFromRecord(row)
+  if (direct) return { ok: true, message: "Прокси найден", proxy: direct, hasProxy: true }
+
+  const proxyConfig = asMaybeJsonRecord(row.user_proxy_config)
+  const proxyId = String(row.proxyid ?? row.proxy_id ?? proxyConfig.proxyid ?? proxyConfig.proxy_id ?? "").trim()
+  const listed = await proxyFromProxyList(proxyId)
+  if (listed) return { ok: true, message: "Прокси найден", proxy: listed, hasProxy: true }
+
+  const proxySoft = String(proxyConfig.proxy_soft ?? "").toLowerCase()
+  const proxyType = String(proxyConfig.proxy_type ?? "").toLowerCase()
+  const hasProxy =
+    Boolean(proxyId) ||
+    (Boolean(proxySoft) && proxySoft !== "no_proxy") ||
+    (Boolean(proxyType) && proxyType !== "no_proxy")
+
+  if (hasProxy) {
+    return {
+      ok: true,
+      message: "Прокси указан, но AdsPower не отдал host/port для проверки",
+      hasProxy: true,
+    }
+  }
+
+  return { ok: true, message: "Профиль без прокси", hasProxy: false }
+}
+
+function tcpConnect(host: string, port: number, timeoutMs: number) {
+  return new Promise<net.Socket>((resolve, reject) => {
+    const socket = net.createConnection({ host, port })
+    const timer = setTimeout(() => {
+      socket.destroy()
+      reject(new Error("timeout"))
+    }, timeoutMs)
+
+    socket.once("connect", () => {
+      clearTimeout(timer)
+      resolve(socket)
+    })
+    socket.once("error", (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+  })
+}
+
+function socketRead(socket: net.Socket, timeoutMs: number) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(new Error("timeout"))
+    }, timeoutMs)
+    const cleanup = () => {
+      clearTimeout(timer)
+      socket.off("data", onData)
+      socket.off("error", onError)
+      socket.off("end", onEnd)
+    }
+    const onData = (chunk: Buffer) => {
+      cleanup()
+      resolve(chunk)
+    }
+    const onError = (error: Error) => {
+      cleanup()
+      reject(error)
+    }
+    const onEnd = () => {
+      cleanup()
+      reject(new Error("connection closed"))
+    }
+
+    socket.once("data", onData)
+    socket.once("error", onError)
+    socket.once("end", onEnd)
+  })
+}
+
+async function checkSocks5Proxy(proxy: AdsPowerProxyConfig) {
+  const socket = await tcpConnect(proxy.host, proxy.port, 10_000)
+  try {
+    const methods = proxy.user ? Buffer.from([0x05, 0x02, 0x00, 0x02]) : Buffer.from([0x05, 0x01, 0x00])
+    socket.write(methods)
+    const method = await socketRead(socket, 5000)
+    if (method[0] !== 0x05 || method[1] === 0xff) {
+      throw new Error("SOCKS5 proxy rejected auth methods")
+    }
+
+    if (method[1] === 0x02) {
+      const user = Buffer.from(proxy.user)
+      const password = Buffer.from(proxy.password)
+      if (user.length > 255 || password.length > 255) {
+        throw new Error("SOCKS5 proxy credentials are too long")
+      }
+      socket.write(Buffer.concat([Buffer.from([0x01, user.length]), user, Buffer.from([password.length]), password]))
+      const auth = await socketRead(socket, 5000)
+      if (auth[1] !== 0x00) {
+        throw new Error("SOCKS5 proxy auth failed")
+      }
+    }
+
+    const host = Buffer.from("www.facebook.com")
+    socket.write(
+      Buffer.concat([
+        Buffer.from([0x05, 0x01, 0x00, 0x03, host.length]),
+        host,
+        Buffer.from([0x01, 0xbb]),
+      ]),
+    )
+    const response = await socketRead(socket, 8000)
+    if (response[0] !== 0x05 || response[1] !== 0x00) {
+      throw new Error(`SOCKS5 connect failed (${response[1] ?? "no code"})`)
+    }
+  } finally {
+    socket.destroy()
+  }
+}
+
+async function checkHttpProxy(proxy: AdsPowerProxyConfig) {
+  const isTlsProxy = proxy.type === "https"
+  const socket = isTlsProxy
+    ? await new Promise<tls.TLSSocket>((resolve, reject) => {
+        const client = tls.connect({
+          host: proxy.host,
+          port: proxy.port,
+          servername: proxy.host,
+          rejectUnauthorized: false,
+        })
+        const timer = setTimeout(() => {
+          client.destroy()
+          reject(new Error("timeout"))
+        }, 10_000)
+        client.once("secureConnect", () => {
+          clearTimeout(timer)
+          resolve(client)
+        })
+        client.once("error", (error) => {
+          clearTimeout(timer)
+          reject(error)
+        })
+      })
+    : await tcpConnect(proxy.host, proxy.port, 10_000)
+
+  try {
+    const auth = proxy.user
+      ? `Proxy-Authorization: Basic ${Buffer.from(`${proxy.user}:${proxy.password}`).toString("base64")}\r\n`
+      : ""
+    socket.write(
+      `CONNECT www.facebook.com:443 HTTP/1.1\r\nHost: www.facebook.com:443\r\n${auth}Connection: close\r\n\r\n`,
+    )
+    const response = await socketRead(socket, 10_000)
+    const status = response.toString("utf8", 0, Math.min(response.length, 120)).match(/HTTP\/\d(?:\.\d)?\s+(\d+)/)?.[1]
+    if (status !== "200") {
+      throw new Error(`HTTP CONNECT failed (${status || "no status"})`)
+    }
+  } finally {
+    socket.destroy()
+  }
+}
+
+async function testProxy(proxy: AdsPowerProxyConfig) {
+  if (proxy.type === "socks5") {
+    await checkSocks5Proxy(proxy)
+    return
+  }
+  if (proxy.type === "http" || proxy.type === "https") {
+    await checkHttpProxy(proxy)
+    return
+  }
+  throw new Error(`Unsupported proxy type: ${proxy.type}`)
+}
+
+export async function checkAdsPowerProfileProxy(userId: string): Promise<AdsPowerProxyCheckResult> {
+  const id = userId.trim()
+  if (!id) return { ok: false, checked: false, message: "Нет ID профиля" }
+
+  try {
+    const result = await getProfileProxy(id)
+    if (!result.ok) return { ok: false, checked: false, message: result.message }
+    if (!result.hasProxy) return { ok: true, checked: false, message: result.message }
+    if (!result.proxy) return { ok: true, checked: false, message: result.message }
+
+    await testProxy(result.proxy)
+    return {
+      ok: true,
+      checked: true,
+      proxy: proxyLabel(result.proxy),
+      message: `Прокси работает: ${proxyLabel(result.proxy)}`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "proxy check failed"
+    return {
+      ok: false,
+      checked: true,
+      message: `Прокси не работает: ${message}`,
+    }
   }
 }
 
@@ -287,7 +604,10 @@ export type AdsPowerStartResult = {
   debugPort?: string
 }
 
-export async function startAdsPowerBrowser(userId: string): Promise<AdsPowerStartResult> {
+export async function startAdsPowerBrowser(
+  userId: string,
+  options: { skipProxyCheck?: boolean } = {},
+): Promise<AdsPowerStartResult> {
   const id = userId.trim()
   if (!id) {
     return { ok: false, message: "Нет ID профиля" }
@@ -295,6 +615,13 @@ export async function startAdsPowerBrowser(userId: string): Promise<AdsPowerStar
   const installingKernels = new Set<string>()
 
   try {
+    if (!options.skipProxyCheck) {
+      const proxyCheck = await checkAdsPowerProfileProxy(id)
+      if (!proxyCheck.ok) {
+        return { ok: false, message: proxyCheck.message }
+      }
+    }
+
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       if (attempt > 1) await wait(4000 * attempt)
 
