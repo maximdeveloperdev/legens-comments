@@ -1351,6 +1351,19 @@ async function commentAppearsOnPage(page: Page, text: string) {
   return false
 }
 
+async function commentComposerStillContains(page: Page, text: string) {
+  const sample = text.replace(/\s+/g, " ").trim().slice(0, 120)
+  if (sample.length < 4) return false
+  return page
+    .evaluate((needle) => {
+      const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
+      const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
+      if (!composer) return false
+      return normalize(composer.innerText || "").includes(normalize(needle))
+    }, sample)
+    .catch(() => false)
+}
+
 async function fillCommentText(page: Page, box: Locator, text: string) {
   const target = box.first()
   await target.click({ timeout: 8_000 })
@@ -1454,7 +1467,119 @@ async function attachCommentPhoto(
   }
 
   log({ level: "ok", text: "Фото прикреплено" })
-  await pause(2500)
+  await waitForCommentAttachment(page)
+  await pause(800)
+}
+
+async function waitForCommentAttachment(page: Page) {
+  const deadline = Date.now() + 12_000
+  while (Date.now() < deadline) {
+    const ready = await page
+      .evaluate(() => {
+        const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
+        if (!composer) return true
+        const text = (composer.innerText || "").toLowerCase()
+        const uploading = /uploading|загрузка|завантаж|cargando|carregando|chargement|hochladen|caricamento/i.test(text)
+        const busy = Boolean(
+          composer.querySelector('[role="progressbar"], [aria-busy="true"], [data-visualcompletion="loading-state"]'),
+        )
+        return !uploading && !busy
+      })
+      .catch(() => true)
+    if (ready) return
+    await pause(500)
+  }
+}
+
+async function markCommentSubmitButton(page: Page) {
+  return page
+    .evaluate(() => {
+      document.querySelectorAll("[data-farm-comment-submit]").forEach((node) => {
+        node.removeAttribute("data-farm-comment-submit")
+      })
+
+      const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
+      if (!composer) return false
+      const visible = (el: Element) => {
+        const r = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          r.width >= 8 &&
+          r.height >= 8 &&
+          r.bottom > 0 &&
+          r.right > 0 &&
+          r.top < innerHeight &&
+          r.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        )
+      }
+      const enabled = (el: Element) => {
+        const node = el as HTMLButtonElement
+        return !node.disabled && el.getAttribute("aria-disabled") !== "true"
+      }
+      const submitRe =
+        /^(comment|post|send|publish|опубликовать|отправить|комментировать|opublikuj|wyślij|publicar|enviar|pubblica|invia|publier|envoyer|posten|senden)$/i
+      const submitLooseRe =
+        /press enter to post|comment|post|send|publish|опубликовать|отправить|opublikuj|wyślij|publicar|enviar|pubblica|invia|publier|envoyer|posten|senden/i
+      const skipRe =
+        /photo|фото|gif|sticker|emoji|attach|прикреп|прикріп|camera|камера|avatar|profile|reaction|like/i
+      const roots: HTMLElement[] = [composer]
+      let parent = composer.parentElement
+      for (let depth = 0; depth < 5 && parent; depth += 1, parent = parent.parentElement) {
+        roots.push(parent)
+      }
+
+      const buttons = [...new Set(roots.flatMap((root) =>
+        [...root.querySelectorAll('button, [role="button"], [tabindex="0"]')] as HTMLElement[],
+      ))]
+      const candidates = buttons
+        .filter((button) => visible(button) && enabled(button))
+        .map((button) => {
+          const label = (
+            button.getAttribute("aria-label") ||
+            button.getAttribute("title") ||
+            button.innerText ||
+            ""
+          ).replace(/\s+/g, " ").trim()
+          return { button, label, rect: button.getBoundingClientRect() }
+        })
+        .filter(({ label }) => label && submitLooseRe.test(label) && !skipRe.test(label))
+        .sort((left, right) => {
+          const leftExact = submitRe.test(left.label) ? 0 : 1
+          const rightExact = submitRe.test(right.label) ? 0 : 1
+          return leftExact - rightExact || right.rect.top - left.rect.top || right.rect.left - left.rect.left
+        })
+
+      const target = candidates[0]?.button
+      if (!target) return false
+      target.setAttribute("data-farm-comment-submit", "true")
+      return true
+    })
+    .catch(() => false)
+}
+
+async function sendPostComment(page: Page, box: Locator, text: string, log: (line: SwitchLog) => void) {
+  await waitForCommentAttachment(page)
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await markCommentSubmitButton(page)
+    const scoped = page.locator('[data-farm-comment-submit="true"]').last()
+    if ((await visible(scoped)) && (await forceClick(scoped, 5000))) {
+      log({ level: "info", text: "Нажали кнопку отправки комментария" })
+    } else {
+      await box.first().click({ timeout: 3000 }).catch(() => undefined)
+      await page.keyboard.press(attempt % 2 === 0 ? "Control+Enter" : "Enter").catch(() => undefined)
+      log({ level: "info", text: "Отправляем комментарий с клавиатуры" })
+    }
+
+    await pause(1800)
+    if (!(await commentComposerStillContains(page, text))) return true
+    await pause(700)
+  }
+
+  return false
 }
 
 async function writePostComment(
@@ -1469,33 +1594,12 @@ async function writePostComment(
   await pause(400)
   await attachCommentPhoto(page, box, photoPath, log)
 
-  const send = page
-    .locator(
-      [
-        '[aria-label="Comment"][role="button"]',
-        '[aria-label="Post"][role="button"]',
-        '[aria-label="Опубликовать"][role="button"]',
-        '[aria-label="Отправить"][role="button"]',
-        '[aria-label="Opublikuj"][role="button"]',
-        '[aria-label="Wyślij"][role="button"]',
-        '[aria-label="Publicar"][role="button"]',
-        '[aria-label="Enviar"][role="button"]',
-        '[aria-label="Pubblica"][role="button"]',
-        '[aria-label="Invia"][role="button"]',
-        '[aria-label="Publier"][role="button"]',
-        '[aria-label="Envoyer"][role="button"]',
-        '[aria-label="Posten"][role="button"]',
-        '[aria-label="Senden"][role="button"]',
-      ].join(", "),
-    )
-    .last()
-  if (await visible(send)) {
-    await send.click({ timeout: 5_000 })
-  } else {
-    await page.keyboard.press("Enter")
+  const sent = await sendPostComment(page, box, text, log)
+  if (!sent) {
+    throw new Error("Фото прикреплено, но кнопку отправки комментария не удалось нажать")
   }
   await pause(1600)
-  if (await commentAppearsOnPage(page, text)) {
+  if (!(await commentComposerStillContains(page, text)) || (await commentAppearsOnPage(page, text))) {
     log({ level: "ok", text: "Комментарий отправлен" })
   } else {
     log({ level: "info", text: "Комментарий отправили, но DOM не подтвердил появление текста" })
