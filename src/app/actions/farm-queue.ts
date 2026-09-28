@@ -1,5 +1,8 @@
 "use server"
 
+import { mkdir, writeFile } from "node:fs/promises"
+import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { FarmJobStatus } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { after } from "next/server"
@@ -13,6 +16,49 @@ export type EnqueueFarmResult = {
   error?: string
   taskId?: string
   total?: number
+}
+
+type EnqueueFarmInput = {
+  action: "comment" | "like" | "likeonly" | "subscribe"
+  jobs: Array<{
+    profileId: string
+    fanName?: string
+    url: string
+    message: string
+    aiComment?: boolean
+  }>
+}
+
+const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
+const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
+
+function commentPhotoExt(file: File) {
+  const mimeExt: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+  }
+  if (mimeExt[file.type]) return mimeExt[file.type]
+  const ext = path.extname(file.name || "").replace(/^\./, "").toLowerCase()
+  if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return ext === "jpeg" ? "jpg" : ext
+  return "jpg"
+}
+
+async function saveCommentPhoto(file: File | null) {
+  if (!file || file.size === 0) return { photoPath: "" }
+  if (!file.type.startsWith("image/")) {
+    return { error: "Можно прикрепить только фото" }
+  }
+  if (file.size > MAX_COMMENT_PHOTO_SIZE) {
+    return { error: "Фото должно быть до 10 МБ" }
+  }
+
+  await mkdir(COMMENT_PHOTO_DIR, { recursive: true })
+  const fileName = `${Date.now()}-${randomUUID()}.${commentPhotoExt(file)}`
+  const diskPath = path.join(COMMENT_PHOTO_DIR, fileName)
+  await writeFile(diskPath, Buffer.from(await file.arrayBuffer()))
+  return { photoPath: `/uploads/farm-comments/${fileName}` }
 }
 
 function normalizeFacebookUrl(value: string) {
@@ -36,16 +82,7 @@ function isFacebookUrl(value: string) {
   }
 }
 
-export async function enqueueFarmTask(input: {
-  action: "comment" | "like" | "likeonly" | "subscribe"
-  jobs: Array<{
-    profileId: string
-    fanName?: string
-    url: string
-    message: string
-    aiComment?: boolean
-  }>
-}): Promise<EnqueueFarmResult> {
+async function createFarmTask(input: EnqueueFarmInput, photoPath = ""): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
   if (!session) {
     return { error: "Нужно войти в аккаунт" }
@@ -63,6 +100,7 @@ export async function enqueueFarmTask(input: {
       url: normalizeFacebookUrl(job.url),
       message: job.message.trim(),
       aiComment: action !== "likeonly" && job.aiComment === true,
+      photoPath: action !== "likeonly" ? photoPath : "",
     }))
     .filter((job) => job.profileId && isFacebookUrl(job.url) && (action === "likeonly" || job.aiComment || job.message))
 
@@ -89,6 +127,7 @@ export async function enqueueFarmTask(input: {
           url: job.url,
           message: job.message,
           aiComment: job.aiComment,
+          photoPath: job.photoPath,
         })),
       },
     },
@@ -114,6 +153,32 @@ export async function enqueueFarmTask(input: {
   })
 
   return { taskId: task.id, total: jobs.length }
+}
+
+export async function enqueueFarmTask(input: EnqueueFarmInput): Promise<EnqueueFarmResult> {
+  return createFarmTask(input)
+}
+
+export async function enqueueFarmTaskForm(formData: FormData): Promise<EnqueueFarmResult> {
+  const raw = formData.get("payload")
+  if (typeof raw !== "string") {
+    return { error: "Нет данных задачи" }
+  }
+
+  let input: EnqueueFarmInput
+  try {
+    input = JSON.parse(raw) as EnqueueFarmInput
+  } catch {
+    return { error: "Не удалось прочитать данные задачи" }
+  }
+
+  const photo = formData.get("photo")
+  const saved = await saveCommentPhoto(photo instanceof File ? photo : null)
+  if (saved.error) {
+    return { error: saved.error }
+  }
+
+  return createFarmTask(input, saved.photoPath)
 }
 
 export async function stopFarmTask(taskId?: string): Promise<{ error?: string; stopped?: number }> {

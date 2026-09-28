@@ -1,0 +1,1 @@
+ALTER TABLE "FarmJob" ADD COLUMN "photoPath" TEXT NOT NULL DEFAULT '';

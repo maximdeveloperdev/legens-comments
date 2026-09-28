@@ -106,6 +106,7 @@ model FarmJob {
   url        String
   message    String
   aiComment  Boolean       @default(false)
+  photoPath  String        @default("")
   error      String?
   taskId     String
   task       FarmTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)

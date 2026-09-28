@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { CheckCheck, Heart, Loader2, Play, Plus, RefreshCw, Sparkles, UserPlus, X } from "lucide-react"
-import { enqueueFarmTask } from "@/app/actions/farm-queue"
+import { CheckCheck, Heart, Loader2, Paperclip, Play, Plus, RefreshCw, Sparkles, Trash2, UserPlus, X } from "lucide-react"
+import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
 import { Badge } from "@/components/ui/badge"
@@ -46,6 +46,7 @@ type LiveLog = {
 }
 
 const UNKNOWN_GEO = "ZZ"
+const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const AVATAR_TONES = [
   "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200",
   "bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200",
@@ -160,6 +161,11 @@ function logTime() {
   return new Date().toLocaleTimeString("ru-RU", { hour12: false })
 }
 
+function fileSizeLabel(size: number) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} КБ`
+  return `${(size / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`
+}
+
 function PagesIconButton({
   label,
   disabled,
@@ -235,6 +241,9 @@ export function FarmComments({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [splitMessages, setSplitMessages] = useState<Record<string, string>>({})
+  const [commentPhoto, setCommentPhoto] = useState<File | null>(null)
+  const [commentPhotoError, setCommentPhotoError] = useState("")
+  const [commentPhotoPreview, setCommentPhotoPreview] = useState("")
   const [profileQuery, setProfileQuery] = useState("")
   const [pageQuery, setPageQuery] = useState("")
   const [activeGroups, setActiveGroups] = useState<string[]>([])
@@ -244,6 +253,7 @@ export function FarmComments({
   const [enqueueing, setEnqueueing] = useState(false)
   const [liveLogs, setLiveLogs] = useState<LiveLog[]>([])
   const liveLogRef = useRef<HTMLOListElement>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   const groups = useMemo(() => {
     const buckets = new Map<string, AdsPowerProfile[]>()
@@ -314,6 +324,12 @@ export function FarmComments({
     liveLogRef.current?.scrollTo({ top: liveLogRef.current.scrollHeight })
   }, [liveLogs])
 
+  useEffect(() => {
+    return () => {
+      if (commentPhotoPreview) URL.revokeObjectURL(commentPhotoPreview)
+    }
+  }, [commentPhotoPreview])
+
   function appendLiveLog(level: LiveLog["level"], text: string) {
     setLiveLogs((current) => [
       ...current,
@@ -347,7 +363,39 @@ export function FarmComments({
     setPosts([""])
     setMessage("")
     setSplitMessages({})
+    setCommentPhoto(null)
+    setCommentPhotoPreview("")
+    setCommentPhotoError("")
+    if (photoInputRef.current) photoInputRef.current.value = ""
     setSelectedIds([])
+  }
+
+  function onPhotoSelected(file: File | undefined) {
+    setCommentPhotoError("")
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      setCommentPhoto(null)
+      setCommentPhotoPreview("")
+      setCommentPhotoError("Можно прикрепить только фото")
+      if (photoInputRef.current) photoInputRef.current.value = ""
+      return
+    }
+    if (file.size > MAX_COMMENT_PHOTO_SIZE) {
+      setCommentPhoto(null)
+      setCommentPhotoPreview("")
+      setCommentPhotoError("Фото должно быть до 10 МБ")
+      if (photoInputRef.current) photoInputRef.current.value = ""
+      return
+    }
+    setCommentPhoto(file)
+    setCommentPhotoPreview(URL.createObjectURL(file))
+  }
+
+  function removePhoto() {
+    setCommentPhoto(null)
+    setCommentPhotoPreview("")
+    setCommentPhotoError("")
+    if (photoInputRef.current) photoInputRef.current.value = ""
   }
 
   async function onLaunch() {
@@ -365,10 +413,11 @@ export function FarmComments({
 
     setEnqueueing(true)
     try {
-      const result = await enqueueFarmTask({
-        action,
-        jobs,
-      })
+      const payload = { action, jobs }
+      const formData = new FormData()
+      formData.set("payload", JSON.stringify(payload))
+      if (commentPhoto) formData.set("photo", commentPhoto)
+      const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
         pushAppNotification("Очередь", result.error, {
           href: "/queue?tab=work",
@@ -534,7 +583,7 @@ export function FarmComments({
             {(
               [
                 { id: "same", label: "Один текст" },
-                { id: "split", label: "Разный" },
+                { id: "split", label: "Разные" },
                 { id: "ai", label: "ChatGPT" },
               ] as const
             ).map((option) => (
@@ -595,11 +644,61 @@ export function FarmComments({
               <Textarea
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="Привет! 🔥"
+                placeholder="Текст комментария"
                 rows={4}
               />
             </label>
           )}
+          <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Фото к комментарию</p>
+                <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {commentPhoto ? (
+                  <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={removePhoto}>
+                    <Trash2 />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  <Paperclip />
+                  Прикрепить
+                </Button>
+              </div>
+            </div>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => onPhotoSelected(event.target.files?.[0])}
+            />
+            {commentPhoto ? (
+              <div className="flex items-center gap-3 rounded-lg border bg-background p-2">
+                {commentPhotoPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={commentPhotoPreview}
+                    alt=""
+                    className="size-12 rounded-md object-cover"
+                  />
+                ) : null}
+                <div className="min-w-0 text-sm">
+                  <p className="truncate font-medium">{commentPhoto.name}</p>
+                  <p className="text-xs text-muted-foreground">{fileSizeLabel(commentPhoto.size)}</p>
+                </div>
+              </div>
+            ) : null}
+            {commentPhotoError ? (
+              <p className="text-sm text-destructive">{commentPhotoError}</p>
+            ) : null}
+          </div>
             </>
           )}
         </div>
@@ -897,6 +996,12 @@ export function FarmComments({
                     : "Один текст для всех"
               }
             />
+            {commentPhoto ? (
+              <ConfirmRow
+                label="Фото"
+                value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
+              />
+            ) : null}
             {contentMode === "ai" ? null : (
               <ConfirmRow
                 label="Сообщение"

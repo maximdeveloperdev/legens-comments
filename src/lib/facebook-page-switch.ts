@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { access, mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { chromium, type Browser, type Locator, type Page } from "playwright-core"
 import { checkAdsPowerProfileProxy, startAdsPowerBrowser, stopAdsPowerBrowser } from "@/lib/adspower"
@@ -21,6 +21,7 @@ function pause(ms: number) {
 }
 
 const FACEBOOK_DEBUG_DIR = path.join(process.cwd(), ".debug", "facebook-errors")
+const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
 
 const PROFILE_LAYER_RE =
   /your profiles|switch to interact|search profiles|see more profiles|see all profiles|профил|страниц|tw[oó]j profil|profile|przełącz|perfiles|p[aá]ginas|perfis|profili|profilo|profils|seiten/i
@@ -1298,11 +1299,101 @@ async function fillCommentText(page: Page, box: Locator, text: string) {
   await page.keyboard.insertText(text)
 }
 
-async function writePostComment(page: Page, text: string, log: (line: SwitchLog) => void) {
+function resolveCommentPhotoPath(photoPath: string) {
+  if (!photoPath.trim()) return ""
+  const fileName = path.basename(photoPath)
+  return path.join(COMMENT_PHOTO_DIR, fileName)
+}
+
+async function markCommentComposer(page: Page, box: Locator) {
+  await box.first().evaluate((el) => {
+    document.querySelectorAll("[data-farm-comment-composer]").forEach((node) => {
+      node.removeAttribute("data-farm-comment-composer")
+    })
+
+    let node: HTMLElement | null = el as HTMLElement
+    for (let depth = 0; depth < 10 && node; depth += 1, node = node.parentElement) {
+      const text = (node.innerText || "").trim()
+      const hasFileInput = Boolean(node.querySelector('input[type="file"]'))
+      const hasComposerControls = /photo|фото|зображ|zdj[eę]cie|imagen|imagem|foto|media/i.test(
+        `${text} ${node.getAttribute("aria-label") || ""}`,
+      )
+      if (hasFileInput || hasComposerControls || node.getAttribute("role") === "form") {
+        node.setAttribute("data-farm-comment-composer", "true")
+        return
+      }
+    }
+
+    ;(el.parentElement || el).setAttribute("data-farm-comment-composer", "true")
+  })
+}
+
+async function attachCommentPhoto(
+  page: Page,
+  box: Locator,
+  photoPath: string | undefined,
+  log: (line: SwitchLog) => void,
+) {
+  if (!photoPath) return
+  const diskPath = resolveCommentPhotoPath(photoPath)
+  if (!diskPath) {
+    throw new Error(`Фото не найдено: ${photoPath}`)
+  }
+  try {
+    await access(diskPath)
+  } catch {
+    throw new Error(`Фото не найдено: ${photoPath}`)
+  }
+
+  await markCommentComposer(page, box)
+  const composer = page.locator('[data-farm-comment-composer="true"]').last()
+  let input = composer
+    .locator('input[type="file"][accept*="image" i], input[type="file"][accept*="video" i], input[type="file"]')
+    .last()
+
+  if ((await input.count()) === 0) {
+    const attachButton = composer
+      .getByRole("button", {
+        name: /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add/i,
+      })
+      .last()
+    if (await visible(attachButton)) {
+      await forceClick(attachButton, 4000)
+      await pause(600)
+    }
+    input = composer
+      .locator('input[type="file"][accept*="image" i], input[type="file"][accept*="video" i], input[type="file"]')
+      .last()
+  }
+
+  if ((await input.count()) === 0) {
+    input = page
+      .locator(
+        '[role="dialog"] input[type="file"][accept*="image" i], [role="dialog"] input[type="file"], body input[type="file"][accept*="image" i]',
+      )
+      .last()
+  }
+
+  if ((await input.count()) === 0) {
+    throw new Error("Не нашли кнопку прикрепления фото в комментарии")
+  }
+
+  await input.setInputFiles(diskPath)
+  log({ level: "ok", text: "Фото прикреплено" })
+  await pause(1800)
+}
+
+async function writePostComment(
+  page: Page,
+  text: string,
+  log: (line: SwitchLog) => void,
+  photoPath?: string,
+) {
   const box = await revealCommentBox(page, log)
   await fillCommentText(page, box, text)
   log({ level: "ok", text: "Поле комментария открыто" })
   await pause(400)
+  await attachCommentPhoto(page, box, photoPath, log)
 
   const send = page
     .locator(
@@ -1882,6 +1973,7 @@ export async function runFacebookComment(
     profileId: string
     url: string
     message: string
+    photoPath?: string
     fanName?: string
     likeOnly?: boolean
     likeWithComment?: boolean
@@ -1913,7 +2005,7 @@ export async function runFacebookComment(
     }
 
     if (!input.likeOnly) {
-      await writePostComment(page, input.message, onLog)
+      await writePostComment(page, input.message, onLog, input.photoPath)
     }
 
     if (input.likeOnly || input.likeWithComment) {
