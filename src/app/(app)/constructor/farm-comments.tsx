@@ -7,6 +7,7 @@ import { CheckCheck, Heart, Loader2, Paperclip, Play, Plus, RefreshCw, Sparkles,
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
+import { profileDisplayGeo } from "@/lib/profile-geo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -32,6 +33,7 @@ type FarmPage = AdsPowerProfile & {
   listId: string
   displayName: string
   browserId: string
+  displayGeo: string
   synced: boolean
 }
 
@@ -86,6 +88,7 @@ function pagesFromProfile(profile: AdsPowerProfile): FarmPage[] {
       listId: fan.id,
       displayName: fan.name,
       browserId: profile.id,
+      displayGeo: profileDisplayGeo(profile),
       synced: true,
     }))
   }
@@ -95,6 +98,7 @@ function pagesFromProfile(profile: AdsPowerProfile): FarmPage[] {
       listId: profile.id,
       displayName: profile.name,
       browserId: profile.id,
+      displayGeo: profileDisplayGeo(profile),
       synced: false,
     },
   ]
@@ -184,7 +188,16 @@ function PagesIconButton({
 
 async function readSwitchEvents(
   response: Response,
-  onEvent: (event: { type: string; level?: "info" | "ok" | "error"; text?: string; ok?: boolean; message?: string }) => void,
+  onEvent: (event: {
+    type: string
+    level?: "info" | "ok" | "error"
+    text?: string
+    ok?: boolean
+    message?: string
+    formatted?: Array<{ currentName: string; newName: string; nameApplied?: boolean }>
+    pending?: Array<{ currentName: string; newName: string; message: string }>
+    failed?: Array<{ currentName: string; newName?: string; message: string }>
+  }) => void,
 ) {
   if (!response.body) {
     throw new Error("Нет потока логов")
@@ -209,6 +222,9 @@ async function readSwitchEvents(
         text?: string
         ok?: boolean
         message?: string
+        formatted?: Array<{ currentName: string; newName: string; nameApplied?: boolean }>
+        pending?: Array<{ currentName: string; newName: string; message: string }>
+        failed?: Array<{ currentName: string; newName?: string; message: string }>
       })
     }
   }
@@ -242,6 +258,7 @@ export function FarmComments({
   const [geoFilter, setGeoFilter] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [syncPending, setSyncPending] = useState(false)
+  const [formatPending, setFormatPending] = useState(false)
   const [enqueueing, setEnqueueing] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
 
@@ -281,7 +298,7 @@ export function FarmComments({
   }, [activeGroups, groups])
 
   const geos = useMemo(() => {
-    const codes = [...new Set(activeProfiles.map((profile) => profile.ipCountry || UNKNOWN_GEO))]
+    const codes = [...new Set(activeProfiles.map((profile) => profileDisplayGeo(profile) || UNKNOWN_GEO))]
     return codes.sort((left, right) => {
       if (left === UNKNOWN_GEO) return 1
       if (right === UNKNOWN_GEO) return -1
@@ -294,9 +311,9 @@ export function FarmComments({
     return activeProfiles
       .flatMap(pagesFromProfile)
       .filter((page) => {
-        if (geoFilter && (page.ipCountry || UNKNOWN_GEO) !== geoFilter) return false
+        if (geoFilter && (page.displayGeo || UNKNOWN_GEO) !== geoFilter) return false
         if (!needle) return true
-        return [page.displayName, page.name, page.serial, page.username, page.ipCountry, page.id]
+        return [page.displayName, page.name, page.serial, page.username, page.displayGeo, page.id]
           .join(" ")
           .toLowerCase()
           .includes(needle)
@@ -527,6 +544,78 @@ export function FarmComments({
         { tone: failCount === 0 ? "success" : "error" },
       )
       setSyncPending(false)
+      router.refresh()
+    }
+  }
+
+  async function onFormatFans() {
+    if (selectedPages.length === 0) return
+    const byProfile = new Map<string, FarmPage[]>()
+    for (const page of selectedPages) {
+      const list = byProfile.get(page.browserId) ?? []
+      list.push(page)
+      byProfile.set(page.browserId, list)
+    }
+
+    setFormatPending(true)
+    pushAppNotification(
+      "Форматирование фанок",
+      `Запущено · ${selectedPages.length} фанок`,
+      { tone: "queue" },
+    )
+
+    let okCount = 0
+    let pendingCount = 0
+    let failCount = 0
+    try {
+      for (const [profileId, pages] of byProfile.entries()) {
+        const response = await fetch("/api/format-fans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profileId,
+            fans: pages.map((page) => ({
+              name: page.displayName,
+              geo: page.displayGeo,
+            })),
+          }),
+        })
+        let profileOk = false
+        let formattedCount = 0
+        let reviewCount = 0
+        let failedCount = 0
+        await readSwitchEvents(response, (event) => {
+          if (event.type === "done") {
+            profileOk = event.ok === true
+            formattedCount = event.formatted?.length ?? 0
+            reviewCount = event.pending?.length ?? 0
+            failedCount = event.failed?.length ?? 0
+          }
+        })
+        okCount += formattedCount
+        pendingCount += reviewCount
+        failCount += failedCount || (profileOk ? 0 : Math.max(0, pages.length - formattedCount - reviewCount))
+      }
+    } catch {
+      failCount += selectedPages.length || 1
+    } finally {
+      const summary = [
+        `${okCount} ок`,
+        pendingCount > 0 ? `${pendingCount} на review` : "",
+        failCount > 0 ? `${failCount} с ошибкой` : "",
+      ]
+        .filter(Boolean)
+        .join(", ")
+      pushAppNotification(
+        failCount > 0
+          ? "Форматирование фанок · ошибка"
+          : pendingCount > 0
+            ? "Форматирование фанок · review"
+            : "Форматирование фанок",
+        failCount === 0 && pendingCount === 0 ? `Готово · ${okCount} фанок` : summary,
+        { tone: failCount > 0 ? "error" : pendingCount > 0 ? "queue" : "success" },
+      )
+      setFormatPending(false)
       router.refresh()
     }
   }
@@ -763,13 +852,22 @@ export function FarmComments({
           </h2>
           <div className="flex shrink-0 items-center gap-0.5">
             {canSyncFans ? (
-              <PagesIconButton
-                label="Синхронизировать фанки"
-                disabled={syncPending || activeProfiles.length === 0}
-                onClick={() => void onSyncFans()}
-              >
-                {syncPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              </PagesIconButton>
+              <>
+                <PagesIconButton
+                  label="Синхронизировать фанки"
+                  disabled={syncPending || formatPending || activeProfiles.length === 0}
+                  onClick={() => void onSyncFans()}
+                >
+                  {syncPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                </PagesIconButton>
+                <PagesIconButton
+                  label="Форматировать фанки"
+                  disabled={syncPending || formatPending || selectedPages.length === 0}
+                  onClick={() => void onFormatFans()}
+                >
+                  {formatPending ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                </PagesIconButton>
+              </>
             ) : null}
             <PagesIconButton
               label="Выбрать видимые"
@@ -814,7 +912,7 @@ export function FarmComments({
                 )
                 const active = activeGroups.includes(group.key)
                 const groupGeos = [
-                  ...new Set(group.items.map((item) => item.ipCountry).filter(Boolean)),
+                  ...new Set(group.items.map((item) => profileDisplayGeo(item)).filter(Boolean)),
                 ]
                 return (
                   <button

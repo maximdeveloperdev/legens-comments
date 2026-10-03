@@ -56,6 +56,16 @@ export type AdsPowerProxyCheckResult = {
   proxy?: string
 }
 
+export type AdsPowerPasswordResult = {
+  ok: boolean
+  message: string
+  password?: string
+}
+
+export type AdsPowerFacebookCredentialsResult = AdsPowerPasswordResult & {
+  loginUser?: string
+}
+
 type AdsPowerProxyConfig = {
   type: string
   host: string
@@ -268,6 +278,45 @@ async function getProfileProxy(userId: string): Promise<{
   }
 
   return { ok: true, message: "Профиль без прокси", hasProxy: false }
+}
+
+export async function getAdsPowerFacebookPassword(userId: string): Promise<AdsPowerPasswordResult> {
+  const credentials = await getAdsPowerFacebookCredentials(userId)
+  return {
+    ok: credentials.ok,
+    message: credentials.message,
+    password: credentials.password,
+  }
+}
+
+export async function getAdsPowerFacebookCredentials(userId: string): Promise<AdsPowerFacebookCredentialsResult> {
+  const id = userId.trim()
+  if (!id) return { ok: false, message: "Нет ID профиля" }
+
+  const profile = await findProfileRow(id)
+  if (!profile.ok || !profile.row) {
+    return { ok: false, message: profile.message || "Профиль AdsPower не найден" }
+  }
+
+  const row = profile.row
+  const platformAccounts = Array.isArray(row.platform_account) ? row.platform_account : []
+  for (const item of platformAccounts) {
+    const account = asRecord(item)
+    const domain = String(account.domain_name ?? account.platform ?? account.site ?? "").toLowerCase()
+    const loginUser = String(account.login_user ?? account.username ?? account.email ?? "").trim()
+    const password = String(account.password ?? account.pass ?? "").trim()
+    if (password && /(^|\.)facebook\.com$|facebook/i.test(domain)) {
+      return { ok: true, message: "Данные Facebook найдены в platform_account", loginUser, password }
+    }
+  }
+
+  const fallback = String(row.password ?? "").trim()
+  if (fallback) {
+    const loginUser = String(row.username ?? row.login_user ?? row.email ?? "").trim()
+    return { ok: true, message: "Данные Facebook найдены в профиле AdsPower", loginUser, password: fallback }
+  }
+
+  return { ok: false, message: "В AdsPower нет пароля Facebook для этого профиля" }
 }
 
 function tcpConnect(host: string, port: number, timeoutMs: number) {

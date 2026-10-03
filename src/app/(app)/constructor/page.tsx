@@ -1,6 +1,7 @@
 import { listAdsPowerProfiles } from "@/lib/adspower"
 import { prisma } from "@/lib/db"
 import { listFacebookFansByProfile } from "@/lib/facebook-fans"
+import { profileDisplayGeo } from "@/lib/profile-geo"
 import { getActiveSession } from "@/lib/session"
 import { ConstructorFarm } from "./constructor-farm"
 
@@ -26,7 +27,7 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
     fans: fansByProfile.get(profile.id) ?? [],
   }))
   const codes = [
-    ...new Set(profiles.map((profile) => profile.ipCountry).filter(Boolean)),
+    ...new Set(profiles.map((profile) => profileDisplayGeo(profile)).filter(Boolean)),
   ]
   const rows =
     codes.length > 0

@@ -1,7 +1,13 @@
 import { access, mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { chromium, type Browser, type Locator, type Page } from "playwright-core"
-import { checkAdsPowerProfileProxy, startAdsPowerBrowser, stopAdsPowerBrowser } from "@/lib/adspower"
+import { chromium, type Browser, type Frame, type Locator, type Page } from "playwright-core"
+import {
+  checkAdsPowerProfileProxy,
+  getAdsPowerFacebookCredentials,
+  getAdsPowerFacebookPassword,
+  startAdsPowerBrowser,
+  stopAdsPowerBrowser,
+} from "@/lib/adspower"
 import { replaceFacebookFans, type SyncedFan } from "@/lib/facebook-fans"
 
 export type SwitchLogLevel = "info" | "ok" | "error"
@@ -14,6 +20,28 @@ export type SwitchLog = {
 export type SwitchTestResult = {
   ok: boolean
   message: string
+}
+
+export type FanFormatInput = {
+  currentName: string
+  firstName: string
+  lastName: string
+  newName: string
+  avatarPath?: string
+  coverPath?: string
+  coverTheme?: string
+  avatarPrompt?: string
+  coverPrompt?: string
+}
+
+export type FanFormatResult = SwitchTestResult & {
+  formatted?: Array<{ currentName: string; newName: string; nameApplied?: boolean }>
+  pending?: Array<{ currentName: string; newName: string; message: string }>
+  failed?: Array<{ currentName: string; newName?: string; message: string }>
+}
+
+export type FanFormatJob = {
+  currentName: string
 }
 
 function pause(ms: number) {
@@ -42,7 +70,26 @@ const SUSPENDED_PAGE_RE =
   /we suspended your page|page has been suspended|мы приостановили.*страниц|сторінк.*призупин|страниц.*заблок|page.*suspended/i
 const COOKIE_ACCEPT_RE =
   /Allow all cookies|Accept all|Allow essential and optional cookies|Разрешить все|Принять все|Zezw[oó]l na wszystkie|Akceptuj wszystkie|Permitir todas|Aceptar todas|Aceitar todos|Consenti tutti|Accetta tutti|Autoriser tous|Tout accepter|Alle Cookies erlauben|Alle akzeptieren/i
-
+const SAVE_RE =
+  /^(Save|Save changes|Save change|Request Change|Done|Continue|Review change|Submit|Log in|Login|Сохранить|Готово|Продолжить|Сохранить изменения|Войти|Увійти|Зберегти|Готово|Weiter|Speichern|Anmelden|Änderung überprüfen|Fertig|Zapisz|Gotowe|Zaloguj się)$/i
+const NAME_CONFIRM_SUBMIT_RE =
+  /^(Request Change|Save changes|Save change|Submit|Continue|Продолжить|Сохранить изменения|Зберегти|Продовжити|Weiter|Speichern|Änderung beantragen|Enviar|Enviar solicitud|Soumettre|Envoyer)$/i
+const PROFILE_PHOTO_RE =
+  /profile picture|profile photo|update picture|edit picture|change picture|add picture|фото профиля|аватар|зображення профілю|profilbild|zdj[eę]cie profilowe|foto de perfil|photo de profil/i
+const COVER_PHOTO_RE =
+  /cover photo|edit cover photo|add cover photo|change cover|обложк|фото обкладинки|titelbild|zdj[eę]cie w tle|foto de portada|photo de couverture/i
+const CHOOSE_PROFILE_PICTURE_RE =
+  /choose profile picture|select profile picture|выбрать фото профиля|обрати фото профілю|profilbild auswählen|wybierz zdjęcie profilowe|elegir foto de perfil|choisir une photo de profil/i
+const UPLOAD_PHOTO_RE =
+  /upload photo|add photo|choose photo|загрузить фото|добавить фото|обрати фото|завантажити фото|foto hochladen|bild hochladen|dodaj zdjęcie|subir foto|téléverser une photo/i
+const USE_PAGE_RE =
+  /^(Use Page|Switch now|Get started|Continue|Использовать страницу|Перейти|Начать|Продолжить|Використати сторінку|Продовжити|Seite verwenden|Weiter)$/i
+const SETTINGS_PRIVACY_RE =
+  /settings\s*&\s*privacy|settings and privacy|настройки и конфиденциальность|налаштування.*конфіденційність|einstellungen.*privatsphäre|ustawienia.*prywatność|configuración.*privacidad|paramètres.*confidentialité/i
+const SETTINGS_RE =
+  /^(Settings|Настройки|Налаштування|Einstellungen|Ustawienia|Configuración|Paramètres)$/i
+const NOTE_DIALOG_RE =
+  /new note|share a thought|anyone can see your note|заметк|нотатк/i
 type DomFan = {
   name: string
   current: boolean
@@ -204,6 +251,26 @@ async function dismissOverlays(page: Page) {
     await pause(250)
   }
   await page.keyboard.press("Escape").catch(() => undefined)
+}
+
+async function dismissPageWelcome(page: Page, log: (line: SwitchLog) => void) {
+  const dialog = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible').filter({
+    hasText: /welcome to your new page|your page activity is now separate|new page experience|добро пожаловать|willkommen/i,
+  })
+  if (!(await visible(dialog.first()))) return false
+  const button = dialog
+    .getByRole("button", { name: USE_PAGE_RE })
+    .or(dialog.getByText(USE_PAGE_RE))
+    .last()
+  if (await clickIfVisible(button, 4000)) {
+    log({ level: "ok", text: "Закрыли welcome-модал страницы" })
+    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined)
+    await pause(1500)
+    return true
+  }
+  await page.keyboard.press("Escape").catch(() => undefined)
+  await pause(700)
+  return true
 }
 
 async function dismissCookies(page: Page, log: (line: SwitchLog) => void) {
@@ -407,6 +474,12 @@ function isDestroyed(error: unknown) {
   )
 }
 
+function isEvaluateRuntimeHelperError(error: unknown) {
+  return /ReferenceError:\s*__name is not defined|__name is not defined/i.test(
+    error instanceof Error ? error.message : String(error),
+  )
+}
+
 async function afterPossibleNav(page: Page, postUrl: string | undefined, log: (line: SwitchLog) => void) {
   await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined)
   await pause(1500)
@@ -484,6 +557,7 @@ async function describeOpenLayers(page: Page) {
     })
   } catch (error) {
     if (isDestroyed(error)) return ["navigation"]
+    if (isEvaluateRuntimeHelperError(error)) return []
     throw error
   }
 }
@@ -597,6 +671,9 @@ async function findComposerCaret(page: Page) {
       }
     }
     return { x: avatar.rect.right - 6, y: avatar.rect.bottom - 6 }
+  }).catch((error) => {
+    if (isDestroyed(error) || isEvaluateRuntimeHelperError(error)) return null
+    throw error
   })
 }
 
@@ -663,7 +740,7 @@ async function findNamePoint(page: Page, name: string) {
       return null
     }, name)
   } catch (error) {
-    if (isDestroyed(error)) return null
+    if (isDestroyed(error) || isEvaluateRuntimeHelperError(error)) return null
     throw error
   }
 }
@@ -716,7 +793,7 @@ async function findSearchPoint(page: Page) {
       return null
     })
   } catch (error) {
-    if (isDestroyed(error)) return null
+    if (isDestroyed(error) || isEvaluateRuntimeHelperError(error)) return null
     throw error
   }
 }
@@ -743,7 +820,7 @@ async function scrollOpenLayer(page: Page) {
       }
     })
   } catch (error) {
-    if (!isDestroyed(error)) throw error
+    if (!isDestroyed(error) && !isEvaluateRuntimeHelperError(error)) throw error
   }
 }
 
@@ -814,14 +891,47 @@ async function clickFanRow(page: Page, name: string) {
   return false
 }
 
+async function visibleProfileFans(page: Page): Promise<DomFan[]> {
+  const fans = await page.evaluate(fansFromProfilesDialog()).catch(() => [] as DomFan[])
+  const seen = new Set<string>()
+  return fans.filter((fan) => {
+    const key = fan.name.toLowerCase().replace(/\s+/g, " ").trim()
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+async function clickOnlyVisibleProfileFallback(page: Page, requestedName: string, log: (line: SwitchLog) => void) {
+  const fans = await visibleProfileFans(page)
+  if (fans.length !== 1) return ""
+  const fan = fans[0]
+  if (!fan?.name || sameFan(fan.name, requestedName)) return ""
+  log({
+    level: "info",
+    text: `Не нашли «${requestedName}», но Facebook показывает единственную фанку «${fan.name}» — используем её`,
+  })
+  if (await clickFanRow(page, fan.name)) return fan.name
+  if (fan.current) {
+    await page.keyboard.press("Escape").catch(() => undefined)
+    await pause(700)
+    return fan.name
+  }
+  return ""
+}
+
 async function clickNamedFan(page: Page, name: string, log: (line: SwitchLog) => void) {
   await dismissSuspendedPageDialog(page, log)
   const searched = await typeFanSearch(page, name, log)
-  if (searched && (await clickFanRow(page, name))) return
+  if (searched && (await clickFanRow(page, name))) return name
+  if (searched) {
+    const fallbackName = await clickOnlyVisibleProfileFallback(page, name, log)
+    if (fallbackName) return fallbackName
+  }
 
   for (let step = 0; step < 40; step += 1) {
     await dismissSuspendedPageDialog(page, log)
-    if (await clickFanRow(page, name)) return
+    if (await clickFanRow(page, name)) return name
     const more = await clickSeeMoreProfiles(page)
     await scrollProfilesDialog(page)
     await pause(600)
@@ -829,7 +939,9 @@ async function clickNamedFan(page: Page, name: string, log: (line: SwitchLog) =>
   }
 
   await dismissSuspendedPageDialog(page, log)
-  if (await clickFanRow(page, name)) return
+  if (await clickFanRow(page, name)) return name
+  const fallbackName = await clickOnlyVisibleProfileFallback(page, name, log)
+  if (fallbackName) return fallbackName
   const layers = await describeOpenLayers(page)
   throw new Error(
     `Не удалось кликнуть фанку «${name}»${layers[0] ? ` · меню: ${layers[0]}` : ""}`,
@@ -861,8 +973,81 @@ function isAdsPowerStartError(message: string) {
   )
 }
 
-async function waitForFacebookReady(page: Page, log: (line: SwitchLog) => void) {
+async function fillFacebookCredentialsIfAsked(
+  page: Page,
+  profileId: string,
+  log: (line: SwitchLog) => void,
+  mode: "login" | "meta-setup",
+) {
+  const credentials = await getAdsPowerFacebookCredentials(profileId)
+  if (!credentials.ok || !credentials.password || !credentials.loginUser) {
+    throw new Error(credentials.message || "В AdsPower нет login_user/password Facebook")
+  }
+
+  const bodyText = await page.locator("body").innerText({ timeout: 4000 }).catch(() => "")
+  if (/I already have an account|У меня уже есть аккаунт|Ya tengo una cuenta/i.test(bodyText)) {
+    const clickedExisting = await clickFirstVisible(
+      [
+        page.getByRole("button", { name: /I already have an account|У меня уже есть аккаунт|Ya tengo una cuenta/i }),
+        page.getByText(/I already have an account|У меня уже есть аккаунт|Ya tengo una cuenta/i),
+      ],
+      5000,
+    )
+    if (clickedExisting) {
+      log({ level: "info", text: "Facebook открыл создание аккаунта — выбрали вход в существующий аккаунт" })
+      await page.waitForLoadState("load", { timeout: 20_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
+      await pause(2000)
+    }
+  }
+
+  const emailInput = page
+    .locator(
+      '#email, input[name="email"], input[name="reg_email__"], input[type="email"], input[autocomplete="username"], input[placeholder*="email" i], input[aria-label*="email" i], input[placeholder*="mobile" i], input[aria-label*="mobile" i]',
+    )
+    .first()
+  const passwordInput = page
+    .locator('#pass, input[name="pass"], input[name="reg_passwd__"], input[type="password"], input[autocomplete="current-password"], input[autocomplete="new-password"]')
+    .first()
+
+  await passwordInput.waitFor({ state: "visible", timeout: 12_000 }).catch(() => undefined)
+  if (await visible(emailInput)) {
+    await emailInput.click({ timeout: 4000 }).catch(() => undefined)
+    await page.keyboard.press("Meta+A").catch(() => undefined)
+    await page.keyboard.press("Control+A").catch(() => undefined)
+    await page.keyboard.type(credentials.loginUser, { delay: 20 })
+  }
+  if (await visible(passwordInput)) {
+    await passwordInput.click({ timeout: 4000 }).catch(() => undefined)
+    await page.keyboard.press("Meta+A").catch(() => undefined)
+    await page.keyboard.press("Control+A").catch(() => undefined)
+    await page.keyboard.type(credentials.password, { delay: 20 })
+  } else {
+    throw new Error("Facebook просит данные, но поле пароля не видно")
+  }
+
+  log({
+    level: "ok",
+    text: mode === "login" ? "Ввели Facebook login/password из AdsPower" : "Ввели email/password в Meta Account setup из AdsPower",
+  })
+  const clicked = await clickFirstVisible(
+    [
+      page.getByRole("button", { name: /^(Log in|Login|Submit|Continue|Next|Войти|Продолжить|Далее)$/i }),
+      page.getByText(/^(Log in|Login|Submit|Continue|Next|Войти|Продолжить|Далее)$/i),
+      page.locator('button[type="submit"], input[type="submit"]'),
+    ],
+    5000,
+  )
+  if (!clicked) throw new Error("Не нашли кнопку отправки Facebook credentials")
+  await page.waitForLoadState("load", { timeout: 30_000 }).catch(() => undefined)
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+  await pause(2500)
+}
+
+async function waitForFacebookReady(page: Page, profileId: string, log: (line: SwitchLog) => void) {
   const login = page.locator('#email, input[name="email"], input[name="pass"]')
+  const metaAccountSetupRe =
+    /get started on facebook with a meta account|by tapping submit, you agree to create an account|create new account/i
   const markers = [
     page.getByRole("button", { name: /^Your profile$/i }),
     page.getByRole("button", { name: /^Account$/i }),
@@ -882,16 +1067,25 @@ async function waitForFacebookReady(page: Page, log: (line: SwitchLog) => void) 
     page.getByLabel("Cuenta"),
     page.locator('[aria-label="Your profile"]'),
     page.locator('[aria-label="Account"]'),
-    page.getByRole("banner"),
-    page.getByRole("main"),
-    page.getByRole("navigation"),
-    page.locator('[role="feed"]'),
+    page.locator('[role="banner"] [aria-haspopup="menu"]').last(),
   ]
 
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
+    const bodyText = await page.locator("body").innerText({ timeout: 1500 }).catch(() => "")
+    if (metaAccountSetupRe.test(bodyText)) {
+      log({ level: "info", text: "Facebook открыл Meta Account setup — заполняем email/password из AdsPower" })
+      await fillFacebookCredentialsIfAsked(page, profileId, log, "meta-setup")
+      await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 30_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
+      continue
+    }
     if (await visible(login.first())) {
-      throw new Error("Facebook просит логин — в этом профиле нет сессии")
+      log({ level: "info", text: "Facebook просит login/password — вводим данные из AdsPower" })
+      await fillFacebookCredentialsIfAsked(page, profileId, log, "login")
+      await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 30_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
+      continue
     }
     for (const marker of markers) {
       if (await visible(marker.first())) return
@@ -900,14 +1094,7 @@ async function waitForFacebookReady(page: Page, log: (line: SwitchLog) => void) 
   }
 
   if (await visible(login.first())) {
-    throw new Error("Facebook просит логин — в этом профиле нет сессии")
-  }
-  if (/facebook\.com|fb\.com/i.test(page.url())) {
-    log({
-      level: "info",
-      text: "Шапка Facebook скрыта, но сессия есть — продолжаем",
-    })
-    return
+    throw new Error("Facebook просит логин — не удалось войти данными AdsPower")
   }
   throw new Error("Facebook не загрузился")
 }
@@ -967,7 +1154,7 @@ async function openFacebookPage(profileId: string, log: (line: SwitchLog) => voi
   })
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
   await dismissCookies(page, log)
-  await waitForFacebookReady(page, log)
+  await waitForFacebookReady(page, profileId, log)
   await pause(2000)
   log({ level: "ok", text: `Facebook загрузился: ${page.url()}` })
 
@@ -1075,6 +1262,1158 @@ export async function captureFacebookPost(
     disconnectBrowser(browser)
     await stopAdsPowerBrowser(input.profileId)
   }
+}
+
+async function clickFirstVisible(locators: Locator[], timeoutMs = 2500) {
+  for (const locator of locators) {
+    if (await clickIfVisible(locator, timeoutMs)) return true
+  }
+  return false
+}
+
+async function gotoCurrentFanProfile(page: Page, fanName: string, log: (line: SwitchLog) => void) {
+  await page.goto("https://www.facebook.com/me", { waitUntil: "load", timeout: 60_000 })
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+  await pause(2200)
+  await dismissCookies(page, log)
+  await dismissPageWelcome(page, log)
+  await dismissOverlays(page)
+  log({ level: "ok", text: `Открыли профиль фанки «${fanName}»: ${page.url()}` })
+}
+
+async function setAnyFileInput(page: Page, filePath: string) {
+  const inputs = page.locator('input[type="file"]')
+  const count = await inputs.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const input = inputs.nth(index)
+    try {
+      await input.setInputFiles(filePath, { timeout: 3000 })
+      return true
+    } catch {
+      // Try the next hidden Facebook uploader.
+    }
+  }
+  return false
+}
+
+async function clickUploadAndSetFile(page: Page, filePath: string, log: (line: SwitchLog) => void) {
+  if (await setAnyFileInput(page, filePath)) {
+    log({ level: "ok", text: "Загрузили новое фото" })
+    return true
+  }
+
+  const triggers = [
+    page.getByRole("button", { name: UPLOAD_PHOTO_RE }),
+    page.getByRole("menuitem", { name: UPLOAD_PHOTO_RE }),
+    page.getByText(UPLOAD_PHOTO_RE),
+  ]
+
+  for (const trigger of triggers) {
+    const target = trigger.first()
+    await target.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined)
+    if (!(await visible(target))) continue
+    const chooser = page.waitForEvent("filechooser", { timeout: 3500 }).catch(() => null)
+    await target.click({ timeout: 3500 }).catch(() => forceClick(target, 3500))
+    const fileChooser = await chooser
+    if (fileChooser) {
+      await fileChooser.setFiles(filePath)
+      log({ level: "ok", text: "Загрузили новое фото" })
+      return true
+    }
+    if (await setAnyFileInput(page, filePath)) {
+      log({ level: "ok", text: "Загрузили новое фото" })
+      return true
+    }
+  }
+
+  return false
+}
+
+async function saveFacebookDialog(page: Page, log: (line: SwitchLog) => void) {
+  for (let step = 0; step < 5; step += 1) {
+    const clicked = await clickFirstVisible(
+      [
+        page.getByRole("button", { name: SAVE_RE }),
+        page.getByRole("menuitem", { name: SAVE_RE }),
+        page.getByText(SAVE_RE),
+      ],
+      4000,
+    )
+    if (!clicked) return step > 0
+    log({ level: "info", text: "Нажали кнопку сохранения/продолжения" })
+    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined)
+    await pause(1800)
+    const dialog = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible')
+    if (!(await visible(dialog.first()))) return true
+  }
+  return true
+}
+
+async function dismissNewNoteDialog(page: Page, log: (line: SwitchLog) => void) {
+  const dialog = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible').filter({
+    hasText: NOTE_DIALOG_RE,
+  })
+  if (!(await visible(dialog.first()))) return false
+
+  const closed =
+    (await clickIfVisible(
+      dialog
+        .getByRole("button", { name: /^(Close|Закрыть|Закрити|Cerrar|Fermer|Schließen)$/i })
+        .or(dialog.locator('[aria-label="Close"], [aria-label="Закрыть"], [aria-label="Закрити"]'))
+        .last(),
+      2500,
+    )) ||
+    (await page.keyboard.press("Escape").then(() => true).catch(() => false))
+  await pause(700)
+  if (closed) {
+    log({ level: "info", text: "Закрыли модалку New note возле аватарки" })
+  }
+  return true
+}
+
+async function profilePhotoUploadControlsVisible(page: Page) {
+  if (await visible(page.getByRole("button", { name: UPLOAD_PHOTO_RE }).first())) return true
+  if (await visible(page.getByRole("menuitem", { name: UPLOAD_PHOTO_RE }).first())) return true
+  if (await visible(page.getByText(UPLOAD_PHOTO_RE).first())) return true
+  if (await visible(page.getByRole("button", { name: CHOOSE_PROFILE_PICTURE_RE }).first())) return true
+  if (await visible(page.getByRole("menuitem", { name: CHOOSE_PROFILE_PICTURE_RE }).first())) return true
+  return false
+}
+
+async function clickProfilePhotoCameraByGeometry(page: Page) {
+  const point = await page
+    .evaluate(() => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 70 &&
+          box.height >= 70 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < Math.min(650, innerHeight) &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const images = [...document.querySelectorAll("img, image")]
+        .filter(visible)
+        .map((node) => {
+          const box = (node as HTMLElement).getBoundingClientRect()
+          const label = `${node.getAttribute("alt") || ""} ${node.getAttribute("aria-label") || ""}`
+          const area = box.width * box.height
+          const centerPenalty = Math.abs(box.left + box.width / 2 - innerWidth / 2)
+          const topScore = box.top < 180 ? 200 : 0
+          const avatarScore = /profile|avatar|foto|photo|picture|bild/i.test(label) ? 300 : 0
+          return { box, score: avatarScore + area / 100 - centerPenalty - topScore }
+        })
+        .sort((left, right) => right.score - left.score)
+      const picked = images[0]?.box
+      if (!picked) return null
+      return {
+        x: Math.min(picked.right - 8, picked.left + picked.width * 0.86),
+        y: Math.min(picked.bottom - 8, picked.top + picked.height * 0.86),
+      }
+    })
+    .catch(() => null)
+  if (!point) return false
+  await page.mouse.click(point.x, point.y).catch(() => undefined)
+  await pause(1200)
+  return true
+}
+
+async function clickProfilePhotoEditControl(page: Page) {
+  const clicked = await page
+    .evaluate(() => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 18 &&
+          box.height >= 18 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < Math.min(650, innerHeight) &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const buttons = [...document.querySelectorAll('button, [role="button"], [aria-label], a')]
+        .filter(visible) as HTMLElement[]
+      const candidates = buttons
+        .map((node) => {
+          const rect = node.getBoundingClientRect()
+          const text = `${node.getAttribute("aria-label") || ""} ${node.innerText || ""}`.replace(/\s+/g, " ")
+          if (/new note|share a thought|messenger|music|cover photo|облож|note/i.test(text)) return null
+          const strong = /update profile picture|edit profile picture|change profile picture|add profile picture|profile photo|profile picture|фото профиля|аватар|profilbild|foto de perfil|photo de profil/i.test(text)
+          const camera = /camera|камера|photo|picture|фото|bild/i.test(text)
+          const hasIcon = Boolean(node.querySelector("svg, i, img"))
+          const nearHeaderAvatar = rect.top >= 120 && rect.top <= 560 && rect.left >= innerWidth * 0.25 && rect.left <= innerWidth * 0.75
+          const compact = rect.width <= 180 && rect.height <= 120
+          const score =
+            Number(strong) * 100 +
+            Number(camera) * 35 +
+            Number(hasIcon) * 10 +
+            Number(nearHeaderAvatar) * 18 +
+            Number(compact) * 8 -
+            Math.abs(rect.left + rect.width / 2 - innerWidth / 2) / 40
+          return { node, score }
+        })
+        .filter((item): item is { node: HTMLElement; score: number } => item !== null && item.score > 35)
+        .sort((left, right) => right.score - left.score)
+      candidates[0]?.node.click()
+      return Boolean(candidates[0])
+    })
+    .catch(() => false)
+  if (clicked) {
+    await pause(1200)
+  }
+  return clicked
+}
+
+async function openProfilePhotoEditor(page: Page, log: (line: SwitchLog) => void) {
+  const directControls = [
+    page.getByRole("button", { name: PROFILE_PHOTO_RE }),
+    page.getByLabel(PROFILE_PHOTO_RE),
+    page.locator(
+      '[aria-label*="profile picture" i], [aria-label*="profile photo" i], [aria-label*="фото профиля" i], [aria-label*="Profilbild" i]',
+    ),
+  ]
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await dismissNewNoteDialog(page, log)
+    if (await profilePhotoUploadControlsVisible(page)) return true
+
+    if (attempt === 0 && (await clickFirstVisible(directControls, 3500))) {
+      await pause(900)
+      if (await dismissNewNoteDialog(page, log)) continue
+      if (await profilePhotoUploadControlsVisible(page)) return true
+    }
+
+    if (await clickProfilePhotoEditControl(page)) {
+      if (await dismissNewNoteDialog(page, log)) continue
+      if (await profilePhotoUploadControlsVisible(page)) return true
+    }
+
+    if (await clickProfilePhotoCameraByGeometry(page)) {
+      if (await dismissNewNoteDialog(page, log)) continue
+      if (await profilePhotoUploadControlsVisible(page)) return true
+    }
+  }
+
+  return false
+}
+
+const NAME_CHANGE_CONFIRM_RE = /confirm name change request|please enter your password/i
+const NAME_CHANGE_SUCCESS_RE =
+  /request submitted|submitted|we'?ll review|pending review|request sent|your request has been|запрос.*отправ|отправлен.*запрос/i
+const NAME_CHANGE_EDIT_RE = /current page name|new page name|review change/i
+
+type NameChangeResult = {
+  ok: boolean
+  nameApplied: boolean
+}
+
+async function typeReplacingCurrentValue(page: Page, value: string) {
+  await page.keyboard.press("Meta+A").catch(() => undefined)
+  await page.keyboard.press("Control+A").catch(() => undefined)
+  await page.keyboard.press("Backspace").catch(() => undefined)
+  await page.keyboard.type(value, { delay: 25 })
+}
+
+async function inputTextValue(locator: Locator) {
+  return locator
+    .evaluate((node: HTMLInputElement | HTMLTextAreaElement) => node.value || "")
+    .catch(() => "")
+}
+
+async function setInputValue(locator: Locator, value: string) {
+  await locator.evaluate((node: HTMLInputElement | HTMLTextAreaElement, nextValue) => {
+    const prototype = node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set
+    if (setter) setter.call(node, nextValue)
+    else node.value = nextValue
+    node.dispatchEvent(new Event("input", { bubbles: true }))
+    node.dispatchEvent(new Event("change", { bubbles: true }))
+  }, value)
+}
+
+async function findPageNameInput(page: Page, currentName: string) {
+  const roots: Array<Page | Frame> = [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  let fallback: Locator | undefined
+  let best: { field: Locator; score: number } | undefined
+
+  for (const root of roots) {
+    const fields = root.locator('input[type="text"], input:not([type]), textarea')
+    const count = await fields.count().catch(() => 0)
+    for (let index = 0; index < count; index += 1) {
+      const field = fields.nth(index)
+      if (!(await visible(field))) continue
+      if (!fallback) fallback = field
+      const value = await inputTextValue(field)
+      const label = await field
+        .evaluate((node: HTMLInputElement | HTMLTextAreaElement) =>
+          [
+            node.name || "",
+            node.id || "",
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("placeholder") || "",
+            node.closest("tr, [role='row'], form, section, div")?.textContent || "",
+          ]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim(),
+        )
+        .catch(() => "")
+      const score =
+        (sameFan(value, currentName) ? 1000 : 0) +
+        (/page\s*name|current\s*page\s*name|new\s*page\s*name|name/i.test(label) ? 200 : 0) +
+        (value ? 50 : 0)
+      if (!best || score > best.score) best = { field, score }
+    }
+  }
+
+  return best?.field || fallback || null
+}
+
+async function fillPageNameInput(page: Page, fan: FanFormatInput) {
+  const field = await findPageNameInput(page, fan.currentName)
+  if (!field) throw new Error("Не нашли поле ввода Page name")
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await field.click({ timeout: 4000 }).catch(() => undefined)
+    await pause(250)
+    await typeReplacingCurrentValue(page, fan.newName)
+    await pause(350)
+    const actual = await inputTextValue(field)
+    if (sameFan(actual, fan.newName)) return actual
+  }
+
+  await setInputValue(field, fan.newName)
+  await pause(350)
+  const actual = await inputTextValue(field)
+  if (sameFan(actual, fan.newName)) return actual
+  throw new Error(`Не удалось ввести новое имя Page: в поле осталось «${actual || "пусто"}»`)
+}
+
+async function pageNameConfirmationFinished(page: Page) {
+  const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "")
+  if (NAME_CHANGE_SUCCESS_RE.test(bodyText)) return true
+  if (await pageNameConfirmationVisible(page)) return false
+  return !NAME_CHANGE_EDIT_RE.test(bodyText)
+}
+
+async function findVisiblePasswordInput(page: Page, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs
+  const roots = () => [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  do {
+    for (const root of roots()) {
+      const input = root.locator('input[type="password"]').first()
+      if (await input.isVisible({ timeout: 400 }).catch(() => false)) return input
+    }
+    await pause(300)
+  } while (Date.now() < deadline)
+  return null
+}
+
+async function pageNameConfirmationVisible(page: Page) {
+  if (await findVisiblePasswordInput(page, 700)) return true
+  const roots = [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  for (const root of roots) {
+    const text = await root.locator("body").innerText({ timeout: 700 }).catch(() => "")
+    if (NAME_CHANGE_CONFIRM_RE.test(text) || /\bRequest Change\b/i.test(text)) return true
+  }
+  return false
+}
+
+async function clickNameConfirmAction(page: Page, log: (line: SwitchLog) => void) {
+  const roots = () => [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  for (const root of roots()) {
+    if (await clickLegacyFacebookSubmit(root, NAME_CONFIRM_SUBMIT_RE)) {
+      log({ level: "info", text: "Нажали финальную кнопку подтверждения" })
+      return true
+    }
+  }
+
+  await page.setViewportSize({ width: 1000, height: 1100 }).catch(() => undefined)
+  await page.mouse.wheel(0, 500).catch(() => undefined)
+  await pause(500)
+  for (const root of roots()) {
+    if (await clickLegacyFacebookSubmit(root, NAME_CONFIRM_SUBMIT_RE)) {
+      log({ level: "info", text: "Нажали финальную кнопку подтверждения после прокрутки" })
+      return true
+    }
+  }
+
+  if (await pageNameConfirmationVisible(page)) {
+    await page.mouse.click(835, 708).catch(() => undefined)
+    await pause(900)
+    log({ level: "info", text: "Нажали Request Change координатой старой модалки" })
+    return true
+  }
+  return false
+}
+
+async function verifyNameChangeAfterSubmit(
+  page: Page,
+  newName: string,
+  log: (line: SwitchLog) => void,
+): Promise<NameChangeResult> {
+  const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "")
+  const hasSubmittedText = NAME_CHANGE_SUCCESS_RE.test(bodyText)
+
+  await page.goto("https://www.facebook.com/me", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+  await pause(2200)
+  const actorName = await visibleActorName(page)
+  if (sameFan(actorName, newName)) {
+    log({ level: "ok", text: `Facebook уже показывает новое имя: ${newName}` })
+    return { ok: true, nameApplied: true }
+  }
+  const profileText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "")
+  const title = await page.title().catch(() => "")
+  if (newName && new RegExp(`(^|\\s)${escapeRegex(newName)}($|\\s)`, "i").test(`${title}\n${profileText.slice(0, 2000)}`)) {
+    log({ level: "ok", text: `Новое имя найдено на странице профиля: ${newName}` })
+    return { ok: true, nameApplied: true }
+  }
+  if (hasSubmittedText || !NAME_CHANGE_CONFIRM_RE.test(profileText)) {
+    log({ level: "info", text: `Запрос имени отправлен, но Facebook пока показывает старое имя: ${newName}` })
+    return { ok: true, nameApplied: false }
+  }
+  return { ok: false, nameApplied: false }
+}
+
+async function confirmPageNameChangeAfterReview(
+  page: Page,
+  adsPowerProfileId: string,
+  log: (line: SwitchLog) => void,
+  newName: string,
+): Promise<NameChangeResult> {
+  for (let step = 0; step < 6; step += 1) {
+    const initialText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "")
+    const passwordInput = await findVisiblePasswordInput(page, step === 0 ? 2500 : 1000)
+    const confirmVisible = NAME_CHANGE_CONFIRM_RE.test(initialText) || /\bRequest Change\b/i.test(initialText)
+    let passwordFilled = false
+    if (passwordInput) {
+      log({ level: "info", text: "Facebook просит повторное подтверждение паролем" })
+      const passwordResult = await getAdsPowerFacebookPassword(adsPowerProfileId)
+      if (!passwordResult.ok || !passwordResult.password) {
+        throw new Error(passwordResult.message || "Нет пароля Facebook для подтверждения смены имени Page")
+      }
+      log({ level: "ok", text: passwordResult.message })
+      await passwordInput.click({ timeout: 4000 })
+      await typeReplacingCurrentValue(page, passwordResult.password)
+      log({ level: "ok", text: "Пароль Facebook подставлен в подтверждение" })
+      passwordFilled = true
+    } else if (confirmVisible) {
+      log({ level: "info", text: "Facebook открыл старую модалку подтверждения имени" })
+      const passwordResult = await getAdsPowerFacebookPassword(adsPowerProfileId)
+      if (!passwordResult.ok || !passwordResult.password) {
+        throw new Error(passwordResult.message || "Нет пароля Facebook для подтверждения смены имени Page")
+      }
+      log({ level: "ok", text: passwordResult.message })
+      await page.setViewportSize({ width: 1000, height: 1100 }).catch(() => undefined)
+      await page.mouse.wheel(0, 500).catch(() => undefined)
+      await pause(500)
+      const visiblePassword = await findVisiblePasswordInput(page, 1500)
+      if (visiblePassword) {
+        await visiblePassword.click({ timeout: 4000 })
+        await typeReplacingCurrentValue(page, passwordResult.password)
+        log({ level: "ok", text: "Пароль Facebook подставлен в старую модалку" })
+        passwordFilled = true
+      }
+    }
+
+    if (confirmVisible && !passwordFilled) {
+      await pause(700)
+      continue
+    }
+
+    const clicked = await clickNameConfirmAction(page, log)
+    if (clicked) {
+      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+      await pause(2200)
+      if (await pageNameConfirmationFinished(page) || !(await pageNameConfirmationVisible(page))) {
+        return verifyNameChangeAfterSubmit(page, newName, log)
+      }
+    }
+
+    const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "")
+    if (NAME_CHANGE_SUCCESS_RE.test(bodyText)) return verifyNameChangeAfterSubmit(page, newName, log)
+    if (!clicked && !(await pageNameConfirmationVisible(page))) {
+      return verifyNameChangeAfterSubmit(page, newName, log)
+    }
+    if (!clicked && !/Continue|Log in|Login|Save changes|Save change|Request Change|Confirm Name Change Request/i.test(bodyText)) {
+      return { ok: false, nameApplied: false }
+    }
+  }
+  return { ok: false, nameApplied: false }
+}
+
+async function clickFacebookTextAction(page: Page, name: RegExp, timeoutMs = 5000) {
+  const clicked = await clickFirstVisible(
+    [
+      page.getByRole("button", { name }),
+      page.getByRole("menuitem", { name }),
+      page.getByRole("link", { name }),
+      page.getByText(name),
+    ],
+    timeoutMs,
+  )
+  if (clicked) return true
+
+  const clickedByDom = await page
+    .evaluate(
+      ({ source, flags }) => {
+        const re = new RegExp(source, flags)
+        const visible = (el: Element) => {
+          const box = (el as HTMLElement).getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 20 &&
+            box.height >= 14 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || "1") > 0
+          )
+        }
+        const textOf = (el: Element) =>
+          `${el.getAttribute("aria-label") || ""}\n${(el as HTMLElement).innerText || ""}`
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        const candidates = [...document.querySelectorAll("a, button, [role='button'], [role='menuitem'], [tabindex]")]
+          .filter(visible)
+          .map((node) => {
+            const lines = textOf(node)
+            const exact = lines.some((line) => re.test(line))
+            const nested = !exact && [...node.querySelectorAll("*")].some((child) => textOf(child).some((line) => re.test(line)))
+            return { node: node as HTMLElement, exact, nested }
+          })
+          .filter((item) => item.exact || item.nested)
+        const picked = candidates.sort((left, right) => Number(right.exact) - Number(left.exact))[0]?.node
+        picked?.click()
+        return Boolean(picked)
+      },
+      { source: name.source, flags: name.flags },
+    )
+    .catch(() => false)
+  if (clickedByDom) return true
+
+  const source = JSON.stringify(name.source)
+  const flags = JSON.stringify(name.flags)
+  return page
+    .evaluate(`(() => {
+      const re = new RegExp(${source}, ${flags})
+      const submit = [...document.querySelectorAll("input[type='submit'], button")]
+        .find((node) => re.test([node.value || "", node.innerText || "", node.getAttribute("aria-label") || ""].join(" ")))
+      if (!submit) return false
+      const form = submit.closest("form")
+      if (submit && form?.requestSubmit) form.requestSubmit(submit)
+      else if (form?.submit) form.submit()
+      else submit?.click()
+      return Boolean(form || submit)
+    })()`)
+    .catch(() => false)
+}
+
+function facebookPageIdFromUrl(rawUrl: string) {
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.searchParams.get("id") || parsed.pathname.match(/\/(\d{8,})\/?$/)?.[1] || ""
+  } catch {
+    return ""
+  }
+}
+
+async function clickPageNameSettingsRow(page: Page, fanName: string) {
+  const clicked = await page
+    .evaluate((name) => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 20 &&
+          box.height >= 14 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const linesOf = (el: Element) =>
+        `${el.getAttribute("aria-label") || ""}\n${(el as HTMLElement).innerText || ""}`
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      const nodes = [...document.querySelectorAll("a, button, [role='button'], [role='link'], [tabindex], div, span")]
+        .filter(visible) as HTMLElement[]
+      const fanMarks = nodes
+        .filter((node) => linesOf(node).some((line) => line === name))
+        .map((node) => node.getBoundingClientRect().top)
+      const fanTop = fanMarks.length > 0 ? Math.min(...fanMarks) : -1
+      const rows = nodes
+        .filter((node) => linesOf(node).some((line) => /^Name$/i.test(line)))
+        .map((node) => {
+          let row = node
+          for (let depth = 0; depth < 8 && row.parentElement; depth += 1) {
+            const box = row.getBoundingClientRect()
+            const lines = linesOf(row)
+            if (box.width >= 240 && box.height >= 36 && box.height <= 180 && lines.some((line) => /^Name$/i.test(line))) {
+              break
+            }
+            row = row.parentElement as HTMLElement
+          }
+          const box = row.getBoundingClientRect()
+          const text = linesOf(row).join(" ")
+          return { row, box, text }
+        })
+        .filter(({ box, text }) => box.width >= 180 && box.height >= 24 && box.height <= 220 && !/first name|last name/i.test(text))
+        .filter(({ box }) => fanTop < 0 || box.top > fanTop - 4)
+        .sort((left, right) => left.box.top - right.box.top || left.box.height - right.box.height)
+      const picked = rows[0]
+      if (!picked) return false
+      const target =
+        (document.elementFromPoint(picked.box.right - 24, picked.box.top + picked.box.height / 2) as HTMLElement | null)
+          ?.closest("a, button, [role='button'], [role='link'], [tabindex]") as HTMLElement | null
+      ;(target || picked.row).click()
+      return true
+    }, fanName)
+    .catch(() => false)
+  if (clicked) return true
+
+  const labels = page.getByText(/^Name$/i)
+  const count = await labels.count().catch(() => 0)
+  const viewport = page.viewportSize() || { width: 760, height: 980 }
+  for (let index = 0; index < count; index += 1) {
+    const label = labels.nth(index)
+    if (!(await visible(label))) continue
+    const box = await label.boundingBox().catch(() => null)
+    if (!box || box.y < 80 || box.y > viewport.height - 80) continue
+    await page.mouse.click(viewport.width - 48, box.y + box.height / 2).catch(() => undefined)
+    await pause(1000)
+    if (/section=name/i.test(page.url())) return true
+    await page.mouse.dblclick(viewport.width - 48, box.y + box.height / 2).catch(() => undefined)
+    await pause(1200)
+    if (/section=name/i.test(page.url())) return true
+  }
+  for (const y of [150, 185, 220, 255, 290, 325]) {
+    await page.mouse.click(viewport.width - 48, y).catch(() => undefined)
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => undefined)
+    await pause(1000)
+    if (/section=name/i.test(page.url())) return true
+    if (!/settings\/?\?tab=pages/i.test(page.url())) {
+      await page.goto("https://web.facebook.com/settings/?tab=pages", { waitUntil: "load", timeout: 30_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 7000 }).catch(() => undefined)
+      await pause(800)
+    }
+  }
+  return false
+}
+
+async function clickLegacyFacebookSubmit(root: Page | Frame, label: RegExp) {
+  return root
+    .evaluate(
+      `(() => {
+        const re = new RegExp(${JSON.stringify(label.source)}, ${JSON.stringify(label.flags)})
+        const visible = (el) => {
+          const box = el.getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 20 &&
+            box.height >= 16 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden"
+          )
+        }
+        const target = [...document.querySelectorAll("*")]
+          .filter(visible)
+          .map((node) => {
+            const text = [node.value || "", node.getAttribute("aria-label") || "", node.innerText || node.textContent || ""]
+              .join(" ")
+              .replace(/\\s+/g, " ")
+              .trim()
+            const box = node.getBoundingClientRect()
+            return { node, text, area: box.width * box.height }
+          })
+          .filter(({ text }) => re.test(text))
+          .sort((a, b) => a.area - b.area)[0]?.node
+        if (target) {
+          const clickable = target.closest("button, input, a, [role='button'], [tabindex]") || target
+          const form = clickable.closest("form")
+          if ((clickable.tagName === "BUTTON" || clickable.tagName === "INPUT") && form?.requestSubmit) {
+            form.requestSubmit(clickable)
+          } else {
+            clickable.click()
+          }
+        }
+        return Boolean(target)
+      })()`,
+    )
+    .catch(() => false)
+}
+
+async function clickPageNameReviewChange(page: Page, log: (line: SwitchLog) => void) {
+  for (const root of [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]) {
+    if (await clickLegacyFacebookSubmit(root, /^Review Change$/i)) {
+      log({ level: "info", text: "Нажали Review Change внутри формы Page name" })
+      await pause(1000)
+      const bodyText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "")
+      const passwordVisible = Boolean(await findVisiblePasswordInput(page, 800))
+      if (NAME_CHANGE_CONFIRM_RE.test(bodyText) || passwordVisible) return true
+    }
+  }
+
+  const point = await page
+    .evaluate(() => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 20 &&
+          box.height >= 16 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const nodes = [...document.querySelectorAll("button, input, a, [role='button'], [tabindex], span, div")]
+        .filter(visible) as HTMLElement[]
+      const candidates = nodes
+        .map((node) => {
+          const box = node.getBoundingClientRect()
+          const text = [node.getAttribute("aria-label") || "", node.textContent || "", (node as HTMLInputElement).value || ""]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+          const inMainArea = box.left > Math.min(180, innerWidth * 0.28)
+          return { node, box, text, area: box.width * box.height, inMainArea }
+        })
+        .filter(({ text }) => /^Review Change$/i.test(text) || /\bReview Change\b/i.test(text))
+        .sort((left, right) => Number(right.inMainArea) - Number(left.inMainArea) || left.area - right.area)
+      const picked = candidates[0]
+      if (!picked) return null
+      const clickable = picked.node.closest("button, input, a, [role='button'], [tabindex]") as HTMLElement | null
+      const box = (clickable || picked.node).getBoundingClientRect()
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+    })
+    .catch(() => null)
+  if (point) {
+    await page.mouse.click(point.x, point.y).catch(() => undefined)
+    await pause(900)
+    log({ level: "info", text: "Нажали Review Change по найденной кнопке формы" })
+    return true
+  }
+
+  if (!(await pageNameEditFormVisible(page))) return false
+  await page.mouse.click(270, 340).catch(() => undefined)
+  await pause(900)
+  log({ level: "info", text: "Нажали Review Change координатой внутри формы Page name" })
+  return true
+}
+
+async function summarizeVisiblePage(page: Page) {
+  const lines = await page
+    .locator("body")
+    .innerText({ timeout: 4000 })
+    .then((text) =>
+      text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line, index, all) => all.indexOf(line) === index)
+        .slice(0, 18)
+        .join(" · "),
+    )
+    .catch(() => "")
+  return `${page.url()}${lines ? ` · ${lines.slice(0, 420)}` : ""}`
+}
+
+async function pageNameEditFormVisible(page: Page) {
+  if (/[?&]tab=profile/i.test(page.url()) && /[?&]section=name/i.test(page.url())) return true
+  const bodyText = await page.locator("body").innerText({ timeout: 4000 }).catch(() => "")
+  if (/current page name|new page name|review change|confirm name change request/i.test(bodyText)) return true
+  const fields = page.locator('input[type="text"], input:not([type]), textarea')
+  const count = await fields.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const field = fields.nth(index)
+    if (!(await visible(field))) continue
+    const label = await field
+      .evaluate((node: HTMLInputElement | HTMLTextAreaElement) =>
+        [
+          node.name || "",
+          node.id || "",
+          node.getAttribute("aria-label") || "",
+          node.getAttribute("placeholder") || "",
+          node.value || "",
+        ].join(" "),
+      )
+      .catch(() => "")
+    if (/name|page/i.test(label)) return true
+  }
+  return false
+}
+
+async function openPageNameViaPageSettings(
+  page: Page,
+  fan: FanFormatInput,
+  log: (line: SwitchLog) => void,
+  fanProfileUrl: string,
+  adsPowerProfileId: string,
+) {
+  log({ level: "info", text: "Пробуем путь Page: Settings & privacy → Settings → Page setup → Name" })
+  await page.setViewportSize({ width: 756, height: 982 }).catch(() => undefined)
+  await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+  await pause(1500)
+  await dismissCookies(page, log)
+  await dismissOverlays(page)
+
+  await ensureSwitcherOpen(page, log)
+  if (!(await clickFacebookTextAction(page, SETTINGS_PRIVACY_RE))) {
+    await page.keyboard.press("Escape").catch(() => undefined)
+    throw new Error("Не нашли Settings & privacy страницы")
+  }
+  log({ level: "ok", text: "Открыли Settings & privacy страницы" })
+  await pause(900)
+  const settingsLayers = await describeOpenLayers(page).catch(() => [])
+  if (settingsLayers.length > 0) {
+    log({ level: "info", text: `Меню настроек страницы: ${settingsLayers.join(" | ")}` })
+  }
+
+  if (!(await clickFacebookTextAction(page, SETTINGS_RE))) {
+    const pageId = facebookPageIdFromUrl(fanProfileUrl)
+    if (!pageId) throw new Error("Не нашли Settings страницы")
+    await saveFailureArtifact(
+      page,
+      { profileId: pageId, phase: "page-settings-menu", message: "Не нашли Settings страницы" },
+      log,
+    )
+    log({ level: "info", text: "Settings в меню не кликнулся — открываем Page settings по ID" })
+    const settingsUrls = [
+      `https://www.facebook.com/pages/settings/?tab=page_info&id=${pageId}`,
+      `https://web.facebook.com/pages/settings/?tab=page_info&id=${pageId}`,
+      `https://www.facebook.com/profile.php?id=${pageId}&sk=settings`,
+    ]
+    for (const url of settingsUrls) {
+      await page.goto(url, { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+      await pause(2200)
+      const bodyText = await page.locator("body").innerText({ timeout: 4000 }).catch(() => "")
+      log({ level: "info", text: `Page settings candidate: ${await summarizeVisiblePage(page)}` })
+      if (/page setup|page info|general page settings|name|settings/i.test(bodyText)) break
+    }
+  } else {
+    log({ level: "ok", text: "Открыли Settings страницы" })
+    await page.waitForLoadState("load", { timeout: 45_000 }).catch(() => undefined)
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+  }
+
+  await page.goto("https://web.facebook.com/settings/?tab=pages", { waitUntil: "load", timeout: 60_000 })
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+  await pause(1800)
+  log({ level: "ok", text: "Открыли Page setup через settings/?tab=pages" })
+  if (process.env.FAN_FORMAT_DEBUG === "1") {
+    await saveFailureArtifact(page, {
+      profileId: adsPowerProfileId,
+      phase: "page-setup-before-name-click",
+      message: "Перед открытием строки Name",
+    }, log)
+  }
+
+  let openedNameSection = await clickPageNameSettingsRow(page, fan.currentName)
+  if (!openedNameSection) {
+    log({ level: "info", text: `Не нашли строку Name для страницы: ${await summarizeVisiblePage(page)}` })
+    log({ level: "info", text: "Пробуем прямой раздел Page name: settings/?tab=profile" })
+    await page.goto("https://web.facebook.com/settings/?tab=profile", {
+      waitUntil: "load",
+      timeout: 60_000,
+    }).catch(() => undefined)
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+    await pause(1800)
+    const profileText = await page.locator("body").innerText({ timeout: 4000 }).catch(() => "")
+    openedNameSection = /[?&]tab=profile/i.test(page.url()) || /general page settings|name/i.test(profileText)
+    if (openedNameSection) {
+      log({ level: "ok", text: "Открыли Page name прямым URL" })
+    }
+  }
+  if (!openedNameSection) {
+    return false
+  }
+  log({ level: "ok", text: "Открыли General Page settings → Name" })
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+  await pause(1500)
+
+  const viewport = page.viewportSize() || { width: 756, height: 982 }
+  for (const x of [707, 715, 699, viewport.width - 45]) {
+    await page.mouse.click(x, 153).catch(() => undefined)
+    await pause(350)
+  }
+  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
+  await pause(1600)
+  if (!(await pageNameEditFormVisible(page))) {
+    log({ level: "info", text: `Не открылась форма Edit для Page name: ${await summarizeVisiblePage(page)}` })
+    return false
+  }
+  log({ level: "ok", text: "Открыли Edit для Page name" })
+
+  const typedName = await fillPageNameInput(page, fan)
+  log({ level: "ok", text: `Ввели новое имя Page: ${typedName}` })
+  if (process.env.FAN_FORMAT_DEBUG === "1") {
+    await saveFailureArtifact(page, {
+      profileId: adsPowerProfileId,
+      phase: "page-name-before-review",
+      message: "Перед нажатием Review Change",
+    }, log)
+  }
+  if (!(await clickPageNameReviewChange(page, log))) {
+    await saveFailureArtifact(page, {
+      profileId: adsPowerProfileId,
+      phase: "page-name-review-button",
+      message: "Не нашли настоящую кнопку Review Change",
+    }, log)
+    throw new Error("Не нашли настоящую кнопку Review Change")
+  }
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+  await pause(2500)
+
+  const confirmation = await confirmPageNameChangeAfterReview(page, adsPowerProfileId, log, fan.newName)
+  if (!confirmation.ok) {
+    log({ level: "info", text: `Подтверждение остановилось на экране: ${await summarizeVisiblePage(page)}` })
+    await saveFailureArtifact(page, {
+      profileId: adsPowerProfileId,
+      phase: "page-name-confirm",
+      message: "Не завершили подтверждение смены имени Page после Review Change",
+    }, log)
+    throw new Error("Не завершили подтверждение смены имени Page после Review Change")
+  }
+  log({ level: "ok", text: `Запрос смены названия отправлен: ${fan.newName}` })
+  return confirmation
+}
+
+async function updateFanAvatar(page: Page, fan: FanFormatInput, log: (line: SwitchLog) => void) {
+  if (!fan.avatarPath) throw new Error("Файл аватарки не передан")
+  log({ level: "info", text: `Меняем аватарку «${fan.newName || fan.currentName}»` })
+  await dismissPageWelcome(page, log)
+  if (!(await openProfilePhotoEditor(page, log))) {
+    throw new Error("Не нашли кнопку смены аватарки")
+  }
+
+  const chooseOpened = await clickFirstVisible(
+    [
+      page.getByRole("button", { name: CHOOSE_PROFILE_PICTURE_RE }),
+      page.getByRole("menuitem", { name: CHOOSE_PROFILE_PICTURE_RE }),
+      page.getByText(CHOOSE_PROFILE_PICTURE_RE),
+    ],
+    3500,
+  )
+  if (chooseOpened) {
+    log({ level: "ok", text: "Открыли выбор фото профиля" })
+    await page.getByRole("button", { name: UPLOAD_PHOTO_RE }).first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined)
+    await pause(800)
+  }
+  await dismissNewNoteDialog(page, log)
+
+  if (!(await clickUploadAndSetFile(page, fan.avatarPath, log))) {
+    throw new Error("Не нашли загрузчик аватарки")
+  }
+  await pause(2500)
+  if (!(await saveFacebookDialog(page, log))) {
+    throw new Error("Не нашли кнопку сохранения аватарки")
+  }
+  log({ level: "ok", text: `Аватарка обновлена: ${fan.newName}` })
+}
+
+async function updateFanCover(page: Page, fan: FanFormatInput, log: (line: SwitchLog) => void) {
+  if (!fan.coverPath) return
+  log({
+    level: "info",
+    text: `Меняем обложку «${fan.currentName}»${fan.coverTheme ? ` · ${fan.coverTheme}` : ""}`,
+  })
+  await dismissPageWelcome(page, log)
+  const opened = await clickFirstVisible(
+    [
+      page.getByRole("button", { name: COVER_PHOTO_RE }),
+      page.getByLabel(COVER_PHOTO_RE),
+      page.getByText(COVER_PHOTO_RE),
+      page.locator('[aria-label*="cover photo" i], [aria-label*="cover" i], [aria-label*="облож" i], [aria-label*="Titelbild" i]'),
+    ],
+    5000,
+  )
+
+  if (!opened) {
+    throw new Error("Не нашли кнопку смены обложки")
+  }
+
+  await pause(1200)
+  if (!(await clickUploadAndSetFile(page, fan.coverPath, log))) {
+    throw new Error("Не нашли загрузчик обложки")
+  }
+  await pause(3000)
+  if (!(await saveFacebookDialog(page, log))) {
+    throw new Error("Не нашли кнопку сохранения обложки")
+  }
+  log({ level: "ok", text: `Обложка обновлена: ${fan.coverTheme || "cover"}` })
+}
+
+async function updateFanName(
+  page: Page,
+  fan: FanFormatInput,
+  log: (line: SwitchLog) => void,
+  adsPowerProfileId: string,
+) {
+  log({ level: "info", text: `Меняем имя «${fan.currentName}» → «${fan.newName}»` })
+  const fanProfileUrl = page.url()
+
+  const result = await openPageNameViaPageSettings(page, fan, log, fanProfileUrl, adsPowerProfileId)
+  if (result) return result
+  throw new Error("Page setup открыт, но форма смены имени Page не найдена")
+}
+
+export async function runFacebookFanFormat(
+  profileId: string,
+  fans: FanFormatInput[],
+  onLog: (line: SwitchLog) => void,
+): Promise<FanFormatResult> {
+  return runFacebookFanFormatQueue(
+    profileId,
+    fans.map((fan) => ({ currentName: fan.currentName, fan })),
+    async (job) => job.fan,
+    onLog,
+  )
+}
+
+export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
+  profileId: string,
+  jobs: T[],
+  prepareFan: (job: T) => Promise<FanFormatInput>,
+  onLog: (line: SwitchLog) => void,
+  prepareMedia?: (fan: FanFormatInput, job: T) => Promise<Partial<FanFormatInput>>,
+): Promise<FanFormatResult> {
+  const id = profileId.trim()
+  if (!id) return { ok: false, message: "Выберите профиль" }
+  if (jobs.length === 0) return { ok: false, message: "Выберите фанку" }
+
+  let browser: Browser | undefined
+  let page: Page | undefined
+  const formatted: NonNullable<FanFormatResult["formatted"]> = []
+  const pending: NonNullable<FanFormatResult["pending"]> = []
+  const failed: Array<{ currentName: string; newName?: string; message: string }> = []
+  try {
+    const opened = await openFacebookPage(id, onLog)
+    browser = opened.browser
+    page = opened.page
+
+    for (const job of jobs) {
+      const currentName = job.currentName.trim()
+      let preparedFan: FanFormatInput | undefined
+      try {
+        const selectedName = await switchToFan(page, currentName, onLog)
+        await gotoCurrentFanProfile(page, selectedName, onLog)
+        preparedFan = await prepareFan(job)
+        const fan = { ...preparedFan, currentName: preparedFan.currentName || currentName }
+
+        let nameResult: NameChangeResult
+        if (!sameFan(selectedName, currentName)) {
+          onLog({
+            level: "ok",
+            text: `Facebook уже показывает новое имя фанки: ${currentName} → ${selectedName}`,
+          })
+          fan.newName = selectedName
+          nameResult = { ok: true, nameApplied: true }
+        } else {
+          nameResult = await updateFanName(page, fan, onLog, id)
+        }
+        if (!nameResult.nameApplied) {
+          const message = `Facebook принял запрос имени на review (${fan.newName}); avatar/cover пропущены до применения имени`
+          pending.push({ currentName: fan.currentName, newName: fan.newName, message })
+          onLog({ level: "info", text: message })
+          await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+          await pause(2000)
+          continue
+        }
+
+        formatted.push({
+          currentName: fan.currentName,
+          newName: fan.newName,
+          nameApplied: true,
+        })
+
+        if (prepareMedia) {
+          Object.assign(fan, await prepareMedia(fan, job))
+        }
+
+        await gotoCurrentFanProfile(page, fan.newName, onLog)
+
+        if (fan.avatarPath) {
+          await updateFanAvatar(page, fan, onLog)
+        } else {
+          onLog({ level: "info", text: "Аватарку пропускаем: файл не передан" })
+        }
+
+        if (fan.coverPath) {
+          await updateFanCover(page, fan, onLog)
+        } else {
+          onLog({ level: "info", text: "Обложку пропускаем: файл не передан" })
+        }
+
+        onLog({ level: "ok", text: `Фанка отформатирована: ${fan.currentName} → ${fan.newName}` })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Фанка не отформатировалась"
+        failed.push({ currentName, newName: preparedFan?.newName, message })
+        onLog({ level: "error", text: `Фанка с ошибкой «${currentName}»: ${message}` })
+        await saveFailureArtifact(
+          page,
+          { profileId: id, phase: `fan-format-${currentName}`, message },
+          onLog,
+        )
+        await page.keyboard.press("Escape").catch(() => undefined)
+        await page.keyboard.press("Escape").catch(() => undefined)
+        await pause(800)
+      }
+      await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+      await pause(2000)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Форматирование не прошло"
+    onLog({ level: "error", text: message })
+    await saveFailureArtifact(page, { profileId: id, phase: "fan-format", message }, onLog)
+    disconnectBrowser(browser)
+    onLog({ level: "info", text: "Закрываем профиль после ошибки" })
+    await stopAdsPowerBrowser(id)
+    return { ok: false, message, formatted, pending, failed }
+  }
+
+  onLog({ level: "info", text: "Закрываем профиль" })
+  disconnectBrowser(browser)
+  const stopped = await stopAdsPowerBrowser(id)
+  if (!stopped.ok) {
+    onLog({ level: "error", text: `Окно осталось открытым: ${stopped.message}` })
+    return { ok: false, message: stopped.message, formatted, pending, failed }
+  }
+
+  const parts = [`отформатировано ${formatted.length}`]
+  if (pending.length > 0) parts.push(`на review ${pending.length}`)
+  if (failed.length > 0) parts.push(`ошибок ${failed.length}`)
+  const message = `Готово: ${parts.join(", ")}`
+  onLog({ level: failed.length > 0 ? "error" : "ok", text: message })
+  return { ok: failed.length === 0, message, formatted, pending, failed }
 }
 
 async function saveFans(profileId: string, fans: SyncedFan[], log: (line: SwitchLog) => void) {
@@ -1287,8 +2626,8 @@ async function switchToFan(page: Page, name: string, log: (line: SwitchLog) => v
     log({ level: "info", text: "Пишем из компактного меню профилей" })
   }
 
-  await clickNamedFan(page, name, log)
-  log({ level: "info", text: `Ждём, пока Facebook переключит фанку «${name}»` })
+  const selectedName = await clickNamedFan(page, name, log)
+  log({ level: "info", text: `Ждём, пока Facebook переключит фанку «${selectedName}»` })
   const closed = await profilesDialog(page)
     .first()
     .waitFor({ state: "hidden", timeout: 20_000 })
@@ -1304,6 +2643,7 @@ async function switchToFan(page: Page, name: string, log: (line: SwitchLog) => v
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
   await pause(2500)
   await dismissOverlays(page)
+  return selectedName
 }
 
 async function ensureActingAs(page: Page, name: string, postUrl: string, log: (line: SwitchLog) => void) {
