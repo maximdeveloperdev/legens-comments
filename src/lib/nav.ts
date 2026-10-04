@@ -24,6 +24,14 @@ export const dashboardNav: NavItem[] = [
         href: "/users",
       },
       {
+        title: "Команды",
+        href: "/teams",
+      },
+      {
+        title: "Библиотека Fan Page",
+        href: "/fan-page-library",
+      },
+      {
         title: "Статистика",
         href: "/stats",
       },

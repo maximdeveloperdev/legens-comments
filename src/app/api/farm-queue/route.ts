@@ -1,24 +1,9 @@
 import { NextResponse } from "next/server"
 import { kickFarmQueue, listFarmQueue } from "@/lib/farm-queue"
+import { getFarmQueueAccess } from "@/lib/farm-queue-access"
 import { getActiveSession, requireAdminSession } from "@/lib/session"
 
 export const maxDuration = 30
-
-type FarmQueueData = Awaited<ReturnType<typeof listFarmQueue>>
-
-function hideOtherUsersQueue(data: FarmQueueData, currentUserName: string) {
-  return {
-    ...data,
-    tasks: data.tasks.map((task) => {
-      if (task.createdBy === currentUserName) return task
-      return {
-        ...task,
-        createdBy: "Другой пользователь",
-        jobs: [],
-      }
-    }),
-  }
-}
 
 export async function GET(request: Request) {
   const session = await getActiveSession()
@@ -28,13 +13,9 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url)
   const ownOnly = url.searchParams.get("scope") === "own"
-  if (ownOnly) {
-    const data = await listFarmQueue({ createdBy: session.name })
-    return NextResponse.json(data)
-  }
-
-  const data = await listFarmQueue()
-  return NextResponse.json(session.role === "ADMIN" ? data : hideOtherUsersQueue(data, session.name))
+  const access = await getFarmQueueAccess(session, ownOnly ? "own" : "auto")
+  const data = await listFarmQueue({ access })
+  return NextResponse.json(data)
 }
 
 export async function POST() {

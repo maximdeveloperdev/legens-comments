@@ -68,6 +68,8 @@ const COMMENT_PHOTO_RE =
   /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add|camera|камера/i
 const SUSPENDED_PAGE_RE =
   /we suspended your page|page has been suspended|мы приостановили.*страниц|сторінк.*призупин|страниц.*заблок|page.*suspended/i
+const CONTENT_UNAVAILABLE_RE =
+  /this content isn['’]?t available right now|this content isn['’]?t available|this page isn['’]?t available|content isn['’]?t available|this post is unavailable|content unavailable|контент.*недоступ|содержим.*недоступ|публикац.*недоступ|страниц.*недоступ|цей вміст.*недоступ|ten materiał.*niedostęp|este contenido no está disponible|este conteúdo não está disponível|contenuto.*non.*disponibile|ce contenu.*n['’]?est pas disponible/i
 const COOKIE_ACCEPT_RE =
   /Allow all cookies|Accept all|Allow essential and optional cookies|Разрешить все|Принять все|Zezw[oó]l na wszystkie|Akceptuj wszystkie|Permitir todas|Aceptar todas|Aceitar todos|Consenti tutti|Accetta tutti|Autoriser tous|Tout accepter|Alle Cookies erlauben|Alle akzeptieren/i
 const SAVE_RE =
@@ -621,6 +623,35 @@ async function dismissSuspendedPageDialog(page: Page, log: (line: SwitchLog) => 
     await pause(700)
   }
   return true
+}
+
+async function assertFacebookContentAvailable(
+  page: Page,
+  log: (line: SwitchLog) => void,
+  subject = "Пост",
+) {
+  const found = await page
+    .evaluate((source) => {
+      const re = new RegExp(source, "i")
+      const text = `${document.title || ""}\n${document.body?.innerText || ""}`.replace(/\s+/g, " ").trim()
+      if (!re.test(text)) return null
+      const lines = (document.body?.innerText || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+      const headline =
+        lines.find((line) => re.test(line)) ||
+        lines.find((line) => /available|недоступ|niedostęp|disponible/i.test(line)) ||
+        "This content isn't available right now"
+      return { headline }
+    }, CONTENT_UNAVAILABLE_RE.source)
+    .catch(() => null)
+
+  if (!found) return
+
+  const message = `${subject} недоступен: Facebook показывает «${found.headline}»`
+  log({ level: "error", text: message })
+  throw new Error(message)
 }
 
 async function findComposerCaret(page: Page) {
@@ -2522,13 +2553,19 @@ async function visibleActorName(page: Page) {
 }
 
 async function revealCommentBox(page: Page, log: (line: SwitchLog) => void) {
+  await assertFacebookContentAvailable(page, log)
   const commentAction = page.getByRole("button", { name: COMMENT_ACTION_RE }).first()
   if (await clickIfVisible(commentAction, 4000)) {
     log({ level: "ok", text: "Нажали «Комментарий» под постом" })
     await pause(700)
   }
   const box = commentBox(page)
-  await box.waitFor({ state: "visible", timeout: 15_000 })
+  try {
+    await box.waitFor({ state: "visible", timeout: 15_000 })
+  } catch (error) {
+    await assertFacebookContentAvailable(page, log)
+    throw error
+  }
   await box.scrollIntoViewIfNeeded()
   return box
 }
@@ -3695,6 +3732,7 @@ export async function runFacebookComment(
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
     await pause(2500)
     await dismissCookies(page, onLog)
+    await assertFacebookContentAvailable(page, onLog)
     onLog({ level: "ok", text: `Страница: ${page.url()}` })
 
     if (input.fanName) {

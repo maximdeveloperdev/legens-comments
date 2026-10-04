@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/card"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { userRoleLabel } from "@/lib/user-role"
 
 function initials(name: string) {
   return name
@@ -41,7 +42,7 @@ export function ProfileForm({
   user: {
     name: string
     email: string
-    role: "ADMIN" | "USER"
+    role: "ADMIN" | "TEAM_LEAD" | "USER"
     twoFactorEnabled: boolean
     avatarUrl: string | null
   }
@@ -187,7 +188,7 @@ export function ProfileForm({
             <Field>
               <FieldLabel>Роль</FieldLabel>
               <p className="text-sm font-medium">
-                {user.role === "ADMIN" ? "Админ" : "Юзер"}
+                {userRoleLabel(user.role)}
               </p>
             </Field>
             <Button type="submit" disabled={pending}>

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { UserRole } from "@prisma/client";
 import { SESSION_COOKIE } from "@/lib/constants";
 import { prisma } from "@/lib/db";
+import { isUserRole } from "@/lib/user-role";
 
 export type SessionUser = {
   id: string;
@@ -61,14 +62,15 @@ export async function getSession(): Promise<SessionUser | null> {
     ) {
       return null;
     }
+    const role =
+      typeof payload.role === "string" && isUserRole(payload.role)
+        ? payload.role
+        : undefined;
     return {
       id: payload.id,
       email: payload.email,
       name: payload.name,
-      role:
-        payload.role === UserRole.ADMIN || payload.role === UserRole.USER
-          ? payload.role
-          : undefined,
+      role,
     };
   } catch {
     return null;

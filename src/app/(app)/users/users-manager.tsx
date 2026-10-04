@@ -39,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { userRoleLabel } from "@/lib/user-role"
 
 export type UserRow = {
   id: string
@@ -339,8 +340,16 @@ export function UsersManager({
                 </TableCell>
                 <TableCell>{user.email}</TableCell>
                 <TableCell>
-                  <Badge variant={user.role === UserRole.ADMIN ? "default" : "secondary"}>
-                    {user.role === UserRole.ADMIN ? "Админ" : "Юзер"}
+                  <Badge
+                    variant={
+                      user.role === UserRole.ADMIN
+                        ? "default"
+                        : user.role === UserRole.TEAM_LEAD
+                          ? "outline"
+                          : "secondary"
+                    }
+                  >
+                    {userRoleLabel(user.role)}
                   </Badge>
                 </TableCell>
                 <TableCell>{user.twoFactorEnabled ? "Да" : "Нет"}</TableCell>
@@ -499,7 +508,11 @@ export function UsersManager({
                 <Select
                   value={form.role}
                   onValueChange={(value) => {
-                    if (value === UserRole.ADMIN || value === UserRole.USER) {
+                    if (
+                      value === UserRole.ADMIN ||
+                      value === UserRole.TEAM_LEAD ||
+                      value === UserRole.USER
+                    ) {
                       setForm((current) => ({ ...current, role: value }))
                     }
                   }}
@@ -509,6 +522,7 @@ export function UsersManager({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={UserRole.ADMIN}>Админ</SelectItem>
+                    <SelectItem value={UserRole.TEAM_LEAD}>Тимлид</SelectItem>
                     <SelectItem value={UserRole.USER}>Юзер</SelectItem>
                   </SelectContent>
                 </Select>

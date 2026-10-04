@@ -245,6 +245,7 @@ export function FarmComments({
   const [contentMode, setContentMode] = useState<ContentMode>("same")
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [message, setMessage] = useState("")
+  const [bulkSplitText, setBulkSplitText] = useState("")
   const [splitMessages, setSplitMessages] = useState<Record<string, string>>({})
   const [commentPhoto, setCommentPhoto] = useState<File | null>(null)
   const [commentPhotoError, setCommentPhotoError] = useState("")
@@ -358,6 +359,7 @@ export function FarmComments({
   function clearForm() {
     setPosts([""])
     setMessage("")
+    setBulkSplitText("")
     setSplitMessages({})
     setCommentPhoto(null)
     for (const preview of Object.values(splitPhotoPreviews)) URL.revokeObjectURL(preview)
@@ -448,6 +450,28 @@ export function FarmComments({
     setSplitPhotoErrors((current) => {
       const next = { ...current }
       delete next[key]
+      return next
+    })
+  }
+
+  function generateSplitMessages() {
+    const lines = bulkSplitText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const keys = postUrls.flatMap((_, postIndex) =>
+      selectedPages.map((page) => messageKey(postIndex, page.listId)),
+    )
+    if (lines.length === 0 || keys.length === 0) return
+
+    setSplitMessages((current) => {
+      const next = { ...current }
+      for (const key of keys) {
+        delete next[key]
+      }
+      keys.forEach((key, index) => {
+        if (lines[index]) next[key] = lines[index]
+      })
       return next
     })
   }
@@ -728,6 +752,31 @@ export function FarmComments({
               </p>
             ) : (
               <div className="grid gap-3">
+                <div className="grid gap-2 rounded-xl border bg-muted/25 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="grid gap-1">
+                      <p className="text-sm font-medium">Раздельный текст</p>
+                      <p className="text-xs text-muted-foreground">
+                        Каждая новая строка станет отдельным комментарием.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={bulkSplitText.trim().length === 0 || postUrls.length === 0 || selectedPages.length === 0}
+                      onClick={generateSplitMessages}
+                    >
+                      <Sparkles />
+                      Generate
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={bulkSplitText}
+                    onChange={(event) => setBulkSplitText(event.target.value)}
+                    placeholder={"Первый комментарий\nВторой комментарий\nТретий комментарий"}
+                    rows={5}
+                  />
+                </div>
                 {postUrls.map((url, postIndex) => (
                   <div key={`${postIndex}-${url}`} className="grid gap-2">
                     {postUrls.length > 1 ? (

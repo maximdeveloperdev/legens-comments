@@ -16,6 +16,12 @@ function constructorTab(value: string | undefined) {
   return "comments"
 }
 
+function queueScope(role: string | undefined) {
+  if (role === "ADMIN") return "all"
+  if (role === "TEAM_LEAD") return "team"
+  return "own"
+}
+
 export default async function ConstructorPage({ searchParams }: ConstructorPageProps) {
   const user = await getActiveSession()
   const { tab } = await searchParams
@@ -50,6 +56,7 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
       error={result.ok ? undefined : result.message}
       canManage={canManage}
       currentUserName={user?.name}
+      queueScope={queueScope(user?.role)}
       initialTab={constructorTab(tab)}
     />
   )

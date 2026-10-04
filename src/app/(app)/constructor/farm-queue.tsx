@@ -4,13 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  CopyIcon,
+  EyeIcon,
   Loader2,
   Play,
   SearchIcon,
   Square,
   Trash2Icon,
 } from "lucide-react"
-import { deleteFarmTasks, startFarmTask, stopFarmTask } from "@/app/actions/farm-queue"
+import { deleteFarmTasks, duplicateFarmTask, startFarmTask, stopFarmTask } from "@/app/actions/farm-queue"
 import { pushAppNotification } from "@/lib/app-notifications"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table,
   TableBody,
@@ -70,6 +73,7 @@ type QueueTask = {
 }
 
 type QueueTab = "work" | "completed"
+type QueueScope = "all" | "team" | "own"
 type ConfirmAction =
   | { kind: "start"; taskId: string }
   | { kind: "stop"; taskId: string }
@@ -166,10 +170,121 @@ function JobTable({ jobs }: { jobs: QueueJob[] }) {
   )
 }
 
+function TaskDetailsDialog({
+  task,
+  onOpenChange,
+}: {
+  task: QueueTask | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const errors = task ? taskErrorLog(task) : []
+
+  return (
+    <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-5xl">
+        {task ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Задача · {actionLabel[task.action] || task.action}</DialogTitle>
+              <DialogDescription>
+                {task.createdBy} · {formatWhen(task.createdAt)} · {task.total} коммент.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <TaskCommentStatus task={task} />
+                <Badge variant={errors.length > 0 ? "destructive" : "outline"}>
+                  Ошибок: {errors.length}
+                </Badge>
+              </div>
+              {errors.length > 0 ? (
+                <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                  <p className="text-sm font-medium text-destructive">Лог ошибок</p>
+                  <div className="grid max-h-36 gap-1 overflow-y-auto text-sm">
+                    {errors.map((job) => (
+                      <p key={job.id} className="text-destructive">
+                        {job.fanName || job.profileId}: {job.error}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="max-h-[28rem] overflow-y-auto rounded-xl border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Фанка</TableHead>
+                      <TableHead>Пост</TableHead>
+                      <TableHead>Комментарий</TableHead>
+                      <TableHead>Фото</TableHead>
+                      <TableHead>Статус</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {task.jobs.map((job) => (
+                      <TableRow key={job.id}>
+                        <TableCell className="font-medium">{job.fanName || job.profileId}</TableCell>
+                        <TableCell className="max-w-[13rem] truncate text-muted-foreground" title={job.url}>
+                          {shortUrl(job.url)}
+                        </TableCell>
+                        <TableCell className="max-w-sm">
+                          <div className="grid gap-1">
+                            <span className="line-clamp-2 text-sm">
+                              {job.aiComment ? "ChatGPT" : job.message || "—"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {job.photoPath ? (
+                            <a
+                              href={job.photoPath}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-primary hover:underline"
+                            >
+                              Фото
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="grid gap-1">
+                            <Badge variant={statusVariant[job.status]}>{statusLabel[job.status]}</Badge>
+                            {job.error ? (
+                              <span className="max-w-xs text-xs text-destructive">{job.error}</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const emptyStats: QueueStats = { pending: 0, running: 0, done: 0, error: 0 }
 
 type QueueSnapshot = { stats: QueueStats; tasks: QueueTask[] }
-type QueueScope = "all" | "own"
+type OwnerStats = {
+  name: string
+  tasks: number
+  comments: number
+  likes: number
+  photos: number
+  ai: number
+  pending: number
+  running: number
+  done: number
+  error: number
+  lastAt: string
+}
 
 const cachedQueues = new Map<QueueScope, QueueSnapshot>()
 
@@ -196,6 +311,116 @@ function taskTab(task: QueueTask): QueueTab {
   return task.counts.pending > 0 || task.counts.running > 0 ? "work" : "completed"
 }
 
+function TaskCommentStatus({ task }: { task: QueueTask }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <Badge variant="outline">ok {task.counts.done}</Badge>
+      {task.counts.error > 0 ? <Badge variant="destructive">err {task.counts.error}</Badge> : null}
+      {task.counts.running > 0 ? <Badge>run {task.counts.running}</Badge> : null}
+      {task.counts.pending > 0 ? <Badge variant="secondary">wait {task.counts.pending}</Badge> : null}
+    </div>
+  )
+}
+
+function uniqueTaskUrls(task: QueueTask) {
+  return [...new Set(task.jobs.map((job) => job.url).filter(Boolean))]
+}
+
+function taskErrorLog(task: QueueTask) {
+  return task.jobs.filter((job) => job.error)
+}
+
+function buildOwnerStats(tasks: QueueTask[]) {
+  const rows = new Map<string, OwnerStats>()
+  for (const task of tasks) {
+    const name = task.createdBy || "Без имени"
+    const current =
+      rows.get(name) ??
+      {
+        name,
+        tasks: 0,
+        comments: 0,
+        likes: 0,
+        photos: 0,
+        ai: 0,
+        pending: 0,
+        running: 0,
+        done: 0,
+        error: 0,
+        lastAt: task.createdAt,
+      }
+    const jobsCount = task.jobs.length || task.total
+    current.tasks += 1
+    if (task.action !== "likeonly") current.comments += jobsCount
+    if (task.action === "like" || task.action === "likeonly" || task.action === "subscribe") {
+      current.likes += jobsCount
+    }
+    current.photos += task.jobs.filter((job) => Boolean(job.photoPath)).length
+    current.ai += task.jobs.filter((job) => job.aiComment).length
+    current.pending += task.counts.pending
+    current.running += task.counts.running
+    current.done += task.counts.done
+    current.error += task.counts.error
+    if (task.createdAt > current.lastAt) current.lastAt = task.createdAt
+    rows.set(name, current)
+  }
+
+  return [...rows.values()].sort(
+    (left, right) => right.tasks - left.tasks || right.comments - left.comments || left.name.localeCompare(right.name),
+  )
+}
+
+function OwnerStatsTable({ stats }: { stats: OwnerStats[] }) {
+  return (
+    <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
+      <div className="mb-4 grid gap-1">
+        <h2 className="font-heading text-base font-medium">Статистика байеров</h2>
+        <p className="text-sm text-muted-foreground">
+          Задачи и результаты по тем пользователям, которые доступны текущей роли.
+        </p>
+      </div>
+      {stats.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">Пока нет задач</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Байер</TableHead>
+              <TableHead>Задач</TableHead>
+              <TableHead>Комментов</TableHead>
+              <TableHead>Лайков</TableHead>
+              <TableHead>Фото</TableHead>
+              <TableHead>ChatGPT</TableHead>
+              <TableHead>Готово</TableHead>
+              <TableHead>Ошибки</TableHead>
+              <TableHead>В работе</TableHead>
+              <TableHead>Последняя задача</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {stats.map((row) => (
+              <TableRow key={row.name}>
+                <TableCell className="whitespace-nowrap font-medium">{row.name}</TableCell>
+                <TableCell className="tabular-nums">{row.tasks}</TableCell>
+                <TableCell className="tabular-nums">{row.comments}</TableCell>
+                <TableCell className="tabular-nums">{row.likes}</TableCell>
+                <TableCell className="tabular-nums">{row.photos}</TableCell>
+                <TableCell className="tabular-nums">{row.ai}</TableCell>
+                <TableCell className="tabular-nums">{row.done}</TableCell>
+                <TableCell className="tabular-nums">{row.error}</TableCell>
+                <TableCell className="tabular-nums">{row.pending + row.running}</TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {formatWhen(row.lastAt)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </section>
+  )
+}
+
 function TasksTable({
   tasks,
   totalTasks,
@@ -208,6 +433,8 @@ function TasksTable({
   busyId,
   onStop,
   onStart,
+  onDetails,
+  onDuplicate,
   onDelete,
   onQueryChange,
   onPageChange,
@@ -229,6 +456,8 @@ function TasksTable({
   busyId: string | null
   onStop: (taskId: string) => void
   onStart: (taskId: string) => void
+  onDetails: (task: QueueTask) => void
+  onDuplicate: (task: QueueTask) => void
   onDelete: () => void
   onQueryChange: (value: string) => void
   onPageChange: (page: number) => void
@@ -309,9 +538,10 @@ function TasksTable({
               <TableHead>Очередь</TableHead>
               <TableHead>Юзер</TableHead>
               <TableHead>Задача</TableHead>
+              <TableHead>Комментарии</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead>Время</TableHead>
-              {canManage ? <TableHead className="text-right">Действия</TableHead> : null}
+              <TableHead className="text-right">Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -344,14 +574,37 @@ function TasksTable({
                     {actionLabel[task.action] || task.action} · {task.total} шт.
                   </TableCell>
                   <TableCell>
+                    <TaskCommentStatus task={task} />
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={statusVariant[status]}>{statusLabel[status]}</Badge>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {formatWhen(task.createdAt)}
                   </TableCell>
-                  {canManage ? (
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onDetails(task)}
+                      >
+                        <EyeIcon />
+                        Детали
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => onDuplicate(task)}
+                      >
+                        <CopyIcon />
+                        Копия
+                      </Button>
+                      {canManage ? (
+                        <>
                         <Button
                           type="button"
                           size="sm"
@@ -371,9 +624,10 @@ function TasksTable({
                           {busy ? <Loader2 className="animate-spin" /> : <Play />}
                           Старт
                         </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  </TableCell>
                 </TableRow>
               )
             })}
@@ -491,6 +745,9 @@ export function FarmQueue({
   const [pageSize, setPageSize] = useState(safeInitialPageSize)
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
+  const [detailsTask, setDetailsTask] = useState<QueueTask | null>(null)
+  const [duplicateTask, setDuplicateTask] = useState<QueueTask | null>(null)
+  const [duplicateUrls, setDuplicateUrls] = useState("")
   const previousTaskTabs = useRef<Map<string, QueueTab> | null>(null)
 
   useEffect(() => {
@@ -626,6 +883,7 @@ export function FarmQueue({
         .includes(needle)
     })
   }, [query, tableTools, visibleTasks])
+  const ownerStats = useMemo(() => buildOwnerStats(filteredTasks), [filteredTasks])
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const pagedTasks = tableTools
@@ -765,6 +1023,37 @@ export function FarmQueue({
     setBusyId(null)
   }
 
+  function openDuplicateTask(task: QueueTask) {
+    setDuplicateTask(task)
+    setDuplicateUrls(uniqueTaskUrls(task).slice(0, 1).join("\n"))
+  }
+
+  async function handleDuplicateTask() {
+    if (!duplicateTask) return
+    const urls = duplicateUrls
+      .split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean)
+    setBusyId(duplicateTask.id)
+    const result = await duplicateFarmTask({ taskId: duplicateTask.id, urls })
+    if (result.error) {
+      pushAppNotification("Копия задачи · ошибка", result.error, {
+        href: "/queue?tab=work",
+        tone: "error",
+      })
+    } else {
+      pushAppNotification("Задача скопирована", `В очередь · ${result.total ?? 0} шт.`, {
+        href: "/queue?tab=work",
+        tone: "queue",
+      })
+      setDuplicateTask(null)
+      setDuplicateUrls("")
+      await refreshQueue().catch(() => undefined)
+      void fetch("/api/farm-queue", { method: "POST" })
+    }
+    setBusyId(null)
+  }
+
   async function runConfirmedAction() {
     const action = confirmAction
     if (!action) return
@@ -845,28 +1134,33 @@ export function FarmQueue({
 
       {full ? (
         loaded ? (
-          <TasksTable
-            tasks={pagedTasks}
-            totalTasks={filteredTasks.length}
-            queuePositions={queuePositions}
-            query={query}
-            page={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            selectedIds={selectedTaskIds}
-            busyId={busyId}
-            onStop={(taskId) => setConfirmAction({ kind: "stop", taskId })}
-            onStart={(taskId) => setConfirmAction({ kind: "start", taskId })}
-            onDelete={() => setConfirmAction({ kind: "delete", taskIds: selectedTaskIds })}
-            onQueryChange={changeQuery}
-            onPageChange={changePage}
-            onPageSizeChange={changePageSize}
-            onToggleSelected={toggleSelected}
-            onTogglePage={togglePage}
-            canManage={canManage}
-            currentUserName={currentUserName}
-            tools={tableTools}
-          />
+          <>
+            {cards && tableTools ? <OwnerStatsTable stats={ownerStats} /> : null}
+            <TasksTable
+              tasks={pagedTasks}
+              totalTasks={filteredTasks.length}
+              queuePositions={queuePositions}
+              query={query}
+              page={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              selectedIds={selectedTaskIds}
+              busyId={busyId}
+              onStop={(taskId) => setConfirmAction({ kind: "stop", taskId })}
+              onStart={(taskId) => setConfirmAction({ kind: "start", taskId })}
+              onDetails={setDetailsTask}
+              onDuplicate={openDuplicateTask}
+              onDelete={() => setConfirmAction({ kind: "delete", taskIds: selectedTaskIds })}
+              onQueryChange={changeQuery}
+              onPageChange={changePage}
+              onPageSizeChange={changePageSize}
+              onToggleSelected={toggleSelected}
+              onTogglePage={togglePage}
+              canManage={canManage}
+              currentUserName={currentUserName}
+              tools={tableTools}
+            />
+          </>
         ) : (
           <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
             <QueueLoading />
@@ -919,6 +1213,63 @@ export function FarmQueue({
           </section>
         </>
       )}
+      <TaskDetailsDialog task={detailsTask} onOpenChange={(open) => !open && setDetailsTask(null)} />
+      <Dialog
+        open={Boolean(duplicateTask)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDuplicateTask(null)
+            setDuplicateUrls("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Скопировать задачу</DialogTitle>
+            <DialogDescription>
+              Комментарии, фанки и вложения сохранятся. Замени только ссылку на дубль поста.
+            </DialogDescription>
+          </DialogHeader>
+          {duplicateTask ? (
+            <div className="grid gap-4">
+              <div className="grid gap-2 rounded-xl border bg-muted/25 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{actionLabel[duplicateTask.action] || duplicateTask.action}</Badge>
+                  <Badge variant="secondary">{duplicateTask.total} коммент.</Badge>
+                </div>
+                <p className="text-muted-foreground">
+                  Старых постов: {uniqueTaskUrls(duplicateTask).length}. Если вставить одну ссылку, она заменит пост во всех комментариях.
+                </p>
+              </div>
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">Новая ссылка на пост</span>
+                <Textarea
+                  value={duplicateUrls}
+                  onChange={(event) => setDuplicateUrls(event.target.value)}
+                  placeholder="https://www.facebook.com/..."
+                  rows={4}
+                />
+                <span className="text-xs text-muted-foreground">
+                  Для задачи с несколькими постами можно вставить несколько ссылок, каждая с новой строки.
+                </span>
+              </label>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Отмена
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={!duplicateUrls.trim() || busyId === duplicateTask?.id}
+              onClick={() => void handleDuplicateTask()}
+            >
+              {busyId === duplicateTask?.id ? <Loader2 className="animate-spin" /> : <CopyIcon />}
+              Создать копию
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <DialogContent>
           <DialogHeader>

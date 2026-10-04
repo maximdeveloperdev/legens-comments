@@ -9,6 +9,7 @@ import { after } from "next/server"
 import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
 import { kickFarmQueue } from "@/lib/farm-queue"
+import { farmTaskAccessWhere, getFarmQueueAccess } from "@/lib/farm-queue-access"
 import { prisma } from "@/lib/db"
 import { getActiveSession, requireAdminSession } from "@/lib/session"
 
@@ -124,6 +125,7 @@ async function createFarmTask(
   const task = await prisma.farmTask.create({
     data: {
       createdBy: session.name,
+      createdByUserId: session.id,
       action,
       total: jobs.length,
       jobs: {
@@ -323,6 +325,83 @@ export async function startFarmTask(taskId?: string): Promise<{ error?: string; 
   })
 
   return { started: reset.count }
+}
+
+export async function duplicateFarmTask(input: {
+  taskId: string
+  urls: string[]
+}): Promise<{ error?: string; taskId?: string; total?: number }> {
+  const session = await getActiveSession()
+  if (!session) {
+    return { error: "Нужно войти в аккаунт" }
+  }
+
+  const taskId = input.taskId.trim()
+  const newUrls = [...new Set(input.urls.map(normalizeFacebookUrl).filter(Boolean))]
+  if (!taskId) return { error: "Задача не найдена" }
+  if (newUrls.length === 0) return { error: "Вставьте новую ссылку на пост" }
+  if (newUrls.some((url) => !isFacebookUrl(url))) {
+    return { error: "Можно копировать только на ссылки Facebook" }
+  }
+
+  const access = await getFarmQueueAccess(session)
+  const accessWhere = farmTaskAccessWhere(access)
+  const task = await prisma.farmTask.findFirst({
+    where: accessWhere ? { AND: [{ id: taskId }, accessWhere] } : { id: taskId },
+    include: {
+      jobs: { orderBy: { createdAt: "asc" } },
+    },
+  })
+  if (!task) return { error: "Задача не найдена или нет доступа" }
+  if (task.jobs.length === 0) return { error: "В задаче нет комментариев для копирования" }
+
+  const originalUrls = [...new Set(task.jobs.map((job) => job.url).filter(Boolean))]
+  if (newUrls.length > 1 && newUrls.length !== originalUrls.length) {
+    return {
+      error: `В старой задаче ${originalUrls.length} постов. Вставьте 1 ссылку или ${originalUrls.length} ссылок строками.`,
+    }
+  }
+
+  const urlByOriginal = new Map<string, string>()
+  for (const [index, originalUrl] of originalUrls.entries()) {
+    urlByOriginal.set(originalUrl, newUrls.length === 1 ? newUrls[0] : newUrls[index])
+  }
+
+  const duplicated = await prisma.farmTask.create({
+    data: {
+      createdBy: session.name,
+      createdByUserId: session.id,
+      action: task.action,
+      total: task.jobs.length,
+      jobs: {
+        create: task.jobs.map((job) => ({
+          action: job.action,
+          profileId: job.profileId,
+          fanName: job.fanName,
+          url: urlByOriginal.get(job.url) ?? newUrls[0],
+          message: job.message,
+          aiComment: job.aiComment && !job.message.trim(),
+          photoPath: job.photoPath,
+        })),
+      },
+    },
+  })
+
+  await writeTrackerLog({
+    userName: session.name,
+    action: "Скопировал задачу",
+    detail: `${task.action} · ${task.jobs.length} шт. · ${originalUrls.length} → ${newUrls.length} пост.`,
+  })
+
+  revalidatePath("/stats")
+  revalidatePath("/queue")
+  revalidatePath("/constructor")
+
+  after(() => {
+    kickFarmQueue()
+  })
+
+  return { taskId: duplicated.id, total: task.jobs.length }
 }
 
 export async function deleteFarmTasks(taskIds: string[]): Promise<{ error?: string; deleted?: number }> {

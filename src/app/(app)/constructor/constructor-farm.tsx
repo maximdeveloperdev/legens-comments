@@ -10,6 +10,7 @@ import { FarmQueue } from "./farm-queue"
 import { FarmVps } from "./farm-vps"
 
 type FarmTab = "comments" | "queue" | "vps"
+type QueueScope = "all" | "team" | "own"
 
 const tabs: { id: FarmTab; label: string; icon: typeof Play }[] = [
   { id: "comments", label: "Комментарии", icon: Play },
@@ -23,6 +24,7 @@ export function ConstructorFarm({
   error,
   canManage,
   currentUserName,
+  queueScope,
   initialTab,
 }: {
   profiles: AdsPowerProfile[]
@@ -30,6 +32,7 @@ export function ConstructorFarm({
   error?: string
   canManage: boolean
   currentUserName?: string
+  queueScope: QueueScope
   initialTab: FarmTab
 }) {
   const defaultTab = !canManage && initialTab === "vps" ? "comments" : initialTab
@@ -91,7 +94,7 @@ export function ConstructorFarm({
             active={tab === "queue"}
             canManage={canManage}
             currentUserName={currentUserName}
-            queueScope={canManage ? "all" : "own"}
+            queueScope={queueScope}
           />
         </div>
       ) : null}

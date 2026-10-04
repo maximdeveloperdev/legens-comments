@@ -7,13 +7,14 @@ import { prisma } from "@/lib/db"
 import { writeTrackerLog } from "@/lib/action-log"
 import { deleteUserAvatarFiles, saveUserAvatar, validateAvatarFile } from "@/lib/avatar"
 import { requireAdminSession } from "@/lib/session"
+import { isUserRole, userRoleLabel } from "@/lib/user-role"
 
 export type UserActionResult = {
   error?: string
 }
 
 function parseRole(value: FormDataEntryValue | null): UserRole | null {
-  if (value === UserRole.ADMIN || value === UserRole.USER) {
+  if (isUserRole(value)) {
     return value
   }
   return null
@@ -95,7 +96,7 @@ export async function createUser(formData: FormData): Promise<UserActionResult> 
   await writeTrackerLog({
     userName: session.name,
     action: "Создал пользователя",
-    detail: `${name} · ${email} · ${role === UserRole.ADMIN ? "Админ" : "Юзер"}`,
+    detail: `${name} · ${email} · ${userRoleLabel(role)}`,
   })
 
   revalidatePath("/users")

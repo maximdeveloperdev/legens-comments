@@ -9,20 +9,49 @@ datasource db {
 
 enum UserRole {
   ADMIN
+  TEAM_LEAD
   USER
 }
 
 model User {
-  id                String   @id @default(cuid())
-  email             String   @unique
-  name              String
-  passwordHash      String
-  role              UserRole @default(USER)
-  twoFactorEnabled  Boolean  @default(false)
-  twoFactorSecret   String?
-  avatarUrl         String?
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now())
+  id               String         @id @default(cuid())
+  email            String         @unique
+  name             String
+  passwordHash     String
+  role             UserRole       @default(USER)
+  twoFactorEnabled Boolean        @default(false)
+  twoFactorSecret  String?
+  avatarUrl        String?
+  active           Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  ledTeams         Team[]         @relation("TeamLead")
+  buyerTeams       TeamBuyer[]
+  farmTasks        FarmTask[]     @relation("FarmTaskCreator")
+  fanPageAssets    FanPageAsset[] @relation("FanPageAssetCreator")
+}
+
+model Team {
+  id            String         @id @default(cuid())
+  name          String
+  marker        String         @unique
+  teamLeadId    String?
+  teamLead      User?          @relation("TeamLead", fields: [teamLeadId], references: [id], onDelete: SetNull)
+  buyers        TeamBuyer[]
+  fanPageAssets FanPageAsset[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([teamLeadId])
+}
+
+model TeamBuyer {
+  teamId String
+  userId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
 }
 
 enum CommentStatus {
@@ -85,13 +114,43 @@ enum FarmJobStatus {
   ERROR
 }
 
+enum FanPageAssetType {
+  AVATAR
+  COVER
+}
+
+model FanPageAsset {
+  id              String           @id @default(cuid())
+  createdAt       DateTime         @default(now())
+  type            FanPageAssetType
+  geoCode         String
+  url             String
+  fileName        String
+  originalName    String
+  mimeType        String
+  size            Int
+  teamId          String
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdByUserId String?
+  createdByUser   User?            @relation("FanPageAssetCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([type])
+  @@index([geoCode])
+  @@index([teamId])
+  @@index([createdAt])
+}
+
 model FarmTask {
-  id        String    @id @default(cuid())
-  createdAt DateTime  @default(now())
-  createdBy String
-  action    String
-  total     Int
-  jobs      FarmJob[]
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  createdBy       String
+  createdByUserId String?
+  createdByUser   User?     @relation("FarmTaskCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  action          String
+  total           Int
+  jobs            FarmJob[]
+
+  @@index([createdByUserId])
 }
 
 model FarmJob {
@@ -116,9 +175,9 @@ model FarmJob {
 }
 
 model FbAutouploadBindingGroup {
-  id        Int                    @id @default(autoincrement())
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  id        Int                   @id @default(autoincrement())
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
   name      String
   bindings  FbAutouploadBinding[]
   uploads   FbAutouploadUpload[]

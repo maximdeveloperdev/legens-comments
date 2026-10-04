@@ -17,9 +17,16 @@ function parsePageSize(value: string | undefined) {
   return Number.isInteger(parsed) && PAGE_SIZES.has(parsed) ? parsed : 50
 }
 
+function queueScope(role: string | undefined) {
+  if (role === "ADMIN") return "all"
+  if (role === "TEAM_LEAD") return "team"
+  return "own"
+}
+
 export default async function StatsPage({ searchParams }: StatsPageProps) {
   const user = await getActiveSession()
   const params = await searchParams
+  const canManage = user?.role === "ADMIN"
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
@@ -30,9 +37,9 @@ export default async function StatsPage({ searchParams }: StatsPageProps) {
         full
         cards
         tableTools
-        canManage={user?.role === "ADMIN"}
+        canManage={canManage}
         currentUserName={user?.name}
-        queueScope={user?.role === "ADMIN" ? "all" : "own"}
+        queueScope={queueScope(user?.role)}
         initialQuery={params.q ?? ""}
         initialPage={parsePage(params.page)}
         initialPageSize={parsePageSize(params.size)}

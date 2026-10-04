@@ -10,6 +10,7 @@ import {
   ClockIcon,
   CircleUserRoundIcon,
   FolderIcon,
+  ImagesIcon,
   Link2Icon,
   ListOrderedIcon,
   MegaphoneIcon,
@@ -37,6 +38,8 @@ import { dashboardNav, type NavItem } from "@/lib/nav"
 const icons = {
   "/constructor": <BlocksIcon />,
   "/queue": <ListOrderedIcon />,
+  "/teams": <UsersIcon />,
+  "/fan-page-library": <ImagesIcon />,
   "/accounts": <CircleUserRoundIcon />,
   "/accounts/ad-cabinets": <MegaphoneIcon />,
   "/accounts/pages": <PanelsTopLeftIcon />,
@@ -53,12 +56,16 @@ const icons = {
   "/settings": <Settings2Icon />,
 }
 
-function filterNavItems(items: NavItem[], role: "ADMIN" | "USER"): NavItem[] {
+function filterNavItems(items: NavItem[], role: "ADMIN" | "TEAM_LEAD" | "USER"): NavItem[] {
   return items
     .filter((item) => {
       if (item.adminOnly && role !== "ADMIN") return false
       if (role === "ADMIN") return true
-      return item.href !== "/users" && !item.href.startsWith("/settings")
+      return (
+        item.href !== "/users" &&
+        item.href !== "/teams" &&
+        !item.href.startsWith("/settings")
+      )
     })
     .map((item) => ({
       ...item,
@@ -87,7 +94,7 @@ export function AppSidebar({
     name: string
     email: string
     avatar: string
-    role: "ADMIN" | "USER"
+    role: "ADMIN" | "TEAM_LEAD" | "USER"
   }
 }) {
   const visibleNav = filterNavItems(dashboardNav, user.role)

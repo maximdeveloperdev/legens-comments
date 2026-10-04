@@ -1,6 +1,8 @@
 import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
+import type { FarmQueueAccess } from "@/lib/farm-queue-access"
+import { farmTaskAccessWhere } from "@/lib/farm-queue-access"
 import { runFacebookComment } from "@/lib/facebook-page-switch"
 import { readFacebookPostForAi } from "@/lib/facebook-post"
 import { getOpenAiConfig } from "@/lib/openai-account"
@@ -158,12 +160,14 @@ async function runFarmJob(job: FarmJob) {
       },
     })
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Ошибка очереди"
+    log({ level: "error", text: message })
     await prisma.farmJob.updateMany({
       where: { id: job.id, status: FarmJobStatus.RUNNING },
       data: {
         status: FarmJobStatus.ERROR,
         finishedAt: new Date(),
-        error: error instanceof Error ? error.message : "Ошибка очереди",
+        error: message,
       },
     })
   } finally {
@@ -225,14 +229,14 @@ async function processFarmQueue() {
   if (leftover > 0 && running === 0) kickFarmQueue()
 }
 
-export async function listFarmQueue(options: { createdBy?: string } = {}) {
+export async function listFarmQueue(options: { createdBy?: string; access?: FarmQueueAccess } = {}) {
   const maxParallel = getFarmQueueMaxParallel()
-  const taskWhere: Prisma.FarmTaskWhereInput | undefined = options.createdBy
-    ? { createdBy: options.createdBy }
-    : undefined
-  const jobOwnerWhere: Prisma.FarmJobWhereInput = options.createdBy
-    ? { task: { createdBy: options.createdBy } }
-    : {}
+  const taskWhere: Prisma.FarmTaskWhereInput | undefined = options.access
+    ? farmTaskAccessWhere(options.access)
+    : options.createdBy
+      ? { createdBy: options.createdBy }
+      : undefined
+  const jobOwnerWhere: Prisma.FarmJobWhereInput = taskWhere ? { task: taskWhere } : {}
   const [pending, running, done, error, tasks] = await Promise.all([
     prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.PENDING } }),
     prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.RUNNING } }),
