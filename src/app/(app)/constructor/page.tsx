@@ -57,7 +57,7 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
       })
     : result.profiles
   const fansByProfile = await listFacebookFansByProfile(filteredAdsPowerProfiles.map((profile) => profile.id))
-  const countryCodes = new Set(countryRows.map((country) => country.code))
+  const countryCodes = new Set(countryRows.map((country) => country.code.toUpperCase()))
   const profiles = filteredAdsPowerProfiles.map((profile) => ({
     ...profile,
     fans: fansByProfile.get(profile.id) ?? [],
@@ -65,10 +65,10 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
   const codes = [
     ...new Set(profiles.map((profile) => profileDisplayGeo(profile, countryCodes)).filter(Boolean)),
   ]
-  const rows = countryRows.filter((country) => codes.includes(country.code))
+  const rows = countryRows.filter((country) => codes.includes(country.code.toUpperCase()))
   const countries = Object.fromEntries(
     rows.map((country) => [
-      country.code,
+      country.code.toUpperCase(),
       { name: country.nameRu, flagSvg: country.flagSvg },
     ]),
   )

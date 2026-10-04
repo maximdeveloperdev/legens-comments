@@ -10,13 +10,17 @@ export function profileTeamMarkerFromName(name: string) {
 
 export function profileGeoFromName(name: string, knownCountryCodes?: Iterable<string>) {
   const tokens = profileBracketTokens(name)
-  const known = knownCountryCodes
-    ? new Set([...knownCountryCodes].map((code) => code.toUpperCase()))
-    : null
-  const geo = tokens.find((token) =>
-    /^[A-Z]{2}$/.test(token) && (!known || known.has(token)),
+  const candidates = (tokens.length > 1 ? tokens.slice(1) : tokens).filter((token) =>
+    /^[A-Z]{2}$/.test(token),
   )
-  return geo ?? ""
+  if (candidates.length === 0) return ""
+
+  const known = knownCountryCodes
+    ? new Set([...knownCountryCodes].map((code) => code.toUpperCase()).filter(Boolean))
+    : null
+  if (!known || known.size === 0) return candidates[0] ?? ""
+
+  return candidates.find((token) => known.has(token)) ?? candidates[0] ?? ""
 }
 
 export function profileDisplayGeo(
