@@ -2,6 +2,7 @@ import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { listAdsPowerProfiles } from "@/lib/adspower"
 import { prisma } from "@/lib/db"
+import { formatFarmJobError } from "@/lib/farm-job-error"
 import type { FarmQueueAccess } from "@/lib/farm-queue-access"
 import { farmTaskAccessWhere } from "@/lib/farm-queue-access"
 import { runFacebookComment } from "@/lib/facebook-page-switch"
@@ -177,18 +178,19 @@ async function runFarmJob(job: FarmJob) {
       data: {
         status: result.ok ? FarmJobStatus.DONE : FarmJobStatus.ERROR,
         finishedAt: new Date(),
-        error: result.ok ? null : result.message,
+        error: result.ok ? null : formatFarmJobError(result.message),
       },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Ошибка очереди"
-    log({ level: "error", text: message })
+    const formattedMessage = formatFarmJobError(message) ?? "Ошибка очереди"
+    log({ level: "error", text: formattedMessage })
     await prisma.farmJob.updateMany({
       where: { id: job.id, status: FarmJobStatus.RUNNING },
       data: {
         status: FarmJobStatus.ERROR,
         finishedAt: new Date(),
-        error: message,
+        error: formattedMessage,
       },
     })
   } finally {
@@ -336,7 +338,7 @@ export async function listFarmQueue(options: { createdBy?: string; access?: Farm
           message: job.message,
           aiComment: job.aiComment,
           photoPath: job.photoPath,
-          error: job.error,
+          error: formatFarmJobError(job.error),
           taskId: job.taskId,
         })),
       }

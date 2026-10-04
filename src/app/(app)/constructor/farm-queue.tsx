@@ -210,6 +210,7 @@ function TaskDetailsDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const errors = task ? taskErrorLog(task) : []
+  const serviceMessage = task ? taskServiceMessage(task) : ""
 
   return (
     <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>
@@ -232,6 +233,7 @@ function TaskDetailsDialog({
               <div className="rounded-xl border bg-muted/20 p-3">
                 <TaskMetaList task={task} />
               </div>
+              <ServiceMessage message={serviceMessage} />
               {errors.length > 0 ? (
                 <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
                   <p className="text-sm font-medium text-destructive">Лог ошибок</p>
@@ -353,6 +355,38 @@ function TaskCommentStatus({ task }: { task: QueueTask }) {
       {task.counts.error > 0 ? <Badge variant="destructive">err {task.counts.error}</Badge> : null}
       {task.counts.running > 0 ? <Badge>run {task.counts.running}</Badge> : null}
       {task.counts.pending > 0 ? <Badge variant="secondary">wait {task.counts.pending}</Badge> : null}
+    </div>
+  )
+}
+
+function cleanFanName(value: string) {
+  return value.replace(/^(?:\[[^\]]+\]\s*)+/, "").trim()
+}
+
+function taskServiceMessage(task: QueueTask) {
+  const errors = task.jobs.filter((job) => job.error)
+  const first = errors[0]
+  if (!first?.error) return ""
+
+  const name = cleanFanName(first.fanName || "")
+  const prefix = name ? `${name}: ` : ""
+  const suffix = errors.length > 1 ? ` Ещё ошибок: ${errors.length - 1}.` : ""
+  return `${prefix}${first.error}${suffix}`
+}
+
+function ServiceMessage({ message, compact = false }: { message: string; compact?: boolean }) {
+  if (!message) return null
+
+  return (
+    <div
+      className={
+        compact
+          ? "rounded-lg border border-destructive/25 bg-destructive/5 px-2 py-1 text-xs text-destructive"
+          : "rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+      }
+    >
+      <span className="font-medium text-foreground">Service message:</span>{" "}
+      <span>{message}</span>
     </div>
   )
 }
@@ -584,6 +618,7 @@ function TasksTable({
               const busy = busyId === task.id || busyId === "all"
               const mine = Boolean(currentUserName && task.createdBy === currentUserName)
               const position = queuePositions.get(task.id)
+              const serviceMessage = taskServiceMessage(task)
               return (
                 <TableRow key={task.id} className={mine ? "bg-primary/5" : undefined}>
                   {tools && canManage ? (
@@ -611,7 +646,12 @@ function TasksTable({
                     <TaskCommentStatus task={task} />
                   </TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant[status]}>{statusLabel[status]}</Badge>
+                    <div className="grid min-w-48 gap-1.5">
+                      <Badge variant={statusVariant[status]} className="w-fit">
+                        {statusLabel[status]}
+                      </Badge>
+                      <ServiceMessage message={serviceMessage} compact />
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
@@ -1212,22 +1252,28 @@ export function FarmQueue({
               <p className="py-6 text-center text-sm text-muted-foreground">Очередь пустая</p>
             ) : (
               <ul className="grid gap-2">
-                {tasks.map((task) => (
-                  <li
-                    key={task.id}
-                    className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {actionLabel[task.action] || task.action} · {task.total} шт.
-                      </p>
-                      <TaskMetaList task={task} compact />
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 md:justify-end">
-                      <TaskCommentStatus task={task} />
-                    </div>
-                  </li>
-                ))}
+                {tasks.map((task) => {
+                  const serviceMessage = taskServiceMessage(task)
+                  return (
+                    <li
+                      key={task.id}
+                      className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {actionLabel[task.action] || task.action} · {task.total} шт.
+                        </p>
+                        <TaskMetaList task={task} compact />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 md:justify-end">
+                        <TaskCommentStatus task={task} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <ServiceMessage message={serviceMessage} compact />
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>
