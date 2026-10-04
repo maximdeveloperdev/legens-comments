@@ -1,5 +1,6 @@
 import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
+import { listAdsPowerProfiles } from "@/lib/adspower"
 import { prisma } from "@/lib/db"
 import type { FarmQueueAccess } from "@/lib/farm-queue-access"
 import { farmTaskAccessWhere } from "@/lib/farm-queue-access"
@@ -11,8 +12,15 @@ import { generateCommentsWithGpt } from "@/lib/openai-comment"
 const STALE_MS = 8 * 60_000
 const DEFAULT_MAX_PARALLEL = 10
 const HARD_MAX_PARALLEL = 50
+const ADSPOWER_META_TTL_MS = 60_000
 
 let processing = false
+let adsPowerProfileMetaCache:
+  | {
+      expiresAt: number
+      profiles: Awaited<ReturnType<typeof listAdsPowerProfiles>>["profiles"]
+    }
+  | null = null
 
 function pause(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -34,6 +42,19 @@ export async function farmQueueIsBusy() {
     where: { status: FarmJobStatus.RUNNING },
   })
   return running > 0
+}
+
+async function listCachedAdsPowerProfiles() {
+  if (adsPowerProfileMetaCache && adsPowerProfileMetaCache.expiresAt > Date.now()) {
+    return adsPowerProfileMetaCache.profiles
+  }
+
+  const result = await listAdsPowerProfiles().catch(() => ({ ok: false, message: "", profiles: [] }))
+  adsPowerProfileMetaCache = {
+    expiresAt: Date.now() + ADSPOWER_META_TTL_MS,
+    profiles: result.profiles,
+  }
+  return result.profiles
 }
 
 function isLimitError(value: string) {
@@ -237,7 +258,7 @@ export async function listFarmQueue(options: { createdBy?: string; access?: Farm
       ? { createdBy: options.createdBy }
       : undefined
   const jobOwnerWhere: Prisma.FarmJobWhereInput = taskWhere ? { task: taskWhere } : {}
-  const [pending, running, done, error, tasks] = await Promise.all([
+  const [pending, running, done, error, tasks, adsPowerProfiles] = await Promise.all([
     prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.PENDING } }),
     prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.RUNNING } }),
     prisma.farmJob.count({ where: { ...jobOwnerWhere, status: FarmJobStatus.DONE } }),
@@ -247,9 +268,21 @@ export async function listFarmQueue(options: { createdBy?: string; access?: Farm
       orderBy: { createdAt: "desc" },
       include: {
         jobs: { orderBy: { createdAt: "asc" } },
+        createdByUser: {
+          include: {
+            ledTeams: { select: { name: true } },
+            buyerTeams: {
+              include: {
+                team: { select: { name: true } },
+              },
+            },
+          },
+        },
       },
     }),
+    listCachedAdsPowerProfiles(),
   ])
+  const profileMeta = new Map(adsPowerProfiles.map((profile) => [profile.id, profile]))
 
   return {
     stats: { pending, running, done, error, maxParallel },
@@ -261,10 +294,32 @@ export async function listFarmQueue(options: { createdBy?: string; access?: Farm
         else if (job.status === FarmJobStatus.DONE) counts.done += 1
         else counts.error += 1
       }
+      const finishedTimes = task.jobs
+        .map((job) => job.finishedAt?.getTime() ?? 0)
+        .filter((time) => time > 0)
+      const finishedAt =
+        task.jobs.length > 0 && finishedTimes.length === task.jobs.length
+          ? new Date(Math.max(...finishedTimes))
+          : null
+      const durationMs = finishedAt
+        ? Math.max(0, finishedAt.getTime() - task.createdAt.getTime())
+        : null
+      const primaryProfile = task.jobs.find((job) => profileMeta.has(job.profileId))
+      const lastLoginAt = primaryProfile
+        ? (profileMeta.get(primaryProfile.profileId)?.lastOpenAt ?? 0) * 1000
+        : 0
+      const teamName =
+        task.createdByUser?.buyerTeams[0]?.team.name ||
+        task.createdByUser?.ledTeams[0]?.name ||
+        ""
       return {
         id: task.id,
         createdAt: task.createdAt.toISOString(),
+        finishedAt: finishedAt?.toISOString() ?? null,
+        durationMs,
         createdBy: task.createdBy,
+        teamName,
+        lastLoginAt: lastLoginAt > 0 ? new Date(lastLoginAt).toISOString() : null,
         action: task.action,
         total: task.total,
         counts,

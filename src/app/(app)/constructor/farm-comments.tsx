@@ -81,14 +81,14 @@ function messageKey(postIndex: number, listId: string) {
   return `${postIndex}:${listId}`
 }
 
-function pagesFromProfile(profile: AdsPowerProfile): FarmPage[] {
+function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<string>): FarmPage[] {
   if (profile.fans.length > 0) {
     return profile.fans.map((fan) => ({
       ...profile,
       listId: fan.id,
       displayName: fan.name,
       browserId: profile.id,
-      displayGeo: profileDisplayGeo(profile),
+      displayGeo: profileDisplayGeo(profile, countryCodes),
       synced: true,
     }))
   }
@@ -98,7 +98,7 @@ function pagesFromProfile(profile: AdsPowerProfile): FarmPage[] {
       listId: profile.id,
       displayName: profile.name,
       browserId: profile.id,
-      displayGeo: profileDisplayGeo(profile),
+      displayGeo: profileDisplayGeo(profile, countryCodes),
       synced: false,
     },
   ]
@@ -262,6 +262,7 @@ export function FarmComments({
   const [formatPending, setFormatPending] = useState(false)
   const [enqueueing, setEnqueueing] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
+  const countryCodes = useMemo(() => Object.keys(countries), [countries])
 
   const groups = useMemo(() => {
     const buckets = new Map<string, AdsPowerProfile[]>()
@@ -299,18 +300,18 @@ export function FarmComments({
   }, [activeGroups, groups])
 
   const geos = useMemo(() => {
-    const codes = [...new Set(activeProfiles.map((profile) => profileDisplayGeo(profile) || UNKNOWN_GEO))]
+    const codes = [...new Set(activeProfiles.map((profile) => profileDisplayGeo(profile, countryCodes) || UNKNOWN_GEO))]
     return codes.sort((left, right) => {
       if (left === UNKNOWN_GEO) return 1
       if (right === UNKNOWN_GEO) return -1
       return (countries[left]?.name || left).localeCompare(countries[right]?.name || right, "ru")
     })
-  }, [activeProfiles, countries])
+  }, [activeProfiles, countries, countryCodes])
 
   const pageList = useMemo(() => {
     const needle = pageQuery.trim().toLowerCase()
     return activeProfiles
-      .flatMap(pagesFromProfile)
+      .flatMap((profile) => pagesFromProfile(profile, countryCodes))
       .filter((page) => {
         if (geoFilter && (page.displayGeo || UNKNOWN_GEO) !== geoFilter) return false
         if (!needle) return true
@@ -320,7 +321,7 @@ export function FarmComments({
           .includes(needle)
       })
       .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"))
-  }, [activeProfiles, geoFilter, pageQuery])
+  }, [activeProfiles, countryCodes, geoFilter, pageQuery])
 
   const visibleIds = pageList.map((page) => page.listId)
   const selectedPages = pageList.filter((page) => selectedIds.includes(page.listId))
@@ -951,7 +952,7 @@ export function FarmComments({
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {visibleGroups.map((group) => {
-                const groupPages = group.items.flatMap(pagesFromProfile)
+                const groupPages = group.items.flatMap((profile) => pagesFromProfile(profile, countryCodes))
                 const selectedCount = groupPages.filter((page) =>
                   selectedIds.includes(page.listId),
                 ).length
@@ -961,7 +962,7 @@ export function FarmComments({
                 )
                 const active = activeGroups.includes(group.key)
                 const groupGeos = [
-                  ...new Set(group.items.map((item) => profileDisplayGeo(item)).filter(Boolean)),
+                  ...new Set(group.items.map((item) => profileDisplayGeo(item, countryCodes)).filter(Boolean)),
                 ]
                 return (
                   <button

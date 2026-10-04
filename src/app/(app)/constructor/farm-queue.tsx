@@ -65,7 +65,11 @@ type QueueJob = {
 type QueueTask = {
   id: string
   createdAt: string
+  finishedAt: string | null
+  durationMs: number | null
   createdBy: string
+  teamName: string
+  lastLoginAt: string | null
   action: string
   total: number
   counts: QueueStats
@@ -112,11 +116,39 @@ function formatWhen(value: string) {
   })
 }
 
-function formatClock(value: string) {
-  return new Date(value).toLocaleString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+function formatDuration(ms: number | null) {
+  if (ms === null) return "—"
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const rest = seconds % 60
+  if (hours > 0) return `${hours}ч ${minutes}м ${rest}с`
+  if (minutes > 0) return `${minutes}м ${rest}с`
+  return `${rest}с`
+}
+
+function TaskMetaList({ task, compact = false }: { task: QueueTask; compact?: boolean }) {
+  const rows = [
+    ["Team", task.teamName || "—"],
+    ["Owner", task.createdBy || "—"],
+    ["Last login", task.lastLoginAt ? formatWhen(task.lastLoginAt) : "—"],
+    ["Created", formatWhen(task.createdAt)],
+    ["Finished", task.finishedAt ? formatWhen(task.finishedAt) : "—"],
+    ["Duration", formatDuration(task.durationMs)],
+  ] as const
+
+  return (
+    <dl className={compact ? "grid gap-0.5 text-xs" : "grid gap-1 text-sm"}>
+      {rows.map(([label, value]) => (
+        <div key={label} className={compact ? "flex min-w-0 gap-1" : "flex min-w-0 gap-1.5"}>
+          <dt className="shrink-0 font-medium text-foreground">{label}:</dt>
+          <dd className="min-w-0 truncate text-muted-foreground" title={value}>
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 function shortUrl(url: string) {
@@ -196,6 +228,9 @@ function TaskDetailsDialog({
                 <Badge variant={errors.length > 0 ? "destructive" : "outline"}>
                   Ошибок: {errors.length}
                 </Badge>
+              </div>
+              <div className="rounded-xl border bg-muted/20 p-3">
+                <TaskMetaList task={task} />
               </div>
               {errors.length > 0 ? (
                 <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
@@ -536,11 +571,10 @@ function TasksTable({
                 </TableHead>
               ) : null}
               <TableHead>Очередь</TableHead>
-              <TableHead>Юзер</TableHead>
+              <TableHead>Информация</TableHead>
               <TableHead>Задача</TableHead>
               <TableHead>Комментарии</TableHead>
               <TableHead>Статус</TableHead>
-              <TableHead>Время</TableHead>
               <TableHead className="text-right">Действия</TableHead>
             </TableRow>
           </TableHeader>
@@ -564,11 +598,11 @@ function TasksTable({
                   <TableCell className="whitespace-nowrap font-medium">
                     {position ? `#${position}` : "—"}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap font-medium">
-                    <span className="inline-flex items-center gap-2">
-                      {task.createdBy}
-                      {mine ? <Badge variant="secondary">Моя</Badge> : null}
-                    </span>
+                  <TableCell className="min-w-56">
+                    <div className="grid gap-1">
+                      {mine ? <Badge variant="secondary" className="w-fit">Моя</Badge> : null}
+                      <TaskMetaList task={task} compact />
+                    </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {actionLabel[task.action] || task.action} · {task.total} шт.
@@ -578,9 +612,6 @@ function TasksTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant[status]}>{statusLabel[status]}</Badge>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatWhen(task.createdAt)}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
@@ -1184,21 +1215,17 @@ export function FarmQueue({
                 {tasks.map((task) => (
                   <li
                     key={task.id}
-                    className="flex h-10 items-center justify-between gap-3 overflow-hidden rounded-xl border px-3"
+                    className="grid gap-2 rounded-xl border px-3 py-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
                   >
-                    <p className="min-w-0 truncate text-sm">
-                      <span className="font-medium">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
                         {actionLabel[task.action] || task.action} · {task.total} шт.
-                      </span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {task.createdBy} · {formatClock(task.createdAt)}
-                      </span>
-                    </p>
-                    <p className="shrink-0 text-xs text-muted-foreground">
-                      ждёт {task.counts.pending} · идёт {task.counts.running} · ок {task.counts.done} ·
-                      ошибки {task.counts.error}
-                    </p>
+                      </p>
+                      <TaskMetaList task={task} compact />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 md:justify-end">
+                      <TaskCommentStatus task={task} />
+                    </div>
                   </li>
                 ))}
               </ul>
