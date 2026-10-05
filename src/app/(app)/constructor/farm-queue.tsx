@@ -237,9 +237,9 @@ function TaskDetailsDialog({
               {errors.length > 0 ? (
                 <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
                   <p className="text-sm font-medium text-destructive">Лог ошибок</p>
-                  <div className="grid max-h-36 gap-1 overflow-y-auto text-sm">
+                  <div className="grid max-h-36 min-w-0 gap-1 overflow-y-auto text-sm">
                     {errors.map((job) => (
-                      <p key={job.id} className="text-destructive">
+                      <p key={job.id} className="min-w-0 break-words text-destructive [overflow-wrap:anywhere]">
                         {job.fanName || job.profileId}: {job.error}
                       </p>
                     ))}
@@ -381,12 +381,12 @@ function ServiceMessage({ message, compact = false }: { message: string; compact
     <div
       className={
         compact
-          ? "rounded-lg border border-destructive/25 bg-destructive/5 px-2 py-1 text-xs text-destructive"
-          : "rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          ? "min-w-0 max-w-full overflow-hidden rounded-lg border border-destructive/25 bg-destructive/5 px-2 py-1 text-xs text-destructive"
+          : "min-w-0 max-w-full overflow-hidden rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive"
       }
     >
       <span className="font-medium text-foreground">Service message:</span>{" "}
-      <span>{message}</span>
+      <span className="break-words [overflow-wrap:anywhere]">{message}</span>
     </div>
   )
 }
@@ -645,8 +645,8 @@ function TasksTable({
                   <TableCell>
                     <TaskCommentStatus task={task} />
                   </TableCell>
-                  <TableCell>
-                    <div className="grid min-w-48 gap-1.5">
+                  <TableCell className="max-w-80">
+                    <div className="grid min-w-0 max-w-80 gap-1.5">
                       <Badge variant={statusVariant[status]} className="w-fit">
                         {statusLabel[status]}
                       </Badge>
@@ -1268,7 +1268,7 @@ export function FarmQueue({
                       <div className="flex flex-wrap gap-1.5 md:justify-end">
                         <TaskCommentStatus task={task} />
                       </div>
-                      <div className="md:col-span-2">
+                      <div className="min-w-0 md:col-span-2">
                         <ServiceMessage message={serviceMessage} compact />
                       </div>
                     </li>
