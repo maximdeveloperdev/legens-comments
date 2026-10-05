@@ -819,6 +819,7 @@ export function FarmQueue({
   const [detailsTask, setDetailsTask] = useState<QueueTask | null>(null)
   const [duplicateTask, setDuplicateTask] = useState<QueueTask | null>(null)
   const [duplicateUrls, setDuplicateUrls] = useState("")
+  const [duplicateMessages, setDuplicateMessages] = useState<Record<string, string>>({})
   const previousTaskTabs = useRef<Map<string, QueueTab> | null>(null)
 
   useEffect(() => {
@@ -1097,6 +1098,9 @@ export function FarmQueue({
   function openDuplicateTask(task: QueueTask) {
     setDuplicateTask(task)
     setDuplicateUrls(uniqueTaskUrls(task).slice(0, 1).join("\n"))
+    setDuplicateMessages(
+      Object.fromEntries(task.jobs.map((job) => [job.id, job.message || ""])),
+    )
   }
 
   async function handleDuplicateTask() {
@@ -1106,7 +1110,14 @@ export function FarmQueue({
       .map((url) => url.trim())
       .filter(Boolean)
     setBusyId(duplicateTask.id)
-    const result = await duplicateFarmTask({ taskId: duplicateTask.id, urls })
+    const result = await duplicateFarmTask({
+      taskId: duplicateTask.id,
+      urls,
+      comments: duplicateTask.jobs.map((job) => ({
+        jobId: job.id,
+        message: duplicateMessages[job.id] ?? job.message,
+      })),
+    })
     if (result.error) {
       pushAppNotification("Копия задачи · ошибка", result.error, {
         href: "/queue?tab=work",
@@ -1119,6 +1130,7 @@ export function FarmQueue({
       })
       setDuplicateTask(null)
       setDuplicateUrls("")
+      setDuplicateMessages({})
       await refreshQueue().catch(() => undefined)
       void fetch("/api/farm-queue", { method: "POST" })
     }
@@ -1293,14 +1305,15 @@ export function FarmQueue({
           if (!open) {
             setDuplicateTask(null)
             setDuplicateUrls("")
+            setDuplicateMessages({})
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Скопировать задачу</DialogTitle>
             <DialogDescription>
-              Комментарии, фанки и вложения сохранятся. Замени только ссылку на дубль поста.
+              Фанки и вложения сохранятся. Перед запуском можно заменить ссылку и отредактировать комментарии.
             </DialogDescription>
           </DialogHeader>
           {duplicateTask ? (
@@ -1326,6 +1339,37 @@ export function FarmQueue({
                   Для задачи с несколькими постами можно вставить несколько ссылок, каждая с новой строки.
                 </span>
               </label>
+              {duplicateTask.action !== "likeonly" ? (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">Комментарии</span>
+                    <Badge variant="outline">{duplicateTask.jobs.length} шт.</Badge>
+                  </div>
+                  <div className="grid max-h-[22rem] gap-2 overflow-y-auto rounded-xl border bg-muted/10 p-2">
+                    {duplicateTask.jobs.map((job, index) => (
+                      <label key={job.id} className="grid gap-1.5 rounded-lg bg-background p-2">
+                        <span className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">
+                            #{index + 1} · {job.fanName || job.profileId}
+                          </span>
+                          {job.photoPath ? <Badge variant="secondary">фото</Badge> : null}
+                        </span>
+                        <Textarea
+                          value={duplicateMessages[job.id] ?? job.message}
+                          onChange={(event) =>
+                            setDuplicateMessages((current) => ({
+                              ...current,
+                              [job.id]: event.target.value,
+                            }))
+                          }
+                          placeholder={job.aiComment ? "AI-комментарий" : "Текст комментария"}
+                          rows={3}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
           <DialogFooter>

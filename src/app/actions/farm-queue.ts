@@ -330,6 +330,7 @@ export async function startFarmTask(taskId?: string): Promise<{ error?: string; 
 export async function duplicateFarmTask(input: {
   taskId: string
   urls: string[]
+  comments?: Array<{ jobId?: string; message?: string }>
 }): Promise<{ error?: string; taskId?: string; total?: number }> {
   const session = await getActiveSession()
   if (!session) {
@@ -343,6 +344,12 @@ export async function duplicateFarmTask(input: {
   if (newUrls.some((url) => !isFacebookUrl(url))) {
     return { error: "Можно копировать только на ссылки Facebook" }
   }
+
+  const messageByJobId = new Map(
+    (input.comments || [])
+      .map((item) => [String(item.jobId || "").trim(), String(item.message ?? "")] as const)
+      .filter(([jobId]) => Boolean(jobId)),
+  )
 
   const access = await getFarmQueueAccess(session)
   const accessWhere = farmTaskAccessWhere(access)
@@ -367,6 +374,19 @@ export async function duplicateFarmTask(input: {
     urlByOriginal.set(originalUrl, newUrls.length === 1 ? newUrls[0] : newUrls[index])
   }
 
+  const nextJobs = task.jobs.map((job) => {
+    const message = messageByJobId.has(job.id)
+      ? (messageByJobId.get(job.id) || "").trim()
+      : job.message
+    return {
+      job,
+      message,
+    }
+  })
+  if (nextJobs.some(({ message }) => message.length > 8000)) {
+    return { error: "Сообщение слишком длинное" }
+  }
+
   const duplicated = await prisma.farmTask.create({
     data: {
       createdBy: session.name,
@@ -374,13 +394,13 @@ export async function duplicateFarmTask(input: {
       action: task.action,
       total: task.jobs.length,
       jobs: {
-        create: task.jobs.map((job) => ({
+        create: nextJobs.map(({ job, message }) => ({
           action: job.action,
           profileId: job.profileId,
           fanName: job.fanName,
           url: urlByOriginal.get(job.url) ?? newUrls[0],
-          message: job.message,
-          aiComment: job.aiComment && !job.message.trim(),
+          message,
+          aiComment: job.aiComment && !message,
           photoPath: job.photoPath,
         })),
       },
