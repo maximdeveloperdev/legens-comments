@@ -7,7 +7,7 @@ import { CheckCheck, Heart, Loader2, Paperclip, Play, Plus, RefreshCw, Sparkles,
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
-import { profileDisplayGeo } from "@/lib/profile-geo"
+import { profileDisplayGeo, profileTeamMarkerFromName } from "@/lib/profile-geo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -34,6 +34,7 @@ type FarmPage = AdsPowerProfile & {
   displayName: string
   browserId: string
   displayGeo: string
+  displayTeamMarker: string
   synced: boolean
 }
 
@@ -89,6 +90,7 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
       displayName: fan.name,
       browserId: profile.id,
       displayGeo: profileDisplayGeo(profile, countryCodes),
+      displayTeamMarker: profileTeamMarkerFromName(profile.name),
       synced: true,
     }))
   }
@@ -99,6 +101,7 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
       displayName: profile.name,
       browserId: profile.id,
       displayGeo: profileDisplayGeo(profile, countryCodes),
+      displayTeamMarker: profileTeamMarkerFromName(profile.name),
       synced: false,
     },
   ]
@@ -602,6 +605,7 @@ export function FarmComments({
             fans: pages.map((page) => ({
               name: page.displayName,
               geo: page.displayGeo,
+              teamMarker: page.displayTeamMarker,
             })),
           }),
         })

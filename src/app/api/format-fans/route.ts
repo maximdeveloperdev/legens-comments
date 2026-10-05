@@ -1,7 +1,10 @@
+import path from "node:path"
+import { existsSync } from "node:fs"
+import { FanPageAssetType, type Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { writeActionLog, writeTrackerLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
-import { generateFanAvatar, generateFanCover, generateFanIdentity } from "@/lib/openai-fan-format"
+import { generateFanIdentity } from "@/lib/openai-fan-format"
 import { runFacebookFanFormatQueue, type FanFormatJob } from "@/lib/facebook-page-switch"
 import { requireAdminSession } from "@/lib/session"
 
@@ -10,14 +13,47 @@ export const dynamic = "force-dynamic"
 
 type FormatFanRequest = {
   profileId?: string
-  fans?: Array<{ name?: string; geo?: string }>
+  fans?: Array<{ name?: string; geo?: string; teamMarker?: string }>
 }
 
-const COVER_THEMES = ["nature", "cars", "venue", "history", "music"] as const
+function normalizeMarker(value: string | undefined) {
+  return (value || "").trim().toUpperCase()
+}
 
-function pickCoverTheme(seed: string) {
-  const total = [...seed].reduce((sum, char) => sum + char.charCodeAt(0), 0)
-  return COVER_THEMES[total % COVER_THEMES.length]
+function assetDiskPath(url: string) {
+  const cleanUrl = url.split("?")[0] || ""
+  if (!cleanUrl.startsWith("/uploads/fan-page-library/")) return ""
+  return path.join(process.cwd(), "public", cleanUrl.replace(/^\/+/, ""))
+}
+
+async function pickRandomLibraryAsset(input: {
+  type: FanPageAssetType
+  geoCode: string
+  teamMarker: string
+}) {
+  const geoCode = input.geoCode.trim().toUpperCase()
+  const teamMarker = normalizeMarker(input.teamMarker)
+  if (!geoCode) return null
+
+  const where: Prisma.FanPageAssetWhereInput = {
+    type: input.type,
+    geoCode,
+  }
+  if (teamMarker && teamMarker !== "ALL") {
+    where.team = { marker: teamMarker }
+  }
+
+  const count = await prisma.fanPageAsset.count({ where })
+  if (count === 0) return null
+
+  const [asset] = await prisma.fanPageAsset.findMany({
+    where,
+    orderBy: { id: "asc" },
+    skip: Math.floor(Math.random() * count),
+    take: 1,
+    include: { team: { select: { name: true, marker: true } } },
+  })
+  return asset ?? null
 }
 
 export async function POST(request: Request) {
@@ -32,6 +68,7 @@ export async function POST(request: Request) {
     .map((fan) => ({
       name: fan.name?.trim() || "",
       geo: fan.geo?.trim().toUpperCase() || "",
+      teamMarker: normalizeMarker(fan.teamMarker),
     }))
     .filter((fan) => fan.name)
 
@@ -69,15 +106,19 @@ export async function POST(request: Request) {
           select: { code: true, nameEn: true, nameRu: true },
         })
         const countries = Object.fromEntries(countryRows.map((country) => [country.code, country]))
-        const jobs = fans.map((fan) => ({ currentName: fan.name, geo: fan.geo }))
+        const jobs = fans.map((fan) => ({
+          currentName: fan.name,
+          geo: fan.geo,
+          teamMarker: fan.teamMarker,
+        }))
         const result = await runFacebookFanFormatQueue(
           profileId,
           jobs,
-          async (fan: FanFormatJob & { geo?: string }) => {
+          async (fan: FanFormatJob & { geo?: string; teamMarker?: string }) => {
             const country = fan.geo ? countries[fan.geo] : undefined
             log({
               level: "info",
-              text: `Генерируем имя для «${fan.currentName}»${fan.geo ? ` · ${fan.geo}` : ""}`,
+              text: `Генерируем имя для «${fan.currentName}»${fan.geo ? ` · ${fan.geo}` : ""}${fan.teamMarker ? ` · ${fan.teamMarker}` : ""}`,
             })
             const identity = await generateFanIdentity({
               currentName: fan.currentName,
@@ -94,33 +135,60 @@ export async function POST(request: Request) {
             }
           },
           log,
-          async (fan, job: FanFormatJob & { geo?: string }) => {
-            const country = job.geo ? countries[job.geo] : undefined
-            const countryName = country?.nameEn || country?.nameRu
-            const coverTheme = fan.coverTheme || pickCoverTheme(`${fan.newName}:${job.geo || ""}`)
-            log({ level: "info", text: `Имя применилось — генерируем avatar/cover для «${fan.newName}»` })
-            const avatar = await generateFanAvatar({
-              fullName: fan.newName,
-              geo: job.geo || "",
-              countryName,
-              prompt:
-                fan.avatarPrompt ||
-                `Realistic original headshot photo of an adult person from ${countryName || job.geo || "Europe"}, natural light, neutral background, social media profile picture, not a celebrity.`,
+          async (fan, job: FanFormatJob & { geo?: string; teamMarker?: string }) => {
+            const geoCode = (job.geo || "").trim().toUpperCase()
+            const teamMarker = normalizeMarker(job.teamMarker)
+            log({
+              level: "info",
+              text: `Имя применилось — берём avatar/cover из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
             })
-            const cover = await generateFanCover({
-              fullName: fan.newName,
-              geo: job.geo || "",
-              countryName,
-              theme: coverTheme,
-              prompt:
-                fan.coverPrompt ||
-                `Wide Facebook cover photo scene from ${countryName || job.geo || "Europe"}, theme ${coverTheme}, clean composition, no text, no logos.`,
-            })
-            log({ level: "ok", text: `Сгенерированы avatar/cover: ${fan.newName} · cover ${coverTheme}` })
+
+            const [avatarAsset, coverAsset] = await Promise.all([
+              pickRandomLibraryAsset({
+                type: FanPageAssetType.AVATAR,
+                geoCode,
+                teamMarker,
+              }),
+              pickRandomLibraryAsset({
+                type: FanPageAssetType.COVER,
+                geoCode,
+                teamMarker,
+              }),
+            ])
+
+            const avatarPath = avatarAsset ? assetDiskPath(avatarAsset.url) : ""
+            const coverPath = coverAsset ? assetDiskPath(coverAsset.url) : ""
+            const result: { avatarPath?: string; coverPath?: string; coverTheme?: string } = {}
+
+            if (avatarPath && existsSync(avatarPath)) {
+              result.avatarPath = avatarPath
+              log({
+                level: "ok",
+                text: `Аватарка выбрана из библиотеки: ${avatarAsset?.team.marker} · ${geoCode} · ${avatarAsset?.originalName}`,
+              })
+            } else {
+              log({
+                level: "info",
+                text: `Аватарку пропускаем: нет файла в библиотеке для ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
+              })
+            }
+
+            if (coverPath && existsSync(coverPath)) {
+              result.coverPath = coverPath
+              result.coverTheme = `library ${coverAsset?.team.marker || teamMarker || "ALL"} ${geoCode}`.trim()
+              log({
+                level: "ok",
+                text: `Обложка выбрана из библиотеки: ${coverAsset?.team.marker} · ${geoCode} · ${coverAsset?.originalName}`,
+              })
+            } else {
+              log({
+                level: "info",
+                text: `Обложку пропускаем: нет файла в библиотеке для ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
+              })
+            }
+
             return {
-              avatarPath: avatar.filePath,
-              coverPath: cover.filePath,
-              coverTheme,
+              ...result,
             }
           },
         )
