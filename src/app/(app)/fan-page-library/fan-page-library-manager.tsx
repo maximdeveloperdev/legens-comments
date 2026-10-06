@@ -74,6 +74,7 @@ const genderLabels: Record<Gender, string> = {
 }
 
 const emptyFilter = "all"
+const uploadBatchSize = 5
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("ru-RU", {
@@ -191,23 +192,30 @@ export function FanPageLibraryManager({
     setError("")
     setMessage("")
 
-    const data = new FormData()
-    data.set("type", form.type)
-    data.set("gender", form.type === FanPageAssetType.AVATAR ? form.gender : Gender.ANY)
-    data.set("geoCode", form.geoCode)
-    data.set("teamId", form.teamId)
-    for (const file of form.files) {
-      data.append("files", file)
-    }
-
     startTransition(async () => {
-      const result = await uploadFanPageAsset(data)
-      if (result.error) {
-        setError(result.error)
-        return
+      let uploaded = 0
+      for (let index = 0; index < form.files.length; index += uploadBatchSize) {
+        const batch = form.files.slice(index, index + uploadBatchSize)
+        const data = new FormData()
+        data.set("type", form.type)
+        data.set("gender", form.type === FanPageAssetType.AVATAR ? form.gender : Gender.ANY)
+        data.set("geoCode", form.geoCode)
+        data.set("teamId", form.teamId)
+        for (const file of batch) {
+          data.append("files", file)
+        }
+
+        setMessage(`Загрузка: ${uploaded}/${form.files.length}`)
+        const result = await uploadFanPageAsset(data)
+        if (result.error) {
+          setError(result.error)
+          setMessage(uploaded > 0 ? `Загружено до ошибки: ${uploaded}/${form.files.length}` : "")
+          return
+        }
+        uploaded += batch.length
       }
       setOpen(false)
-      setMessage(`Картинок добавлено: ${form.files.length}`)
+      setMessage(`Картинок добавлено: ${uploaded}`)
       router.refresh()
     })
   }

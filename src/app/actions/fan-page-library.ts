@@ -14,6 +14,7 @@ export type FanPageLibraryActionResult = {
 }
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
+const MAX_UPLOAD_FILES = 20
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "fan-page-library")
 
 const mimeToExt: Record<string, string> = {
@@ -96,7 +97,7 @@ export async function uploadFanPageAsset(formData: FormData): Promise<FanPageLib
   if (!geoCode) return { error: "Выберите гео" }
   if (!teamId) return { error: "Выберите команду" }
   if (files.length === 0) return { error: "Выберите картинки" }
-  if (files.length > 50) return { error: "За раз можно загрузить до 50 картинок" }
+  if (files.length > MAX_UPLOAD_FILES) return { error: `За раз можно загрузить до ${MAX_UPLOAD_FILES} картинок` }
 
   for (const file of files) {
     const imageError = validateImage(file)
