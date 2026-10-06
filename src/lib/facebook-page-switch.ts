@@ -27,6 +27,7 @@ export type FanFormatInput = {
   firstName: string
   lastName: string
   newName: string
+  gender?: "male" | "female"
   avatarPath?: string
   coverPath?: string
   coverTheme?: string
@@ -35,7 +36,7 @@ export type FanFormatInput = {
 }
 
 export type FanFormatResult = SwitchTestResult & {
-  formatted?: Array<{ currentName: string; newName: string; nameApplied?: boolean }>
+  formatted?: Array<{ currentName: string; newName: string; gender?: "male" | "female"; nameApplied?: boolean }>
   pending?: Array<{ currentName: string; newName: string; message: string }>
   failed?: Array<{ currentName: string; newName?: string; message: string }>
 }
@@ -2383,6 +2384,7 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
         formatted.push({
           currentName: fan.currentName,
           newName: fan.newName,
+          gender: fan.gender,
           nameApplied: true,
         })
 

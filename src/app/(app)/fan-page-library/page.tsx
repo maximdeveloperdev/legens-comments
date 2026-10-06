@@ -59,6 +59,7 @@ export default async function FanPageLibraryPage() {
           id: asset.id,
           createdAt: asset.createdAt.toISOString(),
           type: asset.type,
+          gender: asset.gender,
           geoCode: asset.geoCode,
           url: asset.url,
           originalName: asset.originalName,

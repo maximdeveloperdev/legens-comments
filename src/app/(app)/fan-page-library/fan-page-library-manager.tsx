@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { FanPageAssetType } from "@prisma/client"
+import { FanPageAssetType, Gender } from "@prisma/client"
 import { ImageIcon, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
 import {
   deleteFanPageAsset,
@@ -45,6 +45,7 @@ type FanPageAssetRow = {
   id: string
   createdAt: string
   type: FanPageAssetType
+  gender: Gender
   geoCode: string
   url: string
   originalName: string
@@ -55,6 +56,7 @@ type FanPageAssetRow = {
 
 type UploadForm = {
   type: FanPageAssetType
+  gender: Gender
   geoCode: string
   teamId: string
   files: File[]
@@ -63,6 +65,12 @@ type UploadForm = {
 const assetTypeLabels: Record<FanPageAssetType, string> = {
   AVATAR: "Аватарки",
   COVER: "Обложки",
+}
+
+const genderLabels: Record<Gender, string> = {
+  ANY: "Любой пол",
+  MALE: "Мужские",
+  FEMALE: "Женские",
 }
 
 const emptyFilter = "all"
@@ -118,11 +126,13 @@ export function FanPageLibraryManager({
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [typeFilter, setTypeFilter] = useState<string>(emptyFilter)
+  const [genderFilter, setGenderFilter] = useState<string>(emptyFilter)
   const [geoFilter, setGeoFilter] = useState<string>(emptyFilter)
   const [teamFilter, setTeamFilter] = useState<string>(emptyFilter)
   const [query, setQuery] = useState("")
   const [form, setForm] = useState<UploadForm>({
     type: FanPageAssetType.AVATAR,
+    gender: Gender.ANY,
     geoCode: countries[0]?.code ?? "",
     teamId: teams[0]?.id ?? "",
     files: [],
@@ -142,6 +152,7 @@ export function FanPageLibraryManager({
     const needle = query.trim().toLowerCase()
     return assets.filter((asset) => {
       if (typeFilter !== emptyFilter && asset.type !== typeFilter) return false
+      if (genderFilter !== emptyFilter && asset.gender !== genderFilter) return false
       if (geoFilter !== emptyFilter && asset.geoCode !== geoFilter) return false
       if (teamFilter !== emptyFilter && asset.team.id !== teamFilter) return false
       if (!needle) return true
@@ -154,16 +165,18 @@ export function FanPageLibraryManager({
         asset.team.marker,
         asset.createdByName ?? "",
         assetTypeLabels[asset.type],
+        genderLabels[asset.gender],
       ]
         .join(" ")
         .toLowerCase()
         .includes(needle)
     })
-  }, [assets, countryMap, geoFilter, query, teamFilter, typeFilter])
+  }, [assets, countryMap, genderFilter, geoFilter, query, teamFilter, typeFilter])
 
   function openUpload() {
     setForm({
       type: FanPageAssetType.AVATAR,
+      gender: Gender.ANY,
       geoCode: countries[0]?.code ?? "",
       teamId: teams[0]?.id ?? "",
       files: [],
@@ -180,6 +193,7 @@ export function FanPageLibraryManager({
 
     const data = new FormData()
     data.set("type", form.type)
+    data.set("gender", form.type === FanPageAssetType.AVATAR ? form.gender : Gender.ANY)
     data.set("geoCode", form.geoCode)
     data.set("teamId", form.teamId)
     for (const file of form.files) {
@@ -235,7 +249,7 @@ export function FanPageLibraryManager({
           </Button>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? emptyFilter)}>
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
@@ -248,6 +262,20 @@ export function FanPageLibraryManager({
               <SelectItem value={emptyFilter}>Все типы</SelectItem>
               <SelectItem value={FanPageAssetType.AVATAR}>Аватарки</SelectItem>
               <SelectItem value={FanPageAssetType.COVER}>Обложки</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={genderFilter} onValueChange={(value) => setGenderFilter(value ?? emptyFilter)}>
+            <SelectTrigger className="w-full">
+              <span className="truncate text-left">
+                {genderFilter === emptyFilter ? "Все полы" : genderLabels[genderFilter as Gender]}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={emptyFilter}>Все полы</SelectItem>
+              <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
+              <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
+              <SelectItem value={Gender.MALE}>Мужские</SelectItem>
             </SelectContent>
           </Select>
 
@@ -340,6 +368,9 @@ export function FanPageLibraryManager({
                     <div className="grid min-w-0 gap-1">
                       <div className="flex flex-wrap gap-1.5">
                         <Badge>{assetTypeLabels[asset.type]}</Badge>
+                        {asset.type === FanPageAssetType.AVATAR ? (
+                          <Badge variant="outline">{genderLabels[asset.gender]}</Badge>
+                        ) : null}
                         <Badge variant="secondary" className="gap-1.5">
                           {country?.flagSvg ? (
                             <Image
@@ -402,6 +433,7 @@ export function FanPageLibraryManager({
                     setForm((current) => ({
                       ...current,
                       type: value === FanPageAssetType.COVER ? FanPageAssetType.COVER : FanPageAssetType.AVATAR,
+                      gender: value === FanPageAssetType.COVER ? Gender.ANY : current.gender,
                     }))
                   }
                 >
@@ -414,6 +446,33 @@ export function FanPageLibraryManager({
                   </SelectContent>
                 </Select>
               </Field>
+
+              {form.type === FanPageAssetType.AVATAR ? (
+                <Field>
+                  <FieldLabel>Пол</FieldLabel>
+                  <Select
+                    value={form.gender}
+                    onValueChange={(value) =>
+                      setForm((current) => ({
+                        ...current,
+                        gender:
+                          value === Gender.MALE || value === Gender.FEMALE || value === Gender.ANY
+                            ? value
+                            : Gender.ANY,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <span>{genderLabels[form.gender]}</span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
+                      <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
+                      <SelectItem value={Gender.MALE}>Мужские</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ) : null}
 
               <Field>
                 <FieldLabel>Geo</FieldLabel>

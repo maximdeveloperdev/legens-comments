@@ -1,6 +1,6 @@
 import path from "node:path"
 import { existsSync } from "node:fs"
-import { FanPageAssetType, type Prisma } from "@prisma/client"
+import { FanPageAssetType, Gender, type Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { writeActionLog, writeTrackerLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
@@ -20,6 +20,18 @@ function normalizeMarker(value: string | undefined) {
   return (value || "").trim().toUpperCase()
 }
 
+function identityGenderToAssetGender(gender: string | undefined) {
+  if (gender === "male") return Gender.MALE
+  if (gender === "female") return Gender.FEMALE
+  return null
+}
+
+function genderLabel(gender: Gender | null) {
+  if (gender === Gender.MALE) return "муж."
+  if (gender === Gender.FEMALE) return "жен."
+  return "любой"
+}
+
 function assetDiskPath(url: string) {
   const cleanUrl = url.split("?")[0] || ""
   if (!cleanUrl.startsWith("/uploads/fan-page-library/")) return ""
@@ -30,30 +42,39 @@ async function pickRandomLibraryAsset(input: {
   type: FanPageAssetType
   geoCode: string
   teamMarker: string
+  gender?: Gender | null
 }) {
   const geoCode = input.geoCode.trim().toUpperCase()
   const teamMarker = normalizeMarker(input.teamMarker)
   if (!geoCode) return null
 
-  const where: Prisma.FanPageAssetWhereInput = {
+  const baseWhere: Prisma.FanPageAssetWhereInput = {
     type: input.type,
     geoCode,
   }
   if (teamMarker && teamMarker !== "ALL") {
-    where.team = { marker: teamMarker }
+    baseWhere.team = { marker: teamMarker }
   }
 
-  const count = await prisma.fanPageAsset.count({ where })
-  if (count === 0) return null
+  const whereOptions =
+    input.type === FanPageAssetType.AVATAR && input.gender
+      ? [{ ...baseWhere, gender: input.gender }, { ...baseWhere, gender: Gender.ANY }]
+      : [baseWhere]
 
-  const [asset] = await prisma.fanPageAsset.findMany({
-    where,
-    orderBy: { id: "asc" },
-    skip: Math.floor(Math.random() * count),
-    take: 1,
-    include: { team: { select: { name: true, marker: true } } },
-  })
-  return asset ?? null
+  for (const where of whereOptions) {
+    const count = await prisma.fanPageAsset.count({ where })
+    if (count === 0) continue
+
+    const [asset] = await prisma.fanPageAsset.findMany({
+      where,
+      orderBy: { id: "asc" },
+      skip: Math.floor(Math.random() * count),
+      take: 1,
+      include: { team: { select: { name: true, marker: true } } },
+    })
+    if (asset) return asset
+  }
+  return null
 }
 
 export async function POST(request: Request) {
@@ -126,21 +147,26 @@ export async function POST(request: Request) {
               countryName: country?.nameEn || country?.nameRu,
               includeMediaPrompts: false,
             })
-            log({ level: "ok", text: `Имя сгенерировано: ${fan.currentName} → ${identity.fullName}` })
+            log({
+              level: "ok",
+              text: `Имя сгенерировано: ${fan.currentName} → ${identity.fullName} · ${identity.gender === "male" ? "муж." : "жен."}`,
+            })
             return {
               currentName: fan.currentName,
               firstName: identity.firstName,
               lastName: identity.lastName,
               newName: identity.fullName,
+              gender: identity.gender,
             }
           },
           log,
           async (fan, job: FanFormatJob & { geo?: string; teamMarker?: string }) => {
             const geoCode = (job.geo || "").trim().toUpperCase()
             const teamMarker = normalizeMarker(job.teamMarker)
+            const avatarGender = identityGenderToAssetGender(fan.gender)
             log({
               level: "info",
-              text: `Имя применилось — берём avatar/cover из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
+              text: `Имя применилось — берём avatar/cover из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
             })
 
             const [avatarAsset, coverAsset] = await Promise.all([
@@ -148,6 +174,7 @@ export async function POST(request: Request) {
                 type: FanPageAssetType.AVATAR,
                 geoCode,
                 teamMarker,
+                gender: avatarGender,
               }),
               pickRandomLibraryAsset({
                 type: FanPageAssetType.COVER,
@@ -164,12 +191,12 @@ export async function POST(request: Request) {
               result.avatarPath = avatarPath
               log({
                 level: "ok",
-                text: `Аватарка выбрана из библиотеки: ${avatarAsset?.team.marker} · ${geoCode} · ${avatarAsset?.originalName}`,
+                text: `Аватарка выбрана из библиотеки: ${avatarAsset?.team.marker} · ${geoCode} · ${genderLabel(avatarAsset?.gender ?? null)} · ${avatarAsset?.originalName}`,
               })
             } else {
               log({
                 level: "info",
-                text: `Аватарку пропускаем: нет файла в библиотеке для ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
+                text: `Аватарку пропускаем: нет файла в библиотеке для ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
               })
             }
 
@@ -198,9 +225,14 @@ export async function POST(request: Request) {
         const message = result.message
         for (const item of result.formatted || []) {
           if (item.nameApplied === false) continue
+          const gender = identityGenderToAssetGender(item.gender)
           await prisma.facebookFan.updateMany({
             where: { adsPowerUserId: profileId, name: item.currentName },
-            data: { name: item.newName, syncedAt: new Date() },
+            data: {
+              name: item.newName,
+              syncedAt: new Date(),
+              ...(gender ? { gender } : {}),
+            },
           })
         }
 

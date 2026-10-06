@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { FanPageAssetType, UserRole } from "@prisma/client"
+import { FanPageAssetType, Gender, UserRole } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { writeTrackerLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
@@ -31,12 +31,23 @@ function parseAssetType(value: string) {
   return null
 }
 
+function parseGender(value: string) {
+  if (value === Gender.MALE || value === Gender.FEMALE || value === Gender.ANY) return value
+  return Gender.ANY
+}
+
 function normalizeGeoCode(value: string) {
   return value.trim().toUpperCase()
 }
 
 function assetTypeLabel(type: FanPageAssetType) {
   return type === FanPageAssetType.AVATAR ? "аватарка" : "обложка"
+}
+
+function genderLabel(gender: Gender) {
+  if (gender === Gender.MALE) return "мужские"
+  if (gender === Gender.FEMALE) return "женские"
+  return "любой пол"
 }
 
 async function getAllowedTeamIds(userId: string, role: UserRole) {
@@ -76,6 +87,7 @@ export async function uploadFanPageAsset(formData: FormData): Promise<FanPageLib
   if (!session) return { error: "Нет доступа" }
 
   const type = parseAssetType(getString(formData, "type"))
+  const gender = type === FanPageAssetType.AVATAR ? parseGender(getString(formData, "gender")) : Gender.ANY
   const geoCode = normalizeGeoCode(getString(formData, "geoCode"))
   const teamId = getString(formData, "teamId")
   const files = formData.getAll("files").filter((file): file is File => file instanceof File)
@@ -114,6 +126,7 @@ export async function uploadFanPageAsset(formData: FormData): Promise<FanPageLib
   await prisma.fanPageAsset.createMany({
     data: savedFiles.map(({ file, fileName }) => ({
       type,
+      gender,
       geoCode,
       teamId,
       fileName,
@@ -133,7 +146,7 @@ export async function uploadFanPageAsset(formData: FormData): Promise<FanPageLib
   await writeTrackerLog({
     userName: session.name,
     action: "Библиотека Fan Page",
-    detail: `Добавил ${assetTypeLabel(type)} · ${geoCode} · ${team?.name ?? "команда"} (${team?.marker ?? "—"}) · ${savedFiles.length} шт.`,
+    detail: `Добавил ${assetTypeLabel(type)} · ${type === FanPageAssetType.AVATAR ? `${genderLabel(gender)} · ` : ""}${geoCode} · ${team?.name ?? "команда"} (${team?.marker ?? "—"}) · ${savedFiles.length} шт.`,
   })
 
   revalidatePath("/fan-page-library")

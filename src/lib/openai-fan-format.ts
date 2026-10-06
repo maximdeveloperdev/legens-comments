@@ -6,6 +6,7 @@ export type GeneratedFanIdentity = {
   firstName: string
   lastName: string
   fullName: string
+  gender: "male" | "female"
   avatarPrompt: string
   coverTheme: string
   coverPrompt: string
@@ -30,6 +31,13 @@ function normalizeName(value: unknown) {
     .replace(/[^\p{L}\p{M}' -]+/gu, "")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function normalizeGender(value: unknown) {
+  const gender = String(value || "").trim().toLowerCase()
+  if (gender === "male" || gender === "m" || gender === "man") return "male"
+  if (gender === "female" || gender === "f" || gender === "woman") return "female"
+  return ""
 }
 
 async function downloadImage(url: string) {
@@ -73,19 +81,19 @@ export async function generateFanIdentity(input: {
 Geo code: ${geo}
 Country: ${country}
 
-Generate a new human first name and last name for this geo. Also write:
+Generate a new human first name and last name for this geo. Also return the person's gender as male or female. Also write:
 - an avatar prompt for a realistic, original adult profile photo matching the country/geo;
 - a cover photo theme and prompt. Pick one theme from nature, cars, venue/cafe, history, music. Cover photo should be a wide banner scene, no person as the main subject, no text, no logos.
 
 Return JSON:
-{"firstName":"...","lastName":"...","fullName":"First Last","avatarPrompt":"...","coverTheme":"nature|cars|venue|history|music","coverPrompt":"..."}`
+{"firstName":"...","lastName":"...","fullName":"First Last","gender":"male|female","avatarPrompt":"...","coverTheme":"nature|cars|venue|history|music","coverPrompt":"..."}`
             : `Current fan/page name: ${input.currentName}
 Geo code: ${geo}
 Country: ${country}
 
-Generate only a new human first name and last name for this geo.
+Generate only a new human first name and last name for this geo. Also return the person's gender as male or female.
 Return JSON:
-{"firstName":"...","lastName":"...","fullName":"First Last"}`,
+{"firstName":"...","lastName":"...","fullName":"First Last","gender":"male|female"}`,
         },
       ],
     }),
@@ -101,6 +109,7 @@ Return JSON:
   const firstName = normalizeName(parsed.firstName)
   const lastName = normalizeName(parsed.lastName)
   const fullName = normalizeName(parsed.fullName) || `${firstName} ${lastName}`.trim()
+  const gender = normalizeGender(parsed.gender)
   const avatarPrompt = String(parsed.avatarPrompt || "").trim()
   const coverTheme = String(parsed.coverTheme || "").trim() || "nature"
   const coverPrompt = String(parsed.coverPrompt || "").trim()
@@ -108,11 +117,15 @@ Return JSON:
   if (!firstName || !lastName || !fullName) {
     throw new Error("ChatGPT не вернул имя и фамилию")
   }
+  if (!gender) {
+    throw new Error("ChatGPT не вернул пол для нового имени")
+  }
 
   return {
     firstName,
     lastName,
     fullName,
+    gender,
     avatarPrompt: includeMediaPrompts
       ? avatarPrompt ||
         `Realistic original headshot photo of an adult person from ${country}, natural light, neutral background, social media profile picture, not a celebrity.`

@@ -31,6 +31,7 @@ export type AdsPowerOpenBrowser = {
 export type AdsPowerFan = {
   id: string
   name: string
+  gender?: string | null
   position: number
   current: boolean
 }

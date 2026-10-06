@@ -99,12 +99,14 @@ model FacebookFan {
   id             String   @id @default(cuid())
   adsPowerUserId String
   name           String
+  gender         Gender?
   position       Int
   current        Boolean  @default(false)
   syncedAt       DateTime @default(now())
 
   @@unique([adsPowerUserId, position])
   @@index([adsPowerUserId])
+  @@index([gender])
 }
 
 enum FarmJobStatus {
@@ -119,10 +121,17 @@ enum FanPageAssetType {
   COVER
 }
 
+enum Gender {
+  ANY
+  MALE
+  FEMALE
+}
+
 model FanPageAsset {
   id              String           @id @default(cuid())
   createdAt       DateTime         @default(now())
   type            FanPageAssetType
+  gender          Gender           @default(ANY)
   geoCode         String
   url             String
   fileName        String
@@ -135,6 +144,7 @@ model FanPageAsset {
   createdByUser   User?            @relation("FanPageAssetCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([type])
+  @@index([gender])
   @@index([geoCode])
   @@index([teamId])
   @@index([createdAt])
