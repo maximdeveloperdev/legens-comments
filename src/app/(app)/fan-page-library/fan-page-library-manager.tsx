@@ -7,10 +7,12 @@ import { FanPageAssetType, Gender } from "@prisma/client"
 import { ChevronLeft, ChevronRight, ImageIcon, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
 import {
   deleteFanPageAsset,
+  deleteFanPageAssets,
   uploadFanPageAsset,
 } from "@/app/actions/fan-page-library"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -134,6 +136,7 @@ export function FanPageLibraryManager({
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(pageSizeOptions[0])
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [form, setForm] = useState<UploadForm>({
     type: FanPageAssetType.AVATAR,
     gender: Gender.ANY,
@@ -184,7 +187,9 @@ export function FanPageLibraryManager({
     () => filteredAssets.slice(pageStart, pageStart + pageSize),
     [filteredAssets, pageSize, pageStart],
   )
-
+  const pageAssetIds = paginatedAssets.map((asset) => asset.id)
+  const selectedOnPage = pageAssetIds.filter((id) => selectedIds.includes(id))
+  const allPageSelected = pageAssetIds.length > 0 && selectedOnPage.length === pageAssetIds.length
   function openUpload() {
     setForm({
       type: FanPageAssetType.AVATAR,
@@ -245,6 +250,43 @@ export function FanPageLibraryManager({
         return
       }
       setMessage("Картинка удалена")
+      setSelectedIds((current) => current.filter((id) => id !== asset.id))
+      router.refresh()
+    })
+  }
+
+  function toggleSelected(id: string, checked: boolean) {
+    setSelectedIds((current) => {
+      if (checked) return current.includes(id) ? current : [...current, id]
+      return current.filter((item) => item !== id)
+    })
+  }
+
+  function togglePageSelected(checked: boolean) {
+    setSelectedIds((current) => {
+      if (checked) return Array.from(new Set([...current, ...pageAssetIds]))
+      const pageIds = new Set(pageAssetIds)
+      return current.filter((id) => !pageIds.has(id))
+    })
+  }
+
+  function removeSelectedAssets() {
+    if (selectedIds.length === 0) return
+    if (!confirm(`Удалить выбранные картинки (${selectedIds.length})?`)) return
+    const data = new FormData()
+    for (const id of selectedIds) {
+      data.append("ids", id)
+    }
+    setError("")
+    setMessage("")
+    startTransition(async () => {
+      const result = await deleteFanPageAssets(data)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+      setMessage(`Удалено картинок: ${selectedIds.length}`)
+      setSelectedIds([])
       router.refresh()
     })
   }
@@ -423,9 +465,40 @@ export function FanPageLibraryManager({
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">{filteredAssets.length} найдено</Badge>
           {filteredAssets.length > 0 ? <Badge variant="outline">Страница {currentPage}/{totalPages}</Badge> : null}
+          {selectedIds.length > 0 ? <Badge variant="secondary">Выбрано {selectedIds.length}</Badge> : null}
           <Badge variant="outline">Аватарки {assets.filter((asset) => asset.type === "AVATAR").length}</Badge>
           <Badge variant="outline">Обложки {assets.filter((asset) => asset.type === "COVER").length}</Badge>
         </div>
+
+        {canDelete && filteredAssets.length > 0 ? (
+          <div className="flex flex-col gap-2 rounded-xl border bg-background p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Checkbox
+                checked={allPageSelected}
+                indeterminate={!allPageSelected && selectedOnPage.length > 0}
+                onCheckedChange={(checked) => togglePageSelected(Boolean(checked))}
+                aria-label="Выбрать картинки на странице"
+              />
+              <span className="text-sm text-muted-foreground">
+                На странице выбрано {selectedOnPage.length}/{pageAssetIds.length}
+              </span>
+              {selectedIds.length > 0 ? (
+                <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+                  Снять выбор
+                </Button>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isPending || selectedIds.length === 0}
+              onClick={removeSelectedAssets}
+            >
+              <Trash2 />
+              Удалить выбранные {selectedIds.length > 0 ? selectedIds.length : ""}
+            </Button>
+          </div>
+        ) : null}
 
         {teams.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -444,11 +517,27 @@ export function FanPageLibraryManager({
       ) : (
         <div className="grid gap-3">
           {pagination}
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {paginatedAssets.map((asset) => {
               const country = countryMap.get(asset.geoCode)
+              const selected = selectedIds.includes(asset.id)
               return (
-                <article key={asset.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                <article
+                  key={asset.id}
+                  className={cn(
+                    "relative overflow-hidden rounded-xl border bg-card shadow-sm",
+                    selected ? "border-primary ring-2 ring-primary/25" : "",
+                  )}
+                >
+                  {canDelete ? (
+                    <div className="absolute top-2 left-2 z-10 rounded-md bg-background/90 p-1 shadow-sm backdrop-blur">
+                      <Checkbox
+                        checked={selected}
+                        onCheckedChange={(checked) => toggleSelected(asset.id, Boolean(checked))}
+                        aria-label={`Выбрать ${asset.originalName}`}
+                      />
+                    </div>
+                  ) : null}
                   <a
                     href={asset.url}
                     target="_blank"
@@ -463,7 +552,7 @@ export function FanPageLibraryManager({
                       alt={asset.originalName}
                       fill
                       quality={60}
-                      sizes="(min-width: 1536px) 22vw, (min-width: 1280px) 30vw, (min-width: 640px) 48vw, 100vw"
+                      sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 30vw, (min-width: 640px) 48vw, 100vw"
                       className="object-cover"
                     />
                   </a>

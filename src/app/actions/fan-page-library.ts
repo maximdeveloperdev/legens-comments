@@ -186,3 +186,41 @@ export async function deleteFanPageAsset(formData: FormData): Promise<FanPageLib
   revalidatePath("/fan-page-library")
   return {}
 }
+
+export async function deleteFanPageAssets(formData: FormData): Promise<FanPageLibraryActionResult> {
+  const session = await getActiveSession()
+  if (!session) return { error: "Нет доступа" }
+  if (session.role === UserRole.USER) return { error: "Нет доступа" }
+
+  const ids = Array.from(new Set(formData.getAll("ids").map((id) => String(id).trim()).filter(Boolean)))
+  if (ids.length === 0) return { error: "Выберите картинки" }
+  if (ids.length > 200) return { error: "За раз можно удалить до 200 картинок" }
+
+  const assets = await prisma.fanPageAsset.findMany({
+    where: { id: { in: ids } },
+    include: {
+      team: { select: { id: true, name: true, marker: true } },
+    },
+  })
+  if (assets.length === 0) return { error: "Картинки не найдены" }
+  if (assets.length !== ids.length) return { error: "Часть картинок уже удалена. Обнови страницу" }
+
+  if (session.role !== UserRole.ADMIN) {
+    const allowedTeamIds = (await getAllowedTeamIds(session.id, session.role)) ?? []
+    const denied = assets.find((asset) => !allowedTeamIds.includes(asset.teamId))
+    if (denied) return { error: "Нет доступа к одной из выбранных команд" }
+  }
+
+  await prisma.fanPageAsset.deleteMany({ where: { id: { in: ids } } })
+  await Promise.all(assets.map((asset) => unlink(path.join(UPLOAD_DIR, asset.fileName)).catch(() => undefined)))
+
+  const teamMarkers = Array.from(new Set(assets.map((asset) => asset.team.marker))).join(", ")
+  await writeTrackerLog({
+    userName: session.name,
+    action: "Библиотека Fan Page",
+    detail: `Удалил картинки · ${assets.length} шт. · команды: ${teamMarkers || "—"}`,
+  })
+
+  revalidatePath("/fan-page-library")
+  return {}
+}
