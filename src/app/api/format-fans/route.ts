@@ -166,26 +166,18 @@ export async function POST(request: Request) {
             const avatarGender = identityGenderToAssetGender(fan.gender)
             log({
               level: "info",
-              text: `Имя применилось — берём avatar/cover из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
+              text: `Имя применилось — берём аватарку из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
             })
 
-            const [avatarAsset, coverAsset] = await Promise.all([
-              pickRandomLibraryAsset({
-                type: FanPageAssetType.AVATAR,
-                geoCode,
-                teamMarker,
-                gender: avatarGender,
-              }),
-              pickRandomLibraryAsset({
-                type: FanPageAssetType.COVER,
-                geoCode,
-                teamMarker,
-              }),
-            ])
+            const avatarAsset = await pickRandomLibraryAsset({
+              type: FanPageAssetType.AVATAR,
+              geoCode,
+              teamMarker,
+              gender: avatarGender,
+            })
 
             const avatarPath = avatarAsset ? assetDiskPath(avatarAsset.url) : ""
-            const coverPath = coverAsset ? assetDiskPath(coverAsset.url) : ""
-            const result: { avatarPath?: string; coverPath?: string; coverTheme?: string } = {}
+            const result: { avatarPath?: string } = {}
 
             if (avatarPath && existsSync(avatarPath)) {
               result.avatarPath = avatarPath
@@ -200,19 +192,7 @@ export async function POST(request: Request) {
               })
             }
 
-            if (coverPath && existsSync(coverPath)) {
-              result.coverPath = coverPath
-              result.coverTheme = `library ${coverAsset?.team.marker || teamMarker || "ALL"} ${geoCode}`.trim()
-              log({
-                level: "ok",
-                text: `Обложка выбрана из библиотеки: ${coverAsset?.team.marker} · ${geoCode} · ${coverAsset?.originalName}`,
-              })
-            } else {
-              log({
-                level: "info",
-                text: `Обложку пропускаем: нет файла в библиотеке для ${teamMarker || "ALL"} · ${geoCode || "без гео"}`,
-              })
-            }
+            log({ level: "info", text: "Обложку не меняем: оставляем текущую в Facebook" })
 
             return {
               ...result,

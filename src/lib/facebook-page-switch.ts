@@ -2373,7 +2373,7 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
           nameResult = await updateFanName(page, fan, onLog, id)
         }
         if (!nameResult.nameApplied) {
-          const message = `Facebook принял запрос имени на review (${fan.newName}); avatar/cover пропущены до применения имени`
+          const message = `Facebook принял запрос имени на review (${fan.newName}); аватарка пропущена до применения имени`
           pending.push({ currentName: fan.currentName, newName: fan.newName, message })
           onLog({ level: "info", text: message })
           await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
@@ -2403,7 +2403,7 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
         if (fan.coverPath) {
           await updateFanCover(page, fan, onLog)
         } else {
-          onLog({ level: "info", text: "Обложку пропускаем: файл не передан" })
+          onLog({ level: "info", text: "Обложку не меняем: оставляем текущую в Facebook" })
         }
 
         onLog({ level: "ok", text: `Фанка отформатирована: ${fan.currentName} → ${fan.newName}` })
