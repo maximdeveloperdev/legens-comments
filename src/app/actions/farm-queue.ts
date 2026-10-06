@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache"
 import { after } from "next/server"
 import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
+import { validateFarmCommentAntiSpam } from "@/lib/farm-anti-spam"
 import { kickFarmQueue } from "@/lib/farm-queue"
 import { farmTaskAccessWhere, getFarmQueueAccess } from "@/lib/farm-queue-access"
 import { prisma } from "@/lib/db"
@@ -120,6 +121,10 @@ async function createFarmTask(
   }
   if (jobs.some((job) => job.message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
+  }
+  const antiSpam = await validateFarmCommentAntiSpam({ jobs })
+  if (!antiSpam.ok) {
+    return { error: antiSpam.message || "Антиспам: проверь комментарии" }
   }
 
   const task = await prisma.farmTask.create({
@@ -385,6 +390,19 @@ export async function duplicateFarmTask(input: {
   })
   if (nextJobs.some(({ message }) => message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
+  }
+
+  const antiSpam = await validateFarmCommentAntiSpam({
+    jobs: nextJobs.map(({ job, message }) => ({
+      profileId: job.profileId,
+      fanName: job.fanName,
+      url: urlByOriginal.get(job.url) ?? newUrls[0],
+      message,
+      aiComment: job.aiComment && !message,
+    })),
+  })
+  if (!antiSpam.ok) {
+    return { error: antiSpam.message || "Антиспам: проверь комментарии" }
   }
 
   const duplicated = await prisma.farmTask.create({

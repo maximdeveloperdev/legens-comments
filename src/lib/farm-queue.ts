@@ -2,6 +2,7 @@ import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { listAdsPowerProfiles } from "@/lib/adspower"
 import { prisma } from "@/lib/db"
+import { validateFarmCommentAntiSpam } from "@/lib/farm-anti-spam"
 import { formatFarmJobError } from "@/lib/farm-job-error"
 import type { FarmQueueAccess } from "@/lib/farm-queue-access"
 import { farmTaskAccessWhere } from "@/lib/farm-queue-access"
@@ -160,6 +161,23 @@ async function runFarmJob(job: FarmJob) {
 
   try {
     const message = likeOnly ? "" : await resolveJobMessage(job, log)
+    if (!likeOnly) {
+      const antiSpam = await validateFarmCommentAntiSpam({
+        jobs: [
+          {
+            id: job.id,
+            profileId: job.profileId,
+            fanName: job.fanName,
+            url: job.url,
+            message,
+          },
+        ],
+        excludeJobIds: [job.id],
+      })
+      if (!antiSpam.ok) {
+        throw new Error(antiSpam.message || "Антиспам: повтор комментария")
+      }
+    }
     const result = await runFacebookComment(
       {
         profileId: job.profileId,
