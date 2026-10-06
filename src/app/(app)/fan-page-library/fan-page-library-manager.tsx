@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { FanPageAssetType, Gender } from "@prisma/client"
-import { ImageIcon, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
+import { ChevronLeft, ChevronRight, ImageIcon, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
 import {
   deleteFanPageAsset,
   uploadFanPageAsset,
@@ -75,6 +75,7 @@ const genderLabels: Record<Gender, string> = {
 
 const emptyFilter = "all"
 const uploadBatchSize = 5
+const pageSizeOptions = [24, 48, 96]
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("ru-RU", {
@@ -131,6 +132,8 @@ export function FanPageLibraryManager({
   const [geoFilter, setGeoFilter] = useState<string>(emptyFilter)
   const [teamFilter, setTeamFilter] = useState<string>(emptyFilter)
   const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(pageSizeOptions[0])
   const [form, setForm] = useState<UploadForm>({
     type: FanPageAssetType.AVATAR,
     gender: Gender.ANY,
@@ -173,6 +176,14 @@ export function FanPageLibraryManager({
         .includes(needle)
     })
   }, [assets, countryMap, genderFilter, geoFilter, query, teamFilter, typeFilter])
+  const totalPages = Math.max(1, Math.ceil(filteredAssets.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * pageSize
+  const pageEnd = Math.min(pageStart + pageSize, filteredAssets.length)
+  const paginatedAssets = useMemo(
+    () => filteredAssets.slice(pageStart, pageStart + pageSize),
+    [filteredAssets, pageSize, pageStart],
+  )
 
   function openUpload() {
     setForm({
@@ -216,6 +227,7 @@ export function FanPageLibraryManager({
       }
       setOpen(false)
       setMessage(`Картинок добавлено: ${uploaded}`)
+      setPage(1)
       router.refresh()
     })
   }
@@ -237,6 +249,59 @@ export function FanPageLibraryManager({
     })
   }
 
+  const pagination = filteredAssets.length > 0 ? (
+    <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-muted-foreground">
+        Показано {pageStart + 1}-{pageEnd} из {filteredAssets.length}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={String(pageSize)}
+          onValueChange={(value) => {
+            setPageSize(pageSizeOptions.includes(Number(value)) ? Number(value) : pageSizeOptions[0])
+            setPage(1)
+          }}
+        >
+          <SelectTrigger className="h-9 w-[132px]">
+            <span>{pageSize} на странице</span>
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizeOptions.map((option) => (
+              <SelectItem key={option} value={String(option)}>
+                {option} на странице
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            disabled={currentPage <= 1}
+            onClick={() => setPage((value) => Math.max(1, value - 1))}
+            aria-label="Предыдущая страница"
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="min-w-24 text-center text-sm text-muted-foreground">
+            {currentPage} / {totalPages}
+          </span>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            disabled={currentPage >= totalPages}
+            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+            aria-label="Следующая страница"
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null
+
   return (
     <>
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
@@ -245,7 +310,10 @@ export function FanPageLibraryManager({
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setPage(1)
+              }}
               placeholder="Поиск по названию, geo, команде или автору"
               className="pl-8"
               aria-label="Поиск по библиотеке"
@@ -258,7 +326,13 @@ export function FanPageLibraryManager({
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value ?? emptyFilter)}>
+          <Select
+            value={typeFilter}
+            onValueChange={(value) => {
+              setTypeFilter(value ?? emptyFilter)
+              setPage(1)
+            }}
+          >
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {typeFilter === emptyFilter
@@ -273,7 +347,13 @@ export function FanPageLibraryManager({
             </SelectContent>
           </Select>
 
-          <Select value={genderFilter} onValueChange={(value) => setGenderFilter(value ?? emptyFilter)}>
+          <Select
+            value={genderFilter}
+            onValueChange={(value) => {
+              setGenderFilter(value ?? emptyFilter)
+              setPage(1)
+            }}
+          >
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {genderFilter === emptyFilter ? "Все полы" : genderLabels[genderFilter as Gender]}
@@ -287,7 +367,13 @@ export function FanPageLibraryManager({
             </SelectContent>
           </Select>
 
-          <Select value={geoFilter} onValueChange={(value) => setGeoFilter(value ?? emptyFilter)}>
+          <Select
+            value={geoFilter}
+            onValueChange={(value) => {
+              setGeoFilter(value ?? emptyFilter)
+              setPage(1)
+            }}
+          >
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {geoFilter === emptyFilter
@@ -307,7 +393,13 @@ export function FanPageLibraryManager({
             </SelectContent>
           </Select>
 
-          <Select value={teamFilter} onValueChange={(value) => setTeamFilter(value ?? emptyFilter)}>
+          <Select
+            value={teamFilter}
+            onValueChange={(value) => {
+              setTeamFilter(value ?? emptyFilter)
+              setPage(1)
+            }}
+          >
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {teamFilter === emptyFilter
@@ -330,6 +422,7 @@ export function FanPageLibraryManager({
 
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">{filteredAssets.length} найдено</Badge>
+          {filteredAssets.length > 0 ? <Badge variant="outline">Страница {currentPage}/{totalPages}</Badge> : null}
           <Badge variant="outline">Аватарки {assets.filter((asset) => asset.type === "AVATAR").length}</Badge>
           <Badge variant="outline">Обложки {assets.filter((asset) => asset.type === "COVER").length}</Badge>
         </div>
@@ -349,79 +442,83 @@ export function FanPageLibraryManager({
           В библиотеке пока нет картинок под выбранные фильтры
         </section>
       ) : (
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {filteredAssets.map((asset) => {
-            const country = countryMap.get(asset.geoCode)
-            return (
-              <article key={asset.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
-                <a
-                  href={asset.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cn(
-                    "relative block overflow-hidden bg-muted",
-                    asset.type === FanPageAssetType.COVER ? "aspect-video" : "aspect-square",
-                  )}
-                >
-                  <Image
-                    src={asset.url}
-                    alt={asset.originalName}
-                    fill
-                    unoptimized
-                    sizes="(min-width: 1536px) 25vw, (min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
-                    className="object-cover"
-                  />
-                </a>
-                <div className="grid gap-3 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="grid min-w-0 gap-1">
-                      <div className="flex flex-wrap gap-1.5">
-                        <Badge>{assetTypeLabels[asset.type]}</Badge>
-                        {asset.type === FanPageAssetType.AVATAR ? (
-                          <Badge variant="outline">{genderLabels[asset.gender]}</Badge>
-                        ) : null}
-                        <Badge variant="secondary" className="gap-1.5">
-                          {country?.flagSvg ? (
-                            <Image
-                              src={country.flagSvg}
-                              alt=""
-                              width={14}
-                              height={10}
-                              className="h-2.5 w-3.5 rounded-[2px] object-cover"
-                            />
+        <div className="grid gap-3">
+          {pagination}
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {paginatedAssets.map((asset) => {
+              const country = countryMap.get(asset.geoCode)
+              return (
+                <article key={asset.id} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                  <a
+                    href={asset.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      "relative block overflow-hidden bg-muted",
+                      asset.type === FanPageAssetType.COVER ? "aspect-video" : "aspect-square",
+                    )}
+                  >
+                    <Image
+                      src={asset.url}
+                      alt={asset.originalName}
+                      fill
+                      unoptimized
+                      sizes="(min-width: 1536px) 25vw, (min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
+                      className="object-cover"
+                    />
+                  </a>
+                  <div className="grid gap-3 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="grid min-w-0 gap-1">
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge>{assetTypeLabels[asset.type]}</Badge>
+                          {asset.type === FanPageAssetType.AVATAR ? (
+                            <Badge variant="outline">{genderLabels[asset.gender]}</Badge>
                           ) : null}
-                          {country?.name ?? asset.geoCode}
-                        </Badge>
+                          <Badge variant="secondary" className="gap-1.5">
+                            {country?.flagSvg ? (
+                              <Image
+                                src={country.flagSvg}
+                                alt=""
+                                width={14}
+                                height={10}
+                                className="h-2.5 w-3.5 rounded-[2px] object-cover"
+                              />
+                            ) : null}
+                            {country?.name ?? asset.geoCode}
+                          </Badge>
+                        </div>
+                        <p className="truncate font-medium" title={asset.originalName}>
+                          {asset.originalName}
+                        </p>
                       </div>
-                      <p className="truncate font-medium" title={asset.originalName}>
-                        {asset.originalName}
-                      </p>
+                      {canDelete ? (
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => removeAsset(asset)}
+                          aria-label="Удалить картинку"
+                        >
+                          <Trash2 />
+                        </Button>
+                      ) : null}
                     </div>
-                    {canDelete ? (
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="ghost"
-                        disabled={isPending}
-                        onClick={() => removeAsset(asset)}
-                        aria-label="Удалить картинку"
-                      >
-                        <Trash2 />
-                      </Button>
-                    ) : null}
+                    <div className="grid gap-1 text-xs text-muted-foreground">
+                      <span className="truncate">{teamLine(asset.team)}</span>
+                      <span>
+                        {formatSize(asset.size)} · {formatDate(asset.createdAt)}
+                      </span>
+                      {asset.createdByName ? <span className="truncate">Добавил: {asset.createdByName}</span> : null}
+                    </div>
                   </div>
-                  <div className="grid gap-1 text-xs text-muted-foreground">
-                    <span className="truncate">{teamLine(asset.team)}</span>
-                    <span>
-                      {formatSize(asset.size)} · {formatDate(asset.createdAt)}
-                    </span>
-                    {asset.createdByName ? <span className="truncate">Добавил: {asset.createdByName}</span> : null}
-                  </div>
-                </div>
-              </article>
-            )
-          })}
-        </section>
+                </article>
+              )
+            })}
+          </section>
+          {pagination}
+        </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
