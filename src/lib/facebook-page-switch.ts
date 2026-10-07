@@ -2164,10 +2164,24 @@ async function clickPageNameReviewChange(page: Page, log: (line: SwitchLog) => v
   }
 
   if (!(await pageNameEditFormVisible(page))) return false
-  await page.mouse.click(270, 340).catch(() => undefined)
-  if (await waitForPageNameReviewTransition(page)) {
-    log({ level: "info", text: "Нажали Review Change координатой внутри формы Page name" })
+  await page.keyboard.press("Enter").catch(() => undefined)
+  if (await waitForPageNameReviewTransition(page, 5000)) {
+    log({ level: "info", text: "Нажали Review Change через Enter в старой форме Page name" })
     return true
+  }
+  const reviewButtonPoints = [
+    { x: 278, y: 360, timeout: 12_000 },
+    { x: 255, y: 360, timeout: 6000 },
+    { x: 310, y: 360, timeout: 6000 },
+    { x: 278, y: 352, timeout: 6000 },
+    { x: 278, y: 368, timeout: 6000 },
+  ]
+  for (const point of reviewButtonPoints) {
+    await page.mouse.click(point.x, point.y).catch(() => undefined)
+    if (await waitForPageNameReviewTransition(page, point.timeout)) {
+      log({ level: "info", text: "Нажали Review Change координатой старой формы Page name" })
+      return true
+    }
   }
   log({ level: "info", text: "Координатный клик Review Change не открыл подтверждение" })
   return false
