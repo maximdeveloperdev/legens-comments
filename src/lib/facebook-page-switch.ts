@@ -116,15 +116,24 @@ async function saveFailureArtifact(
     const base = `${stamp}-${safeFilePart(options.profileId)}-${safeFilePart(options.phase)}`
     const screenshotPath = path.join(FACEBOOK_DEBUG_DIR, `${base}.png`)
     const htmlPath = path.join(FACEBOOK_DEBUG_DIR, `${base}.html`)
-    await page.screenshot({ path: screenshotPath, fullPage: false, timeout: 6000 }).catch(() => undefined)
+    const screenshot = await page.screenshot({ fullPage: false, timeout: 6000 }).catch(() => null)
+    if (screenshot) {
+      await writeFile(screenshotPath, screenshot)
+    }
     const html = await page.content().catch(() => "")
+    let htmlSaved = false
     if (html) {
       await writeFile(
         htmlPath,
         `<!-- ${options.message.replace(/-->/g, "-- >")} -->\n${html.slice(0, 2_000_000)}`,
       )
+      htmlSaved = true
     }
-    log({ level: "info", text: `Debug сохранён: ${screenshotPath}` })
+    if (screenshot) {
+      log({ level: "info", text: `Debug сохранён: ${screenshotPath}` })
+    } else if (htmlSaved) {
+      log({ level: "info", text: `Debug HTML сохранён: ${htmlPath}` })
+    }
   } catch {
     // Debug artifacts must never mask the original Facebook error.
   }

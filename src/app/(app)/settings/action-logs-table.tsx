@@ -61,6 +61,45 @@ function getDebugImage(detail: string): DebugImage | null {
   }
 }
 
+function DebugScreenshotButton({
+  image,
+  onOpen,
+}: {
+  image: DebugImage
+  onOpen: (image: DebugImage) => void
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return (
+      <div className="flex w-fit max-w-full items-center gap-3 rounded-md border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
+        <ImageIcon className="size-4 shrink-0" />
+        <span className="min-w-0 break-words">Debug-файл не найден или уже удалён</span>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="group flex w-fit max-w-full items-center gap-3 rounded-md border bg-background p-1 pr-3 text-left text-foreground shadow-sm transition hover:border-primary/50"
+      onClick={() => onOpen(image)}
+    >
+      <img
+        src={image.url}
+        alt=""
+        className="h-16 w-24 rounded object-cover"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="truncate">Открыть debug-скрин</span>
+      </span>
+    </button>
+  )
+}
+
 export function ActionLogsTable({
   emptyText,
   rows = [],
@@ -241,22 +280,7 @@ export function ActionLogsTable({
                     <div className="grid gap-2">
                       <span className="break-words">{row.detail}</span>
                       {debugImage ? (
-                        <button
-                          type="button"
-                          className="group flex w-fit max-w-full items-center gap-3 rounded-md border bg-background p-1 pr-3 text-left text-foreground shadow-sm transition hover:border-primary/50"
-                          onClick={() => setPreviewImage(debugImage)}
-                        >
-                          <img
-                            src={debugImage.url}
-                            alt="Debug screenshot"
-                            className="h-16 w-24 rounded object-cover"
-                            loading="lazy"
-                          />
-                          <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                            <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-                            <span className="truncate">Открыть debug-скрин</span>
-                          </span>
-                        </button>
+                        <DebugScreenshotButton image={debugImage} onOpen={setPreviewImage} />
                       ) : null}
                     </div>
                   </TableCell>
