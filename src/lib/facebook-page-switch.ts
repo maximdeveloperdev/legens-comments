@@ -1774,10 +1774,11 @@ async function verifyNameChangeAfterSubmit(
     log({ level: "ok", text: `Новое имя найдено на странице профиля: ${newName}` })
     return { ok: true, nameApplied: true }
   }
-  if (hasSubmittedText || !NAME_CHANGE_CONFIRM_RE.test(profileText)) {
-    log({ level: "info", text: `Запрос имени отправлен, но Facebook пока показывает старое имя: ${newName}` })
+  if (hasSubmittedText) {
+    log({ level: "info", text: `Facebook подтвердил отправку запроса имени, но пока показывает старое имя: ${newName}` })
     return { ok: true, nameApplied: false }
   }
+  log({ level: "info", text: `Facebook не подтвердил отправку запроса имени: ${newName}` })
   return { ok: false, nameApplied: false }
 }
 
@@ -2451,7 +2452,7 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
           nameResult = await updateFanName(page, fan, onLog, id)
         }
         if (!nameResult.nameApplied) {
-          const message = `Facebook принял запрос имени на review (${fan.newName}); аватарка уже обработана`
+          const message = `Facebook подтвердил запрос имени на review (${fan.newName}); аватарка уже обработана`
           pending.push({ currentName: fan.currentName, newName: fan.newName, message })
           onLog({ level: "info", text: message })
           await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
