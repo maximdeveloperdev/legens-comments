@@ -24,6 +24,7 @@ services:
     network_mode: host
     volumes:
       - legends_comments_uploads:/app/public/uploads
+      - legends_comments_debug:/app/.debug
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://legends:legends@127.0.0.1:5433/legends_comments}
       PORT: ${PORT:-3000}
@@ -43,3 +44,4 @@ services:
 volumes:
   legends_comments_pg:
   legends_comments_uploads:
+  legends_comments_debug:

@@ -1,8 +1,17 @@
 "use client"
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, Trash2Icon } from "lucide-react"
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ImageIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { clearActionLogs } from "@/app/actions/action-logs"
 import type { ActionLogSource } from "@/lib/action-log"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -35,6 +44,23 @@ export type ActionLogRow = {
   detail: string
 }
 
+type DebugImage = {
+  filename: string
+  url: string
+}
+
+const DEBUG_SCREENSHOT_RE = /(?:\/app)?\/\.debug\/facebook-errors\/([a-zA-Z0-9_.-]+\.png)\b/
+
+function getDebugImage(detail: string): DebugImage | null {
+  const match = detail.match(DEBUG_SCREENSHOT_RE)
+  const filename = match?.[1]
+  if (!filename) return null
+  return {
+    filename,
+    url: `/api/facebook-debug/${encodeURIComponent(filename)}`,
+  }
+}
+
 export function ActionLogsTable({
   emptyText,
   rows = [],
@@ -60,6 +86,7 @@ export function ActionLogsTable({
   const [page, setPage] = useState(Math.max(1, initialPage))
   const [pageSize, setPageSize] = useState(safeInitialPageSize)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [previewImage, setPreviewImage] = useState<DebugImage | null>(null)
   const [isClearing, startClear] = useTransition()
   const [isRefreshing, startRefresh] = useTransition()
 
@@ -202,16 +229,40 @@ export function ActionLogsTable({
               </TableCell>
             </TableRow>
           ) : (
-            visibleRows.map((row, index) => (
-              <TableRow key={`${row.date}-${row.user}-${currentPage}-${index}`}>
-                <TableCell className="whitespace-nowrap">{row.date}</TableCell>
-                <TableCell className="font-medium">{row.user}</TableCell>
-                <TableCell>{row.action}</TableCell>
-                <TableCell className="max-w-[520px] whitespace-normal text-muted-foreground">
-                  {row.detail}
-                </TableCell>
-              </TableRow>
-            ))
+            visibleRows.map((row, index) => {
+              const debugImage = getDebugImage(row.detail)
+
+              return (
+                <TableRow key={`${row.date}-${row.user}-${currentPage}-${index}`}>
+                  <TableCell className="whitespace-nowrap">{row.date}</TableCell>
+                  <TableCell className="font-medium">{row.user}</TableCell>
+                  <TableCell>{row.action}</TableCell>
+                  <TableCell className="max-w-[560px] whitespace-normal text-muted-foreground">
+                    <div className="grid gap-2">
+                      <span className="break-words">{row.detail}</span>
+                      {debugImage ? (
+                        <button
+                          type="button"
+                          className="group flex w-fit max-w-full items-center gap-3 rounded-md border bg-background p-1 pr-3 text-left text-foreground shadow-sm transition hover:border-primary/50"
+                          onClick={() => setPreviewImage(debugImage)}
+                        >
+                          <img
+                            src={debugImage.url}
+                            alt="Debug screenshot"
+                            className="h-16 w-24 rounded object-cover"
+                            loading="lazy"
+                          />
+                          <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                            <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="truncate">Открыть debug-скрин</span>
+                          </span>
+                        </button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })
           )}
         </TableBody>
       </Table>
@@ -258,6 +309,28 @@ export function ActionLogsTable({
               <Trash2Icon />
               Очистить
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(previewImage)} onOpenChange={(open) => !open && setPreviewImage(null)}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Debug-скрин Facebook</DialogTitle>
+            <DialogDescription className="break-all">{previewImage?.filename}</DialogDescription>
+          </DialogHeader>
+          {previewImage ? (
+            <div className="overflow-hidden rounded-lg border bg-muted">
+              <img src={previewImage.url} alt={previewImage.filename} className="max-h-[75vh] w-full object-contain" />
+            </div>
+          ) : null}
+          <DialogFooter>
+            {previewImage ? (
+              <Button type="button" variant="outline" render={<a href={previewImage.url} target="_blank" rel="noreferrer" />}>
+                Открыть в новой вкладке
+              </Button>
+            ) : null}
+            <DialogClose render={<Button type="button" />}>Закрыть</DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
