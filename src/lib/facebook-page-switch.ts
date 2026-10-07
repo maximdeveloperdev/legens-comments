@@ -2360,20 +2360,34 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
         await gotoCurrentFanProfile(page, selectedName, onLog)
         preparedFan = await prepareFan(job)
         const fan = { ...preparedFan, currentName: preparedFan.currentName || currentName }
+        const nameAlreadyApplied = !sameFan(selectedName, currentName)
 
-        let nameResult: NameChangeResult
-        if (!sameFan(selectedName, currentName)) {
+        if (nameAlreadyApplied) {
           onLog({
             level: "ok",
             text: `Facebook уже показывает новое имя фанки: ${currentName} → ${selectedName}`,
           })
           fan.newName = selectedName
+        }
+
+        if (prepareMedia) {
+          Object.assign(fan, await prepareMedia(fan, job))
+        }
+
+        if (fan.avatarPath) {
+          await updateFanAvatar(page, fan, onLog)
+        } else {
+          onLog({ level: "info", text: "Аватарку пропускаем: файл не передан" })
+        }
+
+        let nameResult: NameChangeResult
+        if (nameAlreadyApplied) {
           nameResult = { ok: true, nameApplied: true }
         } else {
           nameResult = await updateFanName(page, fan, onLog, id)
         }
         if (!nameResult.nameApplied) {
-          const message = `Facebook принял запрос имени на review (${fan.newName}); аватарка пропущена до применения имени`
+          const message = `Facebook принял запрос имени на review (${fan.newName}); аватарка уже обработана`
           pending.push({ currentName: fan.currentName, newName: fan.newName, message })
           onLog({ level: "info", text: message })
           await page.goto("https://www.facebook.com/", { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
@@ -2388,17 +2402,7 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
           nameApplied: true,
         })
 
-        if (prepareMedia) {
-          Object.assign(fan, await prepareMedia(fan, job))
-        }
-
         await gotoCurrentFanProfile(page, fan.newName, onLog)
-
-        if (fan.avatarPath) {
-          await updateFanAvatar(page, fan, onLog)
-        } else {
-          onLog({ level: "info", text: "Аватарку пропускаем: файл не передан" })
-        }
 
         if (fan.coverPath) {
           await updateFanCover(page, fan, onLog)

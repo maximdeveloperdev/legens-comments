@@ -166,7 +166,7 @@ export async function POST(request: Request) {
             const avatarGender = identityGenderToAssetGender(fan.gender)
             log({
               level: "info",
-              text: `Имя применилось — берём аватарку из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
+              text: `Берём аватарку из библиотеки для «${fan.newName}» · ${teamMarker || "ALL"} · ${geoCode || "без гео"} · ${genderLabel(avatarGender)}`,
             })
 
             const avatarAsset = await pickRandomLibraryAsset({
