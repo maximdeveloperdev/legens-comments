@@ -2048,6 +2048,57 @@ async function clickPageNameSettingsRow(page: Page, fanName: string) {
   return false
 }
 
+async function clickPageNameEditLink(page: Page) {
+  const roots: Array<Page | Frame> = [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  for (const root of roots) {
+    const clicked = await root
+      .evaluate(() => {
+        const visible = (el: Element) => {
+          const box = (el as HTMLElement).getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 18 &&
+            box.height >= 12 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden"
+          )
+        }
+        const candidates = [...document.querySelectorAll("a, button, [role='button'], [role='link'], [tabindex]")]
+          .filter(visible)
+          .map((node) => {
+            const element = node as HTMLElement
+            const box = element.getBoundingClientRect()
+            const text = [element.getAttribute("aria-label") || "", element.innerText || element.textContent || ""]
+              .join(" ")
+              .replace(/\s+/g, " ")
+              .trim()
+            return { element, box, text }
+          })
+          .filter(({ box, text }) => /^Edit$/i.test(text) && box.top >= 80 && box.top <= 240)
+          .sort((left, right) => left.box.top - right.box.top || right.box.left - left.box.left)
+        const picked = candidates[0]
+        if (!picked) return false
+        const target = (picked.element.closest("a, button, [role='button'], [role='link'], [tabindex]") ||
+          picked.element) as HTMLElement
+        const href = target instanceof HTMLAnchorElement ? target.href : ""
+        if (href) window.location.href = href
+        else target.click()
+        return true
+      })
+      .catch(() => false)
+    if (!clicked) continue
+    await root.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => undefined)
+    await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined)
+    await pause(1200)
+    if (await pageNameEditFormVisible(page)) return true
+  }
+  return false
+}
+
 async function clickLegacyFacebookSubmit(root: Page | Frame, label: RegExp) {
   return root
     .evaluate(
@@ -2205,26 +2256,29 @@ async function summarizeVisiblePage(page: Page) {
 }
 
 async function pageNameEditFormVisible(page: Page) {
-  if (/[?&]tab=profile/i.test(page.url()) && /[?&]section=name/i.test(page.url())) return true
-  const bodyText = await page.locator("body").innerText({ timeout: 4000 }).catch(() => "")
-  if (/current page name|new page name|review change|confirm name change request/i.test(bodyText)) return true
-  const fields = page.locator('input[type="text"], input:not([type]), textarea')
-  const count = await fields.count().catch(() => 0)
-  for (let index = 0; index < count; index += 1) {
-    const field = fields.nth(index)
-    if (!(await visible(field))) continue
-    const label = await field
-      .evaluate((node: HTMLInputElement | HTMLTextAreaElement) =>
-        [
-          node.name || "",
-          node.id || "",
-          node.getAttribute("aria-label") || "",
-          node.getAttribute("placeholder") || "",
-          node.value || "",
-        ].join(" "),
-      )
-      .catch(() => "")
-    if (/name|page/i.test(label)) return true
+  const roots: Array<Page | Frame> = [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  for (const root of roots) {
+    if (/[?&]tab=profile/i.test(root.url()) && /[?&]section=name/i.test(root.url())) return true
+    const bodyText = await root.locator("body").innerText({ timeout: 1200 }).catch(() => "")
+    if (/current page name|new page name|review change|confirm name change request/i.test(bodyText)) return true
+    const fields = root.locator('input[type="text"], input:not([type]), textarea')
+    const count = await fields.count().catch(() => 0)
+    for (let index = 0; index < count; index += 1) {
+      const field = fields.nth(index)
+      if (!(await visible(field))) continue
+      const label = await field
+        .evaluate((node: HTMLInputElement | HTMLTextAreaElement) =>
+          [
+            node.name || "",
+            node.id || "",
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("placeholder") || "",
+            node.value || "",
+          ].join(" "),
+        )
+        .catch(() => "")
+      if (/name|page/i.test(label)) return true
+    }
   }
   return false
 }
@@ -2320,13 +2374,33 @@ async function openPageNameViaPageSettings(
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
   await pause(1500)
 
-  const viewport = page.viewportSize() || { width: 756, height: 982 }
-  for (const x of [707, 715, 699, viewport.width - 45]) {
-    await page.mouse.click(x, 153).catch(() => undefined)
-    await pause(350)
+  if (!(await pageNameEditFormVisible(page)) && await clickPageNameEditLink(page)) {
+    log({ level: "ok", text: "Открыли Edit для Page name через ссылку Edit" })
   }
-  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
-  await pause(1600)
+  if (!(await pageNameEditFormVisible(page))) {
+    const viewport = page.viewportSize() || { width: 756, height: 982 }
+    for (const x of [707, 715, 699, viewport.width - 45]) {
+      await page.mouse.click(x, 153).catch(() => undefined)
+      await pause(800)
+      if (await pageNameEditFormVisible(page)) break
+    }
+    await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined)
+    await pause(1200)
+  }
+  if (!(await pageNameEditFormVisible(page))) {
+    for (const url of [
+      "https://web.facebook.com/settings/?tab=profile&section=name&view",
+      "https://www.facebook.com/settings/?tab=profile&section=name&view",
+    ]) {
+      await page.goto(url, { waitUntil: "load", timeout: 60_000 }).catch(() => undefined)
+      await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined)
+      await pause(1500)
+      if (await pageNameEditFormVisible(page)) {
+        log({ level: "ok", text: "Открыли Edit для Page name прямым URL" })
+        break
+      }
+    }
+  }
   if (!(await pageNameEditFormVisible(page))) {
     log({ level: "info", text: `Не открылась форма Edit для Page name: ${await summarizeVisiblePage(page)}` })
     return false
