@@ -8,7 +8,6 @@ import { ChevronLeft, ChevronRight, ImageIcon, Plus, SearchIcon, Trash2, UploadI
 import {
   deleteFanPageAsset,
   deleteFanPageAssets,
-  uploadFanPageAsset,
 } from "@/app/actions/fan-page-library"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -76,7 +75,9 @@ const genderLabels: Record<Gender, string> = {
 }
 
 const emptyFilter = "all"
-const uploadBatchSize = 5
+const uploadBatchSize = 1
+const maxUploadFileSize = 10 * 1024 * 1024
+const acceptedUploadTypes = new Set(["image/jpeg", "image/png", "image/webp"])
 const pageSizeOptions = [24, 48, 96]
 
 function formatDate(value: string) {
@@ -146,6 +147,7 @@ export function FanPageLibraryManager({
   })
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+  const [isUploading, setIsUploading] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   const countryMap = useMemo(
@@ -203,12 +205,52 @@ export function FanPageLibraryManager({
     setOpen(true)
   }
 
-  function submitUpload(event: React.FormEvent<HTMLFormElement>) {
+  async function uploadFanPageAsset(data: FormData) {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 120_000)
+    try {
+      const response = await fetch("/api/fan-page-library/assets", {
+        method: "POST",
+        body: data,
+        signal: controller.signal,
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        uploaded?: number
+      } | null
+      if (!response.ok) {
+        return { error: payload?.error || `Ошибка загрузки (${response.status})` }
+      }
+      return payload || {}
+    } catch (uploadError) {
+      if (uploadError instanceof DOMException && uploadError.name === "AbortError") {
+        return { error: "Загрузка заняла больше 2 минут. Попробуй меньше файлов или сжать картинки." }
+      }
+      return {
+        error: uploadError instanceof Error ? uploadError.message : "Не удалось загрузить картинки",
+      }
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+  }
+
+  async function submitUpload(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError("")
     setMessage("")
 
-    startTransition(async () => {
+    const invalidFile = form.files.find((file) => !acceptedUploadTypes.has(file.type) || file.size > maxUploadFileSize)
+    if (invalidFile) {
+      setError(
+        !acceptedUploadTypes.has(invalidFile.type)
+          ? `${invalidFile.name || "Файл"}: нужен JPG, PNG или WEBP`
+          : `${invalidFile.name || "Файл"}: файл должен быть до 10 МБ`,
+      )
+      return
+    }
+
+    setIsUploading(true)
+    try {
       let uploaded = 0
       for (let index = 0; index < form.files.length; index += uploadBatchSize) {
         const batch = form.files.slice(index, index + uploadBatchSize)
@@ -221,20 +263,22 @@ export function FanPageLibraryManager({
           data.append("files", file)
         }
 
-        setMessage(`Загрузка: ${uploaded}/${form.files.length}`)
+        setMessage(`Загрузка: ${uploaded}/${form.files.length} · ${batch[0]?.name ?? "файл"}`)
         const result = await uploadFanPageAsset(data)
         if (result.error) {
           setError(result.error)
           setMessage(uploaded > 0 ? `Загружено до ошибки: ${uploaded}/${form.files.length}` : "")
           return
         }
-        uploaded += batch.length
+        uploaded += result.uploaded || batch.length
       }
       setOpen(false)
       setMessage(`Картинок добавлено: ${uploaded}`)
       setPage(1)
       router.refresh()
-    })
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   function removeAsset(asset: FanPageAssetRow) {
@@ -610,7 +654,9 @@ export function FanPageLibraryManager({
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(nextOpen) => {
+        if (!isUploading) setOpen(nextOpen)
+      }}>
         <DialogContent className="sm:max-w-lg">
           <form onSubmit={submitUpload}>
             <DialogHeader>
@@ -731,7 +777,7 @@ export function FanPageLibraryManager({
                   required
                 />
                 {form.files.length > 0 ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="max-h-24 overflow-auto text-xs text-muted-foreground">
                     Выбрано: {form.files.length} · {form.files.map((file) => file.name).join(", ")}
                   </p>
                 ) : null}
@@ -744,12 +790,15 @@ export function FanPageLibraryManager({
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" disabled={isUploading} onClick={() => setOpen(false)}>
                 Отмена
               </Button>
-              <Button type="submit" disabled={isPending || form.files.length === 0 || !form.geoCode || !form.teamId}>
+              <Button
+                type="submit"
+                disabled={isPending || isUploading || form.files.length === 0 || !form.geoCode || !form.teamId}
+              >
                 <UploadIcon />
-                {isPending ? "Загрузка…" : "Загрузить"}
+                {isUploading ? "Загрузка…" : "Загрузить"}
               </Button>
             </DialogFooter>
           </form>
