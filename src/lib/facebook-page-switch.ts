@@ -1091,6 +1091,8 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
   const login = page.locator('#email, input[name="email"], input[name="pass"]')
   const metaAccountSetupRe =
     /get started on facebook with a meta account|by tapping submit, you agree to create an account|create new account/i
+  const securityBlockRe =
+    /checkpoint|hacked-protection|two_factor|recover|security|confirm your identity|secure your account|we noticed unusual activity|not found|страниц.*не найд|проверк.*безопас|подтверд.*личност/i
   const markers = [
     page.getByRole("button", { name: /^Your profile$/i }),
     page.getByRole("button", { name: /^Account$/i }),
@@ -1115,7 +1117,14 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
 
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
+    const currentUrl = page.url()
     const bodyText = await page.locator("body").innerText({ timeout: 1500 }).catch(() => "")
+    if (/\/hacked-protection\//i.test(currentUrl)) {
+      throw new Error(`Facebook открыл hacked-protection для профиля ${profileId}. Аккаунт требует проверки/восстановления сессии: ${currentUrl}`)
+    }
+    if (/\/checkpoint\//i.test(currentUrl) || /\/recover\//i.test(currentUrl) || securityBlockRe.test(`${currentUrl}\n${bodyText}`)) {
+      throw new Error(`Facebook открыл security/checkpoint экран для профиля ${profileId}: ${currentUrl}`)
+    }
     if (metaAccountSetupRe.test(bodyText)) {
       log({ level: "info", text: "Facebook открыл Meta Account setup — заполняем email/password из AdsPower" })
       await fillFacebookCredentialsIfAsked(page, profileId, log, "meta-setup")
@@ -1139,7 +1148,9 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
   if (await visible(login.first())) {
     throw new Error("Facebook просит логин — не удалось войти данными AdsPower")
   }
-  throw new Error("Facebook не загрузился")
+  const currentUrl = page.url()
+  const bodyText = await page.locator("body").innerText({ timeout: 1500 }).catch(() => "")
+  throw new Error(`Facebook не загрузился: ${currentUrl}${bodyText ? ` · ${bodyText.slice(0, 160).replace(/\s+/g, " ")}` : ""}`)
 }
 
 async function openFacebookPage(profileId: string, log: (line: SwitchLog) => void) {
@@ -1197,7 +1208,14 @@ async function openFacebookPage(profileId: string, log: (line: SwitchLog) => voi
   })
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
   await dismissCookies(page, log)
-  await waitForFacebookReady(page, profileId, log)
+  try {
+    await waitForFacebookReady(page, profileId, log)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Facebook не загрузился"
+    await saveFailureArtifact(page, { profileId, phase: "facebook-ready", message }, log)
+    disconnectBrowser(browser)
+    throw error
+  }
   await pause(2000)
   log({ level: "ok", text: `Facebook загрузился: ${page.url()}` })
 
