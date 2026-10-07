@@ -85,6 +85,8 @@ const CHOOSE_PROFILE_PICTURE_RE =
   /choose profile picture|select profile picture|выбрать фото профиля|обрати фото профілю|profilbild auswählen|wybierz zdjęcie profilowe|elegir foto de perfil|choisir une photo de profil/i
 const UPLOAD_PHOTO_RE =
   /upload photo|add photo|choose photo|загрузить фото|добавить фото|обрати фото|завантажити фото|foto hochladen|bild hochladen|dodaj zdjęcie|subir foto|téléverser une photo/i
+const PROFILE_PHOTO_DIALOG_RE =
+  /choose profile picture|select profile picture|profile picture|profile photo|upload photo|фото профиля|аватар|зображення профілю|profilbild|zdj[eę]cie profilowe|foto de perfil|photo de profil/i
 const USE_PAGE_RE =
   /^(Use Page|Switch now|Get started|Continue|Использовать страницу|Перейти|Начать|Продолжить|Використати сторінку|Продовжити|Seite verwenden|Weiter)$/i
 const SETTINGS_PRIVACY_RE =
@@ -1328,16 +1330,55 @@ async function setAnyFileInput(page: Page, filePath: string) {
   return false
 }
 
-async function clickUploadAndSetFile(page: Page, filePath: string, log: (line: SwitchLog) => void) {
-  if (await setAnyFileInput(page, filePath)) {
+async function visibleProfilePhotoDialog(page: Page) {
+  const dialog = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible').filter({
+    hasText: PROFILE_PHOTO_DIALOG_RE,
+  }).last()
+  return (await visible(dialog)) ? dialog : null
+}
+
+async function topVisibleDialog(page: Page) {
+  const dialog = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible').last()
+  return (await visible(dialog)) ? dialog : null
+}
+
+async function setFileInputInScope(scope: Locator, filePath: string) {
+  const inputs = scope.locator('input[type="file"]')
+  const count = await inputs.count().catch(() => 0)
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const input = inputs.nth(index)
+    try {
+      await input.setInputFiles(filePath, { timeout: 3000 })
+      return true
+    } catch {
+      // Try the next uploader in the same modal/scope.
+    }
+  }
+  return false
+}
+
+async function clickUploadAndSetFile(
+  page: Page,
+  filePath: string,
+  log: (line: SwitchLog) => void,
+  options: { profilePhotoOnly?: boolean } = {},
+) {
+  const profileDialog = options.profilePhotoOnly ? await visibleProfilePhotoDialog(page) : null
+  if (options.profilePhotoOnly && !profileDialog) {
+    log({ level: "info", text: "Не нашли активную модалку выбора фото профиля" })
+    return false
+  }
+
+  if (!options.profilePhotoOnly && await setAnyFileInput(page, filePath)) {
     log({ level: "ok", text: "Загрузили новое фото" })
     return true
   }
 
+  const root = profileDialog || page
   const triggers = [
-    page.getByRole("button", { name: UPLOAD_PHOTO_RE }),
-    page.getByRole("menuitem", { name: UPLOAD_PHOTO_RE }),
-    page.getByText(UPLOAD_PHOTO_RE),
+    root.getByRole("button", { name: UPLOAD_PHOTO_RE }),
+    root.getByRole("menuitem", { name: UPLOAD_PHOTO_RE }),
+    root.getByText(UPLOAD_PHOTO_RE),
   ]
 
   for (const trigger of triggers) {
@@ -1352,13 +1393,36 @@ async function clickUploadAndSetFile(page: Page, filePath: string, log: (line: S
       log({ level: "ok", text: "Загрузили новое фото" })
       return true
     }
-    if (await setAnyFileInput(page, filePath)) {
+    const uploadedViaInput = profileDialog
+      ? await setFileInputInScope(profileDialog, filePath)
+      : await setAnyFileInput(page, filePath)
+    if (uploadedViaInput) {
       log({ level: "ok", text: "Загрузили новое фото" })
       return true
     }
   }
 
   return false
+}
+
+async function saveProfilePhotoDialog(page: Page, log: (line: SwitchLog) => void) {
+  for (let step = 0; step < 5; step += 1) {
+    const dialog = (await visibleProfilePhotoDialog(page)) || (await topVisibleDialog(page))
+    if (!dialog) return step > 0
+    const clicked = await clickFirstVisible(
+      [
+        dialog.getByRole("button", { name: SAVE_RE }),
+        dialog.getByRole("menuitem", { name: SAVE_RE }),
+        dialog.getByText(SAVE_RE),
+      ],
+      4000,
+    )
+    if (!clicked) return step > 0
+    log({ level: "info", text: "Нажали кнопку сохранения аватарки" })
+    await page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => undefined)
+    await pause(1800)
+  }
+  return true
 }
 
 async function saveFacebookDialog(page: Page, log: (line: SwitchLog) => void) {
@@ -2262,11 +2326,11 @@ async function updateFanAvatar(page: Page, fan: FanFormatInput, log: (line: Swit
   }
   await dismissNewNoteDialog(page, log)
 
-  if (!(await clickUploadAndSetFile(page, fan.avatarPath, log))) {
+  if (!(await clickUploadAndSetFile(page, fan.avatarPath, log, { profilePhotoOnly: true }))) {
     throw new Error("Не нашли загрузчик аватарки")
   }
   await pause(2500)
-  if (!(await saveFacebookDialog(page, log))) {
+  if (!(await saveProfilePhotoDialog(page, log))) {
     throw new Error("Не нашли кнопку сохранения аватарки")
   }
   log({ level: "ok", text: `Аватарка обновлена: ${fan.newName}` })
