@@ -2094,14 +2094,26 @@ async function clickLegacyFacebookSubmit(root: Page | Frame, label: RegExp) {
     .catch(() => false)
 }
 
+async function waitForPageNameReviewTransition(page: Page, timeoutMs = 12_000) {
+  const deadline = Date.now() + timeoutMs
+  do {
+    await page.waitForLoadState("domcontentloaded", { timeout: 1000 }).catch(() => undefined)
+    const bodyText = await page.locator("body").innerText({ timeout: 1200 }).catch(() => "")
+    if (NAME_CHANGE_CONFIRM_RE.test(bodyText)) return true
+    if (/\bRequest Change\b/i.test(bodyText)) return true
+    if (NAME_CHANGE_SUCCESS_RE.test(bodyText)) return true
+    if (await findVisiblePasswordInput(page, 500)) return true
+    await pause(500)
+  } while (Date.now() < deadline)
+  return false
+}
+
 async function clickPageNameReviewChange(page: Page, log: (line: SwitchLog) => void) {
   for (const root of [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]) {
     if (await clickLegacyFacebookSubmit(root, /^Review Change$/i)) {
       log({ level: "info", text: "Нажали Review Change внутри формы Page name" })
-      await pause(1000)
-      const bodyText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "")
-      const passwordVisible = Boolean(await findVisiblePasswordInput(page, 800))
-      if (NAME_CHANGE_CONFIRM_RE.test(bodyText) || passwordVisible) return true
+      if (await waitForPageNameReviewTransition(page)) return true
+      log({ level: "info", text: "Review Change нажался, но подтверждение не открылось" })
     }
   }
 
@@ -2144,17 +2156,16 @@ async function clickPageNameReviewChange(page: Page, log: (line: SwitchLog) => v
     .catch(() => null)
   if (point) {
     await page.mouse.click(point.x, point.y).catch(() => undefined)
-    await pause(900)
-    log({ level: "info", text: "Нажали Review Change по найденной кнопке формы" })
-    return true
+    if (await waitForPageNameReviewTransition(page)) {
+      log({ level: "info", text: "Нажали Review Change по найденной кнопке формы" })
+      return true
+    }
+    log({ level: "info", text: "Клик по найденной кнопке Review Change не открыл подтверждение" })
   }
 
   if (!(await pageNameEditFormVisible(page))) return false
   await page.mouse.click(270, 340).catch(() => undefined)
-  await pause(900)
-  const bodyText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "")
-  const passwordVisible = Boolean(await findVisiblePasswordInput(page, 800))
-  if (NAME_CHANGE_CONFIRM_RE.test(bodyText) || passwordVisible || NAME_CHANGE_SUCCESS_RE.test(bodyText)) {
+  if (await waitForPageNameReviewTransition(page)) {
     log({ level: "info", text: "Нажали Review Change координатой внутри формы Page name" })
     return true
   }
