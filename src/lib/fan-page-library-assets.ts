@@ -10,6 +10,7 @@ import type { ActiveSessionUser } from "@/lib/session"
 export type FanPageLibraryActionResult = {
   error?: string
   uploaded?: number
+  updated?: number
 }
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024

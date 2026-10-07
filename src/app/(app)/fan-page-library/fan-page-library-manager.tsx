@@ -1,13 +1,14 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { FanPageAssetType, Gender } from "@prisma/client"
-import { ChevronLeft, ChevronRight, ImageIcon, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Plus, SearchIcon, Trash2, UploadIcon } from "lucide-react"
 import {
   deleteFanPageAsset,
   deleteFanPageAssets,
+  updateFanPageAssets,
 } from "@/app/actions/fan-page-library"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -63,6 +64,13 @@ type UploadForm = {
   files: File[]
 }
 
+type BulkEditForm = {
+  type: string
+  gender: string
+  geoCode: string
+  teamId: string
+}
+
 const assetTypeLabels: Record<FanPageAssetType, string> = {
   AVATAR: "Аватарки",
   COVER: "Обложки",
@@ -75,10 +83,47 @@ const genderLabels: Record<Gender, string> = {
 }
 
 const emptyFilter = "all"
+const keepValue = "__keep__"
 const uploadBatchSize = 1
 const maxUploadFileSize = 10 * 1024 * 1024
 const acceptedUploadTypes = new Set(["image/jpeg", "image/png", "image/webp"])
 const pageSizeOptions = [24, 48, 96]
+const emptyBulkEditForm: BulkEditForm = {
+  type: keepValue,
+  gender: keepValue,
+  geoCode: keepValue,
+  teamId: keepValue,
+}
+
+function parseTypeFilter(value: string | null) {
+  if (value === FanPageAssetType.AVATAR || value === FanPageAssetType.COVER) return value
+  return emptyFilter
+}
+
+function parseGenderFilter(value: string | null) {
+  if (value === Gender.MALE || value === Gender.FEMALE || value === Gender.ANY) return value
+  return emptyFilter
+}
+
+function parseGeoFilter(value: string | null, countries: CountryOption[]) {
+  const geoCode = (value || "").trim().toUpperCase()
+  return countries.some((country) => country.code === geoCode) ? geoCode : emptyFilter
+}
+
+function parseTeamFilter(value: string | null, teams: TeamOption[]) {
+  const teamId = (value || "").trim()
+  return teams.some((team) => team.id === teamId) ? teamId : emptyFilter
+}
+
+function parsePageParam(value: string | null) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
+}
+
+function parsePageSizeParam(value: string | null) {
+  const parsed = Number(value)
+  return pageSizeOptions.includes(parsed) ? parsed : pageSizeOptions[0]
+}
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("ru-RU", {
@@ -129,15 +174,31 @@ export function FanPageLibraryManager({
   canDelete: boolean
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const urlFilters = useMemo(
+    () => ({
+      type: parseTypeFilter(searchParams.get("type")),
+      gender: parseGenderFilter(searchParams.get("gender")),
+      geo: parseGeoFilter(searchParams.get("geo"), countries),
+      team: parseTeamFilter(searchParams.get("team"), teams),
+      query: searchParams.get("q") ?? "",
+      page: parsePageParam(searchParams.get("page")),
+      size: parsePageSizeParam(searchParams.get("size")),
+    }),
+    [countries, searchParams, teams],
+  )
   const [open, setOpen] = useState(false)
-  const [typeFilter, setTypeFilter] = useState<string>(emptyFilter)
-  const [genderFilter, setGenderFilter] = useState<string>(emptyFilter)
-  const [geoFilter, setGeoFilter] = useState<string>(emptyFilter)
-  const [teamFilter, setTeamFilter] = useState<string>(emptyFilter)
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(pageSizeOptions[0])
+  const [bulkEditOpen, setBulkEditOpen] = useState(false)
+  const [typeFilter, setTypeFilter] = useState<string>(urlFilters.type)
+  const [genderFilter, setGenderFilter] = useState<string>(urlFilters.gender)
+  const [geoFilter, setGeoFilter] = useState<string>(urlFilters.geo)
+  const [teamFilter, setTeamFilter] = useState<string>(urlFilters.team)
+  const [query, setQuery] = useState(urlFilters.query)
+  const [page, setPage] = useState(urlFilters.page)
+  const [pageSize, setPageSize] = useState(urlFilters.size)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkEditForm, setBulkEditForm] = useState<BulkEditForm>(emptyBulkEditForm)
   const [form, setForm] = useState<UploadForm>({
     type: FanPageAssetType.AVATAR,
     gender: Gender.ANY,
@@ -156,6 +217,32 @@ export function FanPageLibraryManager({
   )
   const selectedCountry = countryMap.get(form.geoCode) ?? null
   const selectedTeam = teams.find((team) => team.id === form.teamId) ?? null
+  const bulkGeo = bulkEditForm.geoCode === keepValue ? null : countryMap.get(bulkEditForm.geoCode) ?? null
+  const bulkTeam = bulkEditForm.teamId === keepValue ? null : teams.find((team) => team.id === bulkEditForm.teamId) ?? null
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    const setOrDelete = (key: string, value: string, fallback = "") => {
+      if (!value || value === fallback) params.delete(key)
+      else params.set(key, value)
+    }
+
+    setOrDelete("type", typeFilter, emptyFilter)
+    setOrDelete("gender", genderFilter, emptyFilter)
+    setOrDelete("geo", geoFilter, emptyFilter)
+    setOrDelete("team", teamFilter, emptyFilter)
+    setOrDelete("q", query.trim())
+    if (page > 1) params.set("page", String(page))
+    else params.delete("page")
+    if (pageSize !== pageSizeOptions[0]) params.set("size", String(pageSize))
+    else params.delete("size")
+
+    const nextQuery = params.toString()
+    const currentQuery = searchParams.toString()
+    if (nextQuery !== currentQuery) {
+      router.replace(`${pathname}${nextQuery ? `?${nextQuery}` : ""}`, { scroll: false })
+    }
+  }, [genderFilter, geoFilter, page, pageSize, pathname, query, router, searchParams, teamFilter, typeFilter])
 
   const filteredAssets = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -192,6 +279,25 @@ export function FanPageLibraryManager({
   const pageAssetIds = paginatedAssets.map((asset) => asset.id)
   const selectedOnPage = pageAssetIds.filter((id) => selectedIds.includes(id))
   const allPageSelected = pageAssetIds.length > 0 && selectedOnPage.length === pageAssetIds.length
+  const hasActiveFilters =
+    typeFilter !== emptyFilter ||
+    genderFilter !== emptyFilter ||
+    geoFilter !== emptyFilter ||
+    teamFilter !== emptyFilter ||
+    query.trim().length > 0 ||
+    page !== 1 ||
+    pageSize !== pageSizeOptions[0]
+
+  function clearFilters() {
+    setTypeFilter(emptyFilter)
+    setGenderFilter(emptyFilter)
+    setGeoFilter(emptyFilter)
+    setTeamFilter(emptyFilter)
+    setQuery("")
+    setPage(1)
+    setPageSize(pageSizeOptions[0])
+  }
+
   function openUpload() {
     setForm({
       type: FanPageAssetType.AVATAR,
@@ -335,6 +441,50 @@ export function FanPageLibraryManager({
     })
   }
 
+  function openBulkEdit() {
+    if (selectedIds.length === 0) return
+    setBulkEditForm(emptyBulkEditForm)
+    setError("")
+    setMessage("")
+    setBulkEditOpen(true)
+  }
+
+  function submitBulkEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const shouldUpdate =
+      bulkEditForm.type !== keepValue ||
+      bulkEditForm.gender !== keepValue ||
+      bulkEditForm.geoCode !== keepValue ||
+      bulkEditForm.teamId !== keepValue
+    if (!shouldUpdate) {
+      setError("Выберите, что изменить")
+      return
+    }
+
+    const data = new FormData()
+    for (const id of selectedIds) {
+      data.append("ids", id)
+    }
+    if (bulkEditForm.type !== keepValue) data.set("type", bulkEditForm.type)
+    if (bulkEditForm.gender !== keepValue) data.set("gender", bulkEditForm.gender)
+    if (bulkEditForm.geoCode !== keepValue) data.set("geoCode", bulkEditForm.geoCode)
+    if (bulkEditForm.teamId !== keepValue) data.set("teamId", bulkEditForm.teamId)
+
+    setError("")
+    setMessage("")
+    startTransition(async () => {
+      const result = await updateFanPageAssets(data)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
+      setMessage(`Обновлено картинок: ${result.updated ?? selectedIds.length}`)
+      setSelectedIds([])
+      setBulkEditOpen(false)
+      router.refresh()
+    })
+  }
+
   const pagination = filteredAssets.length > 0 ? (
     <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-muted-foreground">
@@ -411,7 +561,7 @@ export function FanPageLibraryManager({
           </Button>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
           <Select
             value={typeFilter}
             onValueChange={(value) => {
@@ -504,6 +654,16 @@ export function FanPageLibraryManager({
               ))}
             </SelectContent>
           </Select>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full xl:w-auto"
+            disabled={!hasActiveFilters}
+            onClick={clearFilters}
+          >
+            Очистить
+          </Button>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -532,15 +692,26 @@ export function FanPageLibraryManager({
                 </Button>
               ) : null}
             </div>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={isPending || selectedIds.length === 0}
-              onClick={removeSelectedAssets}
-            >
-              <Trash2 />
-              Удалить выбранные {selectedIds.length > 0 ? selectedIds.length : ""}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending || selectedIds.length === 0}
+                onClick={openBulkEdit}
+              >
+                <Pencil />
+                Редактировать {selectedIds.length > 0 ? selectedIds.length : ""}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isPending || selectedIds.length === 0}
+                onClick={removeSelectedAssets}
+              >
+                <Trash2 />
+                Удалить выбранные {selectedIds.length > 0 ? selectedIds.length : ""}
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -799,6 +970,149 @@ export function FanPageLibraryManager({
               >
                 <UploadIcon />
                 {isUploading ? "Загрузка…" : "Загрузить"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkEditOpen} onOpenChange={setBulkEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <form onSubmit={submitBulkEdit}>
+            <DialogHeader>
+              <DialogTitle>Массовое редактирование</DialogTitle>
+              <DialogDescription>
+                Изменения применятся к выбранным картинкам: {selectedIds.length}.
+              </DialogDescription>
+            </DialogHeader>
+            <FieldGroup className="mt-4">
+              <Field>
+                <FieldLabel>Тип</FieldLabel>
+                <Select
+                  value={bulkEditForm.type}
+                  onValueChange={(value) =>
+                    setBulkEditForm((current) => ({
+                      ...current,
+                      type: value ?? keepValue,
+                      gender: value === FanPageAssetType.COVER ? Gender.ANY : current.gender,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <span>
+                      {bulkEditForm.type === keepValue
+                        ? "Не менять"
+                        : assetTypeLabels[bulkEditForm.type as FanPageAssetType]}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    <SelectItem value={FanPageAssetType.AVATAR}>Аватарки</SelectItem>
+                    <SelectItem value={FanPageAssetType.COVER}>Обложки</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>Пол</FieldLabel>
+                <Select
+                  value={bulkEditForm.gender}
+                  onValueChange={(value) =>
+                    setBulkEditForm((current) => ({
+                      ...current,
+                      gender:
+                        value === Gender.MALE || value === Gender.FEMALE || value === Gender.ANY
+                          ? value
+                          : keepValue,
+                    }))
+                  }
+                  disabled={bulkEditForm.type === FanPageAssetType.COVER}
+                >
+                  <SelectTrigger className="w-full">
+                    <span>
+                      {bulkEditForm.gender === keepValue
+                        ? "Не менять"
+                        : genderLabels[bulkEditForm.gender as Gender]}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
+                    <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
+                    <SelectItem value={Gender.MALE}>Мужские</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>Geo</FieldLabel>
+                <Select
+                  value={bulkEditForm.geoCode}
+                  onValueChange={(value) =>
+                    setBulkEditForm((current) => ({ ...current, geoCode: value ?? keepValue }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <span className="truncate text-left">
+                      {bulkEditForm.geoCode === keepValue
+                        ? "Не менять"
+                        : bulkGeo
+                          ? <CountryLabel country={bulkGeo} />
+                          : bulkEditForm.geoCode}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    {countries.map((country) => (
+                      <SelectItem key={country.code} value={country.code}>
+                        <CountryLabel country={country} />
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel>Команда</FieldLabel>
+                <Select
+                  value={bulkEditForm.teamId}
+                  onValueChange={(value) =>
+                    setBulkEditForm((current) => ({ ...current, teamId: value ?? keepValue }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <span className="truncate text-left">
+                      {bulkEditForm.teamId === keepValue
+                        ? "Не менять"
+                        : bulkTeam
+                          ? teamLine(bulkTeam)
+                          : "Команда"}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    {teams.map((team) => (
+                      <SelectItem key={team.id} value={team.id}>
+                        {teamLine(team)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {error ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+            </FieldGroup>
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setBulkEditOpen(false)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={isPending || selectedIds.length === 0}>
+                <Pencil />
+                Сохранить
               </Button>
             </DialogFooter>
           </form>
