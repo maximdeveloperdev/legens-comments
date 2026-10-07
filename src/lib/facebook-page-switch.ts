@@ -2152,8 +2152,14 @@ async function clickPageNameReviewChange(page: Page, log: (line: SwitchLog) => v
   if (!(await pageNameEditFormVisible(page))) return false
   await page.mouse.click(270, 340).catch(() => undefined)
   await pause(900)
-  log({ level: "info", text: "Нажали Review Change координатой внутри формы Page name" })
-  return true
+  const bodyText = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "")
+  const passwordVisible = Boolean(await findVisiblePasswordInput(page, 800))
+  if (NAME_CHANGE_CONFIRM_RE.test(bodyText) || passwordVisible || NAME_CHANGE_SUCCESS_RE.test(bodyText)) {
+    log({ level: "info", text: "Нажали Review Change координатой внутри формы Page name" })
+    return true
+  }
+  log({ level: "info", text: "Координатный клик Review Change не открыл подтверждение" })
+  return false
 }
 
 async function summarizeVisiblePage(page: Page) {
