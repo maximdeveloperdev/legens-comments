@@ -1756,8 +1756,39 @@ async function pageNameConfirmationVisible(page: Page) {
   return false
 }
 
+async function clickVisibleSubmitControl(root: Page | Frame, label: RegExp) {
+  const controls = root.locator("input[type='submit'], input[type='button'], button, a[role='button'], [role='button']")
+  const count = await controls.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const control = controls.nth(index)
+    if (!(await visible(control))) continue
+    const text = await control
+      .evaluate((node: HTMLElement | HTMLInputElement) =>
+        [
+          node.getAttribute("aria-label") || "",
+          "value" in node ? node.value || "" : "",
+          node.innerText || node.textContent || "",
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .catch(() => "")
+    if (!label.test(text)) continue
+    await control.click({ timeout: 4000, force: true }).catch(() => undefined)
+    return true
+  }
+  return false
+}
+
 async function clickNameConfirmAction(page: Page, log: (line: SwitchLog) => void) {
   const roots = () => [page, ...page.frames().filter((frame) => frame !== page.mainFrame())]
+  for (const root of roots()) {
+    if (await clickVisibleSubmitControl(root, NAME_CONFIRM_SUBMIT_RE)) {
+      log({ level: "info", text: "Нажали финальную кнопку подтверждения по видимому контролу" })
+      return true
+    }
+  }
   for (const root of roots()) {
     if (await clickLegacyFacebookSubmit(root, NAME_CONFIRM_SUBMIT_RE)) {
       log({ level: "info", text: "Нажали финальную кнопку подтверждения" })
@@ -1768,6 +1799,12 @@ async function clickNameConfirmAction(page: Page, log: (line: SwitchLog) => void
   await page.setViewportSize({ width: 1000, height: 1100 }).catch(() => undefined)
   await page.mouse.wheel(0, 500).catch(() => undefined)
   await pause(500)
+  for (const root of roots()) {
+    if (await clickVisibleSubmitControl(root, NAME_CONFIRM_SUBMIT_RE)) {
+      log({ level: "info", text: "Нажали финальную кнопку подтверждения по видимому контролу после прокрутки" })
+      return true
+    }
+  }
   for (const root of roots()) {
     if (await clickLegacyFacebookSubmit(root, NAME_CONFIRM_SUBMIT_RE)) {
       log({ level: "info", text: "Нажали финальную кнопку подтверждения после прокрутки" })
