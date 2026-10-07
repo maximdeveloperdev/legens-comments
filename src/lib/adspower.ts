@@ -50,6 +50,8 @@ export type AdsPowerProfile = {
   fans: AdsPowerFan[]
 }
 
+export const ADSPOWER_BAN_SUFFIX = "[BAN]"
+
 export type AdsPowerProxyCheckResult = {
   ok: boolean
   checked: boolean
@@ -162,6 +164,16 @@ function mapProfile(item: unknown, openIds: Set<string>): AdsPowerProfile {
     open: openIds.has(id),
     fans: [],
   }
+}
+
+export function isBannedAdsPowerProfileName(name: string) {
+  return /\s*\[BAN\]\s*$/i.test(name)
+}
+
+function withBanSuffix(name: string) {
+  const clean = name.trim()
+  if (isBannedAdsPowerProfileName(clean)) return clean
+  return `${clean || "Profile"} ${ADSPOWER_BAN_SUFFIX}`
 }
 
 function proxyConfigFromRecord(value: unknown): AdsPowerProxyConfig | null {
@@ -538,9 +550,12 @@ export async function listAdsPowerProfiles(options: { includeOpen?: boolean } = 
         }
       }
 
-      const chunk = asList(result.data).map((item) => mapProfile(item, openIds))
+      const rawChunk = asList(result.data)
+      const chunk = rawChunk
+        .map((item) => mapProfile(item, openIds))
+        .filter((profile) => !isBannedAdsPowerProfileName(profile.name))
       rows.push(...chunk)
-      if (chunk.length < pageSize) break
+      if (rawChunk.length < pageSize) break
       page += 1
     }
 
@@ -551,6 +566,40 @@ export async function listAdsPowerProfiles(options: { includeOpen?: boolean } = 
       message: "Не удалось достучаться до Local API. AdsPower должен быть запущен на этом компьютере.",
       profiles: [],
     }
+  }
+}
+
+export async function markAdsPowerProfileBanned(userId: string): Promise<{ ok: boolean; message: string; name?: string }> {
+  const id = userId.trim()
+  if (!id) return { ok: false, message: "Нет ID профиля" }
+
+  try {
+    const profile = await findProfileRow(id)
+    if (!profile.ok || !profile.row) {
+      return { ok: false, message: profile.message || "Профиль AdsPower не найден" }
+    }
+
+    const currentName = String(profile.row.name ?? `Профиль ${id}`)
+    const nextName = withBanSuffix(currentName)
+    if (nextName === currentName.trim()) {
+      return { ok: true, message: `Профиль уже помечен ${ADSPOWER_BAN_SUFFIX}`, name: nextName }
+    }
+
+    const result = await adspowerFetch<unknown>(
+      "/api/v1/user/update",
+      {
+        method: "POST",
+        body: JSON.stringify({ user_id: id, name: nextName }),
+        timeoutMs: 30_000,
+      },
+    )
+    if (result.code !== 0) {
+      return { ok: false, message: result.msg || "Не удалось пометить профиль [BAN]" }
+    }
+
+    return { ok: true, message: `Профиль помечен ${ADSPOWER_BAN_SUFFIX}: ${nextName}`, name: nextName }
+  } catch {
+    return { ok: false, message: "Не удалось пометить профиль [BAN]" }
   }
 }
 

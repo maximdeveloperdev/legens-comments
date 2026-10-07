@@ -5,6 +5,7 @@ import {
   checkAdsPowerProfileProxy,
   getAdsPowerFacebookCredentials,
   getAdsPowerFacebookPassword,
+  markAdsPowerProfileBanned,
   startAdsPowerBrowser,
   stopAdsPowerBrowser,
 } from "@/lib/adspower"
@@ -1092,7 +1093,7 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
   const metaAccountSetupRe =
     /get started on facebook with a meta account|by tapping submit, you agree to create an account|create new account/i
   const securityBlockRe =
-    /checkpoint|hacked-protection|two_factor|recover|security|confirm your identity|secure your account|we noticed unusual activity|not found|страниц.*не найд|проверк.*безопас|подтверд.*личност/i
+    /checkpoint|hacked-protection|two_factor|recover|security|confirm your identity|secure your account|we noticed unusual activity|проверк.*безопас|подтверд.*личност/i
   const markers = [
     page.getByRole("button", { name: /^Your profile$/i }),
     page.getByRole("button", { name: /^Account$/i }),
@@ -1120,9 +1121,13 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
     const currentUrl = page.url()
     const bodyText = await page.locator("body").innerText({ timeout: 1500 }).catch(() => "")
     if (/\/hacked-protection\//i.test(currentUrl)) {
+      const marked = await markAdsPowerProfileBanned(profileId)
+      log({ level: marked.ok ? "ok" : "error", text: marked.message })
       throw new Error(`Facebook открыл hacked-protection для профиля ${profileId}. Аккаунт требует проверки/восстановления сессии: ${currentUrl}`)
     }
     if (/\/checkpoint\//i.test(currentUrl) || /\/recover\//i.test(currentUrl) || securityBlockRe.test(`${currentUrl}\n${bodyText}`)) {
+      const marked = await markAdsPowerProfileBanned(profileId)
+      log({ level: marked.ok ? "ok" : "error", text: marked.message })
       throw new Error(`Facebook открыл security/checkpoint экран для профиля ${profileId}: ${currentUrl}`)
     }
     if (metaAccountSetupRe.test(bodyText)) {
