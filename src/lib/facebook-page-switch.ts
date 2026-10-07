@@ -2594,24 +2594,30 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
     for (const job of jobs) {
       const currentName = job.currentName.trim()
       let preparedFan: FanFormatInput | undefined
-      try {
-        const selectedName = await switchToFan(page, currentName, onLog)
-        await gotoCurrentFanProfile(page, selectedName, onLog)
-        preparedFan = await prepareFan(job)
-        const fan = { ...preparedFan, currentName: preparedFan.currentName || currentName }
-        const nameAlreadyApplied = !sameFan(selectedName, currentName)
+	      try {
+	        const selectedName = await switchToFan(page, currentName, onLog)
+	        await gotoCurrentFanProfile(page, selectedName, onLog)
+	        const nameAlreadyApplied = !sameFan(selectedName, currentName)
 
-        if (nameAlreadyApplied) {
-          onLog({
-            level: "ok",
-            text: `Facebook уже показывает новое имя фанки: ${currentName} → ${selectedName}`,
-          })
-          fan.newName = selectedName
-        }
+	        if (nameAlreadyApplied) {
+	          onLog({
+	            level: "ok",
+	            text: `Facebook уже показывает новое имя фанки: ${currentName} → ${selectedName}`,
+	          })
+	          formatted.push({
+	            currentName,
+	            newName: selectedName,
+	            nameApplied: true,
+	          })
+	          continue
+	        }
 
-        if (prepareMedia) {
-          Object.assign(fan, await prepareMedia(fan, job))
-        }
+	        preparedFan = await prepareFan(job)
+	        const fan = { ...preparedFan, currentName: preparedFan.currentName || currentName }
+
+	        if (prepareMedia) {
+	          Object.assign(fan, await prepareMedia(fan, job))
+	        }
 
         if (fan.avatarPath) {
           await updateFanAvatar(page, fan, onLog)
