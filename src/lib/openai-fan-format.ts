@@ -51,6 +51,9 @@ export async function generateFanIdentity(input: {
   geo: string
   countryName?: string
   includeMediaPrompts?: boolean
+  avoidNames?: string[]
+  avoidFirstNames?: string[]
+  avoidLastNames?: string[]
 }): Promise<GeneratedFanIdentity> {
   const { apiKey, model } = getOpenAiConfig()
   if (!apiKey) throw new Error("Добавь OPENAI_API_KEY в .env")
@@ -58,6 +61,16 @@ export async function generateFanIdentity(input: {
   const geo = input.geo.trim().toUpperCase() || "EU"
   const country = input.countryName?.trim() || geo
   const includeMediaPrompts = input.includeMediaPrompts !== false
+  const avoidNames = [...new Set((input.avoidNames || []).map(normalizeName).filter(Boolean))].slice(0, 80)
+  const avoidFirstNames = [...new Set((input.avoidFirstNames || []).map(normalizeName).filter(Boolean))].slice(0, 80)
+  const avoidLastNames = [...new Set((input.avoidLastNames || []).map(normalizeName).filter(Boolean))].slice(0, 80)
+  const avoidBlock = [
+    avoidNames.length > 0 ? `Do not use these full names: ${avoidNames.join(", ")}.` : "",
+    avoidFirstNames.length > 0 ? `Avoid these first names: ${avoidFirstNames.join(", ")}.` : "",
+    avoidLastNames.length > 0 ? `Avoid these last names/surnames: ${avoidLastNames.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -66,13 +79,15 @@ export async function generateFanIdentity(input: {
     },
     body: JSON.stringify({
       model,
-      temperature: 1,
+      temperature: 1.25,
+      presence_penalty: 0.5,
+      frequency_penalty: 0.4,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content:
-            "Generate fictional Facebook profile formatting data. Return only JSON. Names must be realistic for the requested country, not celebrities, not public figures, and use Latin letters.",
+            "Generate fictional Facebook profile formatting data. Return only JSON. Names must be realistic for the requested country, not celebrities, not public figures, and use Latin letters. Prefer diverse, less overused but still natural names; avoid repeatedly choosing the most common examples.",
         },
         {
           role: "user",
@@ -80,8 +95,9 @@ export async function generateFanIdentity(input: {
             ? `Current fan/page name: ${input.currentName}
 Geo code: ${geo}
 Country: ${country}
+${avoidBlock ? `\n${avoidBlock}\n` : ""}
 
-Generate a new human first name and last name for this geo. Also return the person's gender as male or female. Also write:
+Generate a new human first name and last name for this geo. The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female. Also write:
 - an avatar prompt for a realistic, original adult profile photo matching the country/geo;
 - a cover photo theme and prompt. Pick one theme from nature, cars, venue/cafe, history, music. Cover photo should be a wide banner scene, no person as the main subject, no text, no logos.
 
@@ -90,8 +106,9 @@ Return JSON:
             : `Current fan/page name: ${input.currentName}
 Geo code: ${geo}
 Country: ${country}
+${avoidBlock ? `\n${avoidBlock}\n` : ""}
 
-Generate only a new human first name and last name for this geo. Also return the person's gender as male or female.
+Generate only a new human first name and last name for this geo. The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female.
 Return JSON:
 {"firstName":"...","lastName":"...","fullName":"First Last","gender":"male|female"}`,
         },

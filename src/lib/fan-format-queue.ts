@@ -4,7 +4,7 @@ import { FanPageAssetType, FarmJobStatus, Gender, Prisma, type FanFormatJob as D
 import { writeActionLog, writeTrackerLog } from "@/lib/action-log"
 import { prisma } from "@/lib/db"
 import { runFacebookFanFormatQueue, type FanFormatJob as FacebookFanFormatJob } from "@/lib/facebook-page-switch"
-import { generateFanIdentity } from "@/lib/openai-fan-format"
+import { generateFanIdentity, type GeneratedFanIdentity } from "@/lib/openai-fan-format"
 
 const DEFAULT_MAX_PARALLEL = 1
 const HARD_MAX_PARALLEL = 5
@@ -76,6 +76,165 @@ function assetDiskPath(url: string) {
 
 function jsonArrayLength(value: Prisma.JsonValue | null) {
   return Array.isArray(value) ? value.length : 0
+}
+
+type NameAvoidState = {
+  full: string[]
+  first: string[]
+  last: string[]
+  fullKeys: Set<string>
+  firstKeys: Set<string>
+  lastKeys: Set<string>
+}
+
+const GENERATION_ATTEMPTS = 3
+
+const DEFAULT_COMMON_NAME_AVOID = {
+  first: ["Alex", "Anna", "Daniel", "Laura", "Maria", "Martin", "Marta", "Sofia"],
+  last: ["Garcia", "Martin", "Moreno", "Smith"],
+}
+
+const COMMON_NAME_AVOID_BY_GEO: Record<string, { first: string[]; last: string[] }> = {
+  ES: {
+    first: [
+      "Alba",
+      "Carlos",
+      "Daniel",
+      "Javier",
+      "Lucas",
+      "Lucía",
+      "Lucia",
+      "Marcos",
+      "Martín",
+      "Martin",
+      "Mateo",
+      "Paula",
+      "Sofía",
+      "Sofia",
+    ],
+    last: [
+      "Fernández",
+      "Fernandez",
+      "García",
+      "Garcia",
+      "Gómez",
+      "Gomez",
+      "López",
+      "Lopez",
+      "Martínez",
+      "Martinez",
+      "Moreno",
+      "Pérez",
+      "Perez",
+      "Rodríguez",
+      "Rodriguez",
+      "Sánchez",
+      "Sanchez",
+    ],
+  },
+  FR: {
+    first: ["Camille", "Hugo", "Lucas", "Léa", "Lea", "Manon", "Marie", "Thomas"],
+    last: ["Bernard", "Dubois", "Durand", "Lefebvre", "Leroy", "Martin", "Moreau", "Petit"],
+  },
+  DE: {
+    first: ["Anna", "Felix", "Hannah", "Leon", "Lena", "Lukas", "Marie", "Max"],
+    last: ["Becker", "Fischer", "Meyer", "Müller", "Muller", "Schmidt", "Schneider", "Weber"],
+  },
+  GB: {
+    first: ["Amelia", "Emily", "Harry", "Jack", "James", "Olivia", "Oliver", "Sophie"],
+    last: ["Brown", "Jones", "Smith", "Taylor", "Thomas", "Williams", "Wilson"],
+  },
+  IT: {
+    first: ["Alessandro", "Chiara", "Francesca", "Giulia", "Luca", "Marco", "Matteo", "Sofia"],
+    last: ["Bianchi", "Colombo", "Conti", "Ferrari", "Rossi", "Romano", "Russo"],
+  },
+  PL: {
+    first: ["Anna", "Jakub", "Kamil", "Katarzyna", "Marta", "Piotr", "Tomasz", "Wiktoria"],
+    last: ["Kowalczyk", "Kowalska", "Kowalski", "Lewandowska", "Lewandowski", "Nowak", "Wiśniewski", "Wisniewski"],
+  },
+  PT: {
+    first: ["Ana", "Beatriz", "João", "Joao", "Lucas", "Mariana", "Miguel", "Sofia"],
+    last: ["Costa", "Ferreira", "Oliveira", "Pereira", "Rodrigues", "Santos", "Silva", "Sousa"],
+  },
+}
+
+function normalizeNameKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function splitNameParts(value: string) {
+  const parts = value.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+  return {
+    first: parts[0] || "",
+    last: parts.slice(1).join(" "),
+  }
+}
+
+function addAvoidValue(list: string[], keys: Set<string>, value: string) {
+  const clean = value.replace(/\s+/g, " ").trim()
+  const key = normalizeNameKey(clean)
+  if (!clean || !key || keys.has(key)) return
+  keys.add(key)
+  list.push(clean)
+}
+
+function addAvoidName(state: NameAvoidState, name: string) {
+  const { first, last } = splitNameParts(name)
+  addAvoidValue(state.full, state.fullKeys, name)
+  addAvoidValue(state.first, state.firstKeys, first)
+  addAvoidValue(state.last, state.lastKeys, last)
+}
+
+function createNameAvoidState(names: string[]) {
+  const state: NameAvoidState = {
+    full: [],
+    first: [],
+    last: [],
+    fullKeys: new Set<string>(),
+    firstKeys: new Set<string>(),
+    lastKeys: new Set<string>(),
+  }
+  for (const name of names) addAvoidName(state, name)
+  return state
+}
+
+function commonAvoidForGeo(geo: string | undefined) {
+  return COMMON_NAME_AVOID_BY_GEO[(geo || "").trim().toUpperCase()] || DEFAULT_COMMON_NAME_AVOID
+}
+
+function uniqueAvoidValues(values: string[], limit: number) {
+  const keys = new Set<string>()
+  const unique: string[] = []
+  for (const value of values) {
+    const clean = value.replace(/\s+/g, " ").trim()
+    const key = normalizeNameKey(clean)
+    if (!clean || !key || keys.has(key)) continue
+    keys.add(key)
+    unique.push(clean)
+  }
+  return unique.slice(Math.max(0, unique.length - limit))
+}
+
+function buildAvoidInput(state: NameAvoidState, geo: string | undefined) {
+  const common = commonAvoidForGeo(geo)
+  return {
+    avoidNames: uniqueAvoidValues(state.full, 80),
+    avoidFirstNames: uniqueAvoidValues([...state.first, ...common.first], 80),
+    avoidLastNames: uniqueAvoidValues([...state.last, ...common.last], 80),
+  }
+}
+
+function identityUsesCommonName(identity: GeneratedFanIdentity, geo: string | undefined) {
+  const common = commonAvoidForGeo(geo)
+  const firstKeys = new Set(common.first.map(normalizeNameKey).filter(Boolean))
+  const lastKeys = new Set(common.last.map(normalizeNameKey).filter(Boolean))
+  return firstKeys.has(normalizeNameKey(identity.firstName)) || lastKeys.has(normalizeNameKey(identity.lastName))
 }
 
 export function serializeFanFormatJob(job: DbFanFormatJob): FanFormatJobView {
@@ -197,6 +356,11 @@ async function runFanFormatJob(job: DbFanFormatJob) {
       geo: fan.geo,
       teamMarker: fan.teamMarker,
     }))
+    const existingFanRows = await prisma.facebookFan.findMany({
+      where: { adsPowerUserId: job.profileId },
+      select: { name: true },
+    })
+    const nameAvoid = createNameAvoidState([...existingFanRows.map((fan) => fan.name), ...fans.map((fan) => fan.name)])
 
     const result = await runFacebookFanFormatQueue(
       job.profileId,
@@ -207,12 +371,37 @@ async function runFanFormatJob(job: DbFanFormatJob) {
           level: "info",
           text: `Генерируем имя для «${fan.currentName}»${fan.geo ? ` · ${fan.geo}` : ""}${fan.teamMarker ? ` · ${fan.teamMarker}` : ""}`,
         })
-        const identity = await generateFanIdentity({
-          currentName: fan.currentName,
-          geo: fan.geo || "",
-          countryName: country?.nameEn || country?.nameRu,
-          includeMediaPrompts: false,
-        })
+        let identity: GeneratedFanIdentity | null = null
+        for (let attempt = 1; attempt <= GENERATION_ATTEMPTS; attempt += 1) {
+          const candidate = await generateFanIdentity({
+            currentName: fan.currentName,
+            geo: fan.geo || "",
+            countryName: country?.nameEn || country?.nameRu,
+            includeMediaPrompts: false,
+            ...buildAvoidInput(nameAvoid, fan.geo),
+          })
+          const fullKey = normalizeNameKey(candidate.fullName)
+          const duplicateName = nameAvoid.fullKeys.has(fullKey)
+          const tooCommon = identityUsesCommonName(candidate, fan.geo)
+
+          if (duplicateName && attempt >= GENERATION_ATTEMPTS) {
+            throw new Error(`ChatGPT вернул повтор имени после ${GENERATION_ATTEMPTS} попыток: ${candidate.fullName}`)
+          }
+
+          if ((duplicateName || tooCommon) && attempt < GENERATION_ATTEMPTS) {
+            log({
+              level: "info",
+              text: `Имя ${candidate.fullName} похоже на повтор/частый шаблон — перегенерируем (${attempt}/${GENERATION_ATTEMPTS})`,
+            })
+            addAvoidName(nameAvoid, candidate.fullName)
+            continue
+          }
+
+          identity = candidate
+          break
+        }
+        if (!identity) throw new Error("ChatGPT не вернул подходящее имя")
+        addAvoidName(nameAvoid, identity.fullName)
         log({
           level: "ok",
           text: `Имя сгенерировано: ${fan.currentName} → ${identity.fullName} · ${identity.gender === "male" ? "муж." : "жен."}`,
