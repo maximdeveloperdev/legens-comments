@@ -24,8 +24,6 @@ export type EnqueueFarmResult = {
 type EnqueueFarmInput = {
   action: "comment" | "like" | "likeonly" | "subscribe"
   jobs: Array<{
-    clientKey?: string
-    replyToKey?: string
     profileId: string
     fanName?: string
     url: string
@@ -147,8 +145,6 @@ async function createFarmTask(
       url: normalizeFacebookUrl(job.url),
       message: job.message.trim(),
       aiComment: action !== "likeonly" && job.aiComment === true,
-      clientKey: (job.clientKey || "").trim(),
-      replyToKey: (job.replyToKey || "").trim(),
       photoPath:
         action !== "likeonly"
           ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
@@ -181,25 +177,17 @@ async function createFarmTask(
     rewritten = antiSpam.rewritten
   }
 
-  const taskRows = (() => {
-    const idByClientKey = new Map<string, string>()
-    const rows = finalJobs.map((job) => {
-      const id = randomUUID()
-      if (job.clientKey) idByClientKey.set(job.clientKey, id)
-      return { ...job, id }
-    })
-    return rows.map((job) => ({
-      id: job.id,
-      action,
-      profileId: job.profileId,
-      fanName: job.fanName,
-      url: job.url,
-      message: job.message,
-      aiComment: job.aiComment,
-      photoPath: job.photoPath,
-      replyToJobId: job.replyToKey ? idByClientKey.get(job.replyToKey) || null : null,
-    }))
-  })()
+  const taskRows = finalJobs.map((job) => ({
+    id: randomUUID(),
+    action,
+    profileId: job.profileId,
+    fanName: job.fanName,
+    url: job.url,
+    message: job.message,
+    aiComment: job.aiComment,
+    photoPath: job.photoPath,
+    replyToJobId: null,
+  }))
 
   const task = await prisma.$transaction(async (tx) => {
     const createdTask = await tx.farmTask.create({
@@ -492,7 +480,7 @@ export async function duplicateFarmTask(input: {
     message: rewrittenMessages.get(job.id) ?? message,
     aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
     photoPath: job.photoPath,
-    replyToJobId: job.replyToJobId ? newIdByOldId.get(job.replyToJobId) || null : null,
+    replyToJobId: null,
   }))
 
   const duplicated = await prisma.$transaction(async (tx) => {

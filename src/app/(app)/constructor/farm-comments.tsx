@@ -40,17 +40,6 @@ type FarmPage = AdsPowerProfile & {
 
 type FarmAction = "comment" | "like" | "likeonly" | "subscribe"
 type ContentMode = "same" | "split" | "ai"
-type CommentThreadNode = {
-  id: string
-  text: string
-  depth: number
-  children: CommentThreadNode[]
-}
-type CommentThreadLine = {
-  text: string
-  depth: number
-  parentIndex: number | null
-}
 
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
@@ -173,59 +162,6 @@ function fileSizeLabel(size: number) {
   return `${(size / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`
 }
 
-function parseCommentThreadLines(text: string) {
-  const lines: CommentThreadLine[] = []
-  const stack: number[] = []
-
-  text.split(/\r?\n/).forEach((rawLine) => {
-    if (!rawLine.trim()) return
-    const expanded = rawLine.replace(/\t/g, "    ")
-    const leadingSpaces = expanded.match(/^ */)?.[0].length ?? 0
-    const wantedDepth = Math.min(Math.floor(leadingSpaces / 4), 6)
-    const depth = Math.min(wantedDepth, stack.length)
-    const parentIndex = depth > 0 ? stack[depth - 1] ?? null : null
-
-    lines.push({
-      text: expanded.trim(),
-      depth,
-      parentIndex,
-    })
-
-    stack[depth] = lines.length - 1
-    stack.length = depth + 1
-  })
-
-  return lines
-}
-
-function parseCommentThread(text: string) {
-  const roots: CommentThreadNode[] = []
-  const stack: CommentThreadNode[] = []
-  let replies = 0
-
-  parseCommentThreadLines(text).forEach((line, index) => {
-    const depth = Math.min(line.depth, stack.length)
-    const node: CommentThreadNode = {
-      id: `${index}-${line.text}`,
-      text: line.text,
-      depth,
-      children: [],
-    }
-
-    if (depth === 0 || !stack[depth - 1]) {
-      roots.push(node)
-    } else {
-      stack[depth - 1].children.push(node)
-      replies += 1
-    }
-
-    stack[depth] = node
-    stack.length = depth + 1
-  })
-
-  return { roots, count: parseCommentThreadLines(text).length, replies }
-}
-
 function PagesIconButton({
   label,
   disabled,
@@ -344,7 +280,6 @@ export function FarmComments({
   const [message, setMessage] = useState("")
   const [bulkSplitText, setBulkSplitText] = useState("")
   const [splitMessages, setSplitMessages] = useState<Record<string, string>>({})
-  const [splitReplyParents, setSplitReplyParents] = useState<Record<string, string>>({})
   const [commentPhoto, setCommentPhoto] = useState<File | null>(null)
   const [commentPhotoError, setCommentPhotoError] = useState("")
   const [commentPhotoPreview, setCommentPhotoPreview] = useState("")
@@ -460,7 +395,6 @@ export function FarmComments({
     setMessage("")
     setBulkSplitText("")
     setSplitMessages({})
-    setSplitReplyParents({})
     setCommentPhoto(null)
     for (const preview of Object.values(splitPhotoPreviews)) URL.revokeObjectURL(preview)
     setSplitPhotos({})
@@ -555,11 +489,13 @@ export function FarmComments({
   }
 
   function generateSplitMessages() {
-    const lines = parseCommentThreadLines(bulkSplitText)
+    const lines = bulkSplitText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
     const keys = postUrls.flatMap((_, postIndex) =>
       selectedPages.map((page) => messageKey(postIndex, page.listId)),
     )
-    const keyPostIndexes = new Map(keys.map((key) => [key, Number(key.split(":")[0] || 0)] as const))
     if (lines.length === 0 || keys.length === 0) return
 
     setSplitMessages((current) => {
@@ -568,19 +504,7 @@ export function FarmComments({
         delete next[key]
       }
       keys.forEach((key, index) => {
-        if (lines[index]) next[key] = lines[index].text
-      })
-      return next
-    })
-    setSplitReplyParents(() => {
-      const next: Record<string, string> = {}
-      keys.forEach((key, index) => {
-        const parentIndex = lines[index]?.parentIndex
-        if (parentIndex === null || parentIndex === undefined) return
-        const parentKey = keys[parentIndex]
-        if (!parentKey) return
-        if (keyPostIndexes.get(parentKey) !== keyPostIndexes.get(key)) return
-        next[key] = parentKey
+        if (lines[index]) next[key] = lines[index]
       })
       return next
     })
@@ -594,8 +518,6 @@ export function FarmComments({
         url,
         message: contentMode === "ai" ? "" : messageFor(page.listId, postIndex),
         aiComment: contentMode === "ai",
-        clientKey: messageKey(postIndex, page.listId),
-        replyToKey: splitPerPage ? splitReplyParents[messageKey(postIndex, page.listId)] : undefined,
         photoKey: splitPerPage ? messageKey(postIndex, page.listId) : undefined,
       })),
     )
@@ -889,7 +811,7 @@ export function FarmComments({
                     <div className="grid gap-1">
                       <p className="text-sm font-medium">Раздельный текст</p>
                       <p className="text-xs text-muted-foreground">
-                        Новая строка — комментарий, Tab или 4 пробела — ответ к комментарию выше.
+                        Каждая новая строка станет отдельным комментарием.
                       </p>
                     </div>
                     <Button
@@ -905,10 +827,9 @@ export function FarmComments({
                   <Textarea
                     value={bulkSplitText}
                     onChange={(event) => setBulkSplitText(event.target.value)}
-                    placeholder={"Первый комментарий\n    Ответ к первому\nВторой комментарий"}
+                    placeholder={"Первый комментарий\nВторой комментарий\nТретий комментарий"}
                     rows={5}
                   />
-                  <CommentThreadPreview text={bulkSplitText} />
                 </div>
                 {postUrls.map((url, postIndex) => (
                   <div key={`${postIndex}-${url}`} className="grid gap-2">
@@ -1354,48 +1275,6 @@ function ConfirmRow({ label, value }: { label: string; value: ReactNode }) {
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 font-medium">{value}</dd>
     </div>
-  )
-}
-
-function CommentThreadPreview({ text }: { text: string }) {
-  const thread = useMemo(() => parseCommentThread(text), [text])
-  if (thread.count === 0) return null
-
-  return (
-    <div className="grid gap-2 rounded-xl border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">Предпросмотр ветки</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant="secondary">{thread.count} комм.</Badge>
-          {thread.replies > 0 ? <Badge variant="outline">{thread.replies} ответ.</Badge> : null}
-        </div>
-      </div>
-      <ul className="grid gap-2">
-        {thread.roots.map((node) => (
-          <CommentThreadPreviewNode key={node.id} node={node} />
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function CommentThreadPreviewNode({ node }: { node: CommentThreadNode }) {
-  return (
-    <li className="grid gap-2">
-      <div className="grid gap-1 rounded-lg border bg-muted/25 px-3 py-2">
-        <span className="text-[0.7rem] font-medium text-muted-foreground">
-          {node.depth === 0 ? "Комментарий" : "Ответ"}
-        </span>
-        <p className="break-words text-sm leading-snug">{node.text}</p>
-      </div>
-      {node.children.length > 0 ? (
-        <ul className="ml-4 grid gap-2 border-l pl-3">
-          {node.children.map((child) => (
-            <CommentThreadPreviewNode key={child.id} node={child} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
   )
 }
 

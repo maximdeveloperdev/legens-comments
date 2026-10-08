@@ -123,24 +123,6 @@ async function resolveJobMessage(job: FarmJob, log: (line: { level: "info" | "ok
 async function claimNextJob(maxParallel: number) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`LOCK TABLE "FarmJob" IN SHARE ROW EXCLUSIVE MODE`
-    const failedParents = await tx.farmJob.findMany({
-      where: {
-        status: FarmJobStatus.PENDING,
-        replyToJobId: { not: null },
-        replyToJob: { is: { status: FarmJobStatus.ERROR } },
-      },
-      select: { id: true },
-    })
-    if (failedParents.length > 0) {
-      await tx.farmJob.updateMany({
-        where: { id: { in: failedParents.map((job) => job.id) } },
-        data: {
-          status: FarmJobStatus.ERROR,
-          finishedAt: new Date(),
-          error: "Родительский комментарий не отправлен — reply пропущен",
-        },
-      })
-    }
     const running = await tx.farmJob.findMany({
       where: { status: FarmJobStatus.RUNNING },
       select: { profileId: true },
@@ -151,10 +133,6 @@ async function claimNextJob(maxParallel: number) {
       where: {
         status: FarmJobStatus.PENDING,
         ...(busyProfileIds.length > 0 ? { profileId: { notIn: busyProfileIds } } : {}),
-        OR: [
-          { replyToJobId: null },
-          { replyToJob: { is: { status: FarmJobStatus.DONE } } },
-        ],
       },
       orderBy: { createdAt: "asc" },
     })
@@ -183,21 +161,6 @@ async function runFarmJob(job: FarmJob) {
 
   try {
     let message = likeOnly ? "" : await resolveJobMessage(job, log)
-    const parentJob = job.replyToJobId
-      ? await prisma.farmJob.findUnique({
-          where: { id: job.replyToJobId },
-          select: { status: true, message: true, fanName: true },
-        })
-      : null
-    if (job.replyToJobId) {
-      if (!parentJob || parentJob.status !== FarmJobStatus.DONE || !parentJob.message.trim()) {
-        throw new Error("Reply ждёт родительский комментарий")
-      }
-      log({
-        level: "info",
-        text: `Отвечаем на комментарий${parentJob.fanName ? ` «${parentJob.fanName}»` : ""}`,
-      })
-    }
     if (!likeOnly) {
       const antiSpam = await rewriteFarmJobsForAntiSpam({
         jobs: [
@@ -234,7 +197,6 @@ async function runFarmJob(job: FarmJob) {
         message,
         photoPath: job.photoPath || undefined,
         fanName: job.fanName || undefined,
-        replyToText: parentJob?.message || undefined,
         likeOnly,
         likeWithComment,
         subscribePage,
