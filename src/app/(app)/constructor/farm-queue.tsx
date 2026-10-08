@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronLeftIcon,
@@ -278,9 +279,17 @@ function TaskDetailsDialog({
                               href={job.photoPath}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-sm text-primary hover:underline"
+                              className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                             >
-                              Фото
+                              <Image
+                                src={job.photoPath}
+                                alt=""
+                                width={40}
+                                height={40}
+                                className="size-10 rounded-md border object-cover"
+                                loading="lazy"
+                              />
+                              <span>Фото</span>
                             </a>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -1352,13 +1361,31 @@ export function FarmQueue({
                   </div>
                   <div className="grid max-h-[22rem] gap-2 overflow-y-auto rounded-xl border bg-muted/10 p-2">
                     {duplicateTask.jobs.map((job, index) => (
-                      <label key={job.id} className="grid gap-1.5 rounded-lg bg-background p-2">
+                      <div key={job.id} className="grid gap-1.5 rounded-lg bg-background p-2">
                         <span className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
                           <span className="truncate">
                             #{index + 1} · {job.fanName || job.profileId}
                           </span>
                           {job.photoPath ? <Badge variant="secondary">фото</Badge> : null}
                         </span>
+                        {job.photoPath ? (
+                          <a
+                            href={job.photoPath}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/20 p-1.5 text-xs text-primary hover:bg-muted/40"
+                          >
+                            <Image
+                              src={job.photoPath}
+                              alt=""
+                              width={56}
+                              height={56}
+                              className="size-14 rounded-md object-cover"
+                              loading="lazy"
+                            />
+                            <span className="truncate">Фото сохранится в копии</span>
+                          </a>
+                        ) : null}
                         <Textarea
                           value={duplicateMessages[job.id] ?? job.message}
                           onChange={(event) =>
@@ -1370,7 +1397,7 @@ export function FarmQueue({
                           placeholder={job.aiComment ? "AI-комментарий" : "Текст комментария"}
                           rows={3}
                         />
-                      </label>
+                      </div>
                     ))}
                   </div>
                 </div>
