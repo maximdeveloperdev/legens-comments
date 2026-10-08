@@ -58,6 +58,7 @@ type QueueJob = {
   message: string
   aiComment: boolean
   photoPath: string
+  replyToJobId?: string | null
   error: string | null
   taskId: string
 }

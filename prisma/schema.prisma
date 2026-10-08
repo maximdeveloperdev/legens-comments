@@ -165,24 +165,28 @@ model FarmTask {
 }
 
 model FarmJob {
-  id         String        @id @default(cuid())
-  createdAt  DateTime      @default(now())
-  startedAt  DateTime?
-  finishedAt DateTime?
-  status     FarmJobStatus @default(PENDING)
-  action     String
-  profileId  String
-  fanName    String        @default("")
-  url        String
-  message    String
-  aiComment  Boolean       @default(false)
-  photoPath  String        @default("")
-  error      String?
-  taskId     String
-  task       FarmTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id           String        @id @default(cuid())
+  createdAt    DateTime      @default(now())
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  status       FarmJobStatus @default(PENDING)
+  action       String
+  profileId    String
+  fanName      String        @default("")
+  url          String
+  message      String
+  aiComment    Boolean       @default(false)
+  photoPath    String        @default("")
+  error        String?
+  replyToJobId String?
+  replyToJob   FarmJob?      @relation("FarmJobReplies", fields: [replyToJobId], references: [id], onDelete: SetNull)
+  replies      FarmJob[]     @relation("FarmJobReplies")
+  taskId       String
+  task         FarmTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
   @@index([taskId, createdAt])
+  @@index([replyToJobId])
 }
 
 model FanFormatJob {

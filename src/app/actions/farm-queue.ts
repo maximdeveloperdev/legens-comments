@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
-import { FarmJobStatus } from "@prisma/client"
+import { FarmJobStatus, Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { after } from "next/server"
 import { writeTrackerLog } from "@/lib/action-log"
@@ -24,6 +24,8 @@ export type EnqueueFarmResult = {
 type EnqueueFarmInput = {
   action: "comment" | "like" | "likeonly" | "subscribe"
   jobs: Array<{
+    clientKey?: string
+    replyToKey?: string
     profileId: string
     fanName?: string
     url: string
@@ -35,6 +37,44 @@ type EnqueueFarmInput = {
 
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
+
+type FarmJobCreateRow = {
+  id: string
+  action: string
+  profileId: string
+  fanName: string
+  url: string
+  message: string
+  aiComment: boolean
+  photoPath: string
+  replyToJobId?: string | null
+}
+
+async function createFarmJobsInReplyOrder(
+  tx: Prisma.TransactionClient,
+  taskId: string,
+  rows: FarmJobCreateRow[],
+) {
+  const created = new Set<string>()
+  let pending = [...rows]
+
+  while (pending.length > 0) {
+    const ready = pending.filter((row) => !row.replyToJobId || created.has(row.replyToJobId))
+    if (ready.length === 0) {
+      throw new Error("Не удалось сохранить ветку комментариев: родительский комментарий не найден")
+    }
+
+    await tx.farmJob.createMany({
+      data: ready.map((row) => ({
+        ...row,
+        taskId,
+      })),
+    })
+    for (const row of ready) created.add(row.id)
+    const readyIds = new Set(ready.map((row) => row.id))
+    pending = pending.filter((row) => !readyIds.has(row.id))
+  }
+}
 
 function commentPhotoExt(file: File) {
   const mimeExt: Record<string, string> = {
@@ -107,6 +147,8 @@ async function createFarmTask(
       url: normalizeFacebookUrl(job.url),
       message: job.message.trim(),
       aiComment: action !== "likeonly" && job.aiComment === true,
+      clientKey: (job.clientKey || "").trim(),
+      replyToKey: (job.replyToKey || "").trim(),
       photoPath:
         action !== "likeonly"
           ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
@@ -139,24 +181,37 @@ async function createFarmTask(
     rewritten = antiSpam.rewritten
   }
 
-  const task = await prisma.farmTask.create({
-    data: {
-      createdBy: session.name,
-      createdByUserId: session.id,
+  const taskRows = (() => {
+    const idByClientKey = new Map<string, string>()
+    const rows = finalJobs.map((job) => {
+      const id = randomUUID()
+      if (job.clientKey) idByClientKey.set(job.clientKey, id)
+      return { ...job, id }
+    })
+    return rows.map((job) => ({
+      id: job.id,
       action,
-      total: finalJobs.length,
-      jobs: {
-        create: finalJobs.map((job) => ({
-          action,
-          profileId: job.profileId,
-          fanName: job.fanName,
-          url: job.url,
-          message: job.message,
-          aiComment: job.aiComment,
-          photoPath: job.photoPath,
-        })),
+      profileId: job.profileId,
+      fanName: job.fanName,
+      url: job.url,
+      message: job.message,
+      aiComment: job.aiComment,
+      photoPath: job.photoPath,
+      replyToJobId: job.replyToKey ? idByClientKey.get(job.replyToKey) || null : null,
+    }))
+  })()
+
+  const task = await prisma.$transaction(async (tx) => {
+    const createdTask = await tx.farmTask.create({
+      data: {
+        createdBy: session.name,
+        createdByUserId: session.id,
+        action,
+        total: finalJobs.length,
       },
-    },
+    })
+    await createFarmJobsInReplyOrder(tx, createdTask.id, taskRows)
+    return createdTask
   })
 
   const kind =
@@ -426,25 +481,31 @@ export async function duplicateFarmTask(input: {
     return { error: antiSpam.message || "Антиспам: проверь комментарии" }
   }
   const rewrittenMessages = new Map(antiSpam.jobs.map((job) => [job.id || "", job.message]))
+  const newIdByOldId = new Map(nextJobs.map(({ job }) => [job.id, randomUUID()]))
 
-  const duplicated = await prisma.farmTask.create({
-    data: {
-      createdBy: session.name,
-      createdByUserId: session.id,
-      action: task.action,
-      total: task.jobs.length,
-      jobs: {
-        create: nextJobs.map(({ job, message }) => ({
-          action: job.action,
-          profileId: job.profileId,
-          fanName: job.fanName,
-          url: urlByOriginal.get(job.url) ?? newUrls[0],
-          message: rewrittenMessages.get(job.id) ?? message,
-          aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
-          photoPath: job.photoPath,
-        })),
+  const duplicateRows = nextJobs.map(({ job, message }) => ({
+    id: newIdByOldId.get(job.id) || randomUUID(),
+    action: job.action,
+    profileId: job.profileId,
+    fanName: job.fanName,
+    url: urlByOriginal.get(job.url) ?? newUrls[0],
+    message: rewrittenMessages.get(job.id) ?? message,
+    aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
+    photoPath: job.photoPath,
+    replyToJobId: job.replyToJobId ? newIdByOldId.get(job.replyToJobId) || null : null,
+  }))
+
+  const duplicated = await prisma.$transaction(async (tx) => {
+    const createdTask = await tx.farmTask.create({
+      data: {
+        createdBy: session.name,
+        createdByUserId: session.id,
+        action: task.action,
+        total: task.jobs.length,
       },
-    },
+    })
+    await createFarmJobsInReplyOrder(tx, createdTask.id, duplicateRows)
+    return createdTask
   })
 
   await writeTrackerLog({

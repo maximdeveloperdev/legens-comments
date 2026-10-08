@@ -46,6 +46,11 @@ type CommentThreadNode = {
   depth: number
   children: CommentThreadNode[]
 }
+type CommentThreadLine = {
+  text: string
+  depth: number
+  parentIndex: number | null
+}
 
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
@@ -168,21 +173,41 @@ function fileSizeLabel(size: number) {
   return `${(size / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`
 }
 
-function parseCommentThread(text: string) {
-  const roots: CommentThreadNode[] = []
-  const stack: CommentThreadNode[] = []
-  let count = 0
-  let replies = 0
+function parseCommentThreadLines(text: string) {
+  const lines: CommentThreadLine[] = []
+  const stack: number[] = []
 
-  text.split(/\r?\n/).forEach((rawLine, index) => {
+  text.split(/\r?\n/).forEach((rawLine) => {
     if (!rawLine.trim()) return
     const expanded = rawLine.replace(/\t/g, "    ")
     const leadingSpaces = expanded.match(/^ */)?.[0].length ?? 0
     const wantedDepth = Math.min(Math.floor(leadingSpaces / 4), 6)
     const depth = Math.min(wantedDepth, stack.length)
-    const node: CommentThreadNode = {
-      id: `${index}-${count}`,
+    const parentIndex = depth > 0 ? stack[depth - 1] ?? null : null
+
+    lines.push({
       text: expanded.trim(),
+      depth,
+      parentIndex,
+    })
+
+    stack[depth] = lines.length - 1
+    stack.length = depth + 1
+  })
+
+  return lines
+}
+
+function parseCommentThread(text: string) {
+  const roots: CommentThreadNode[] = []
+  const stack: CommentThreadNode[] = []
+  let replies = 0
+
+  parseCommentThreadLines(text).forEach((line, index) => {
+    const depth = Math.min(line.depth, stack.length)
+    const node: CommentThreadNode = {
+      id: `${index}-${line.text}`,
+      text: line.text,
       depth,
       children: [],
     }
@@ -196,10 +221,9 @@ function parseCommentThread(text: string) {
 
     stack[depth] = node
     stack.length = depth + 1
-    count += 1
   })
 
-  return { roots, count, replies }
+  return { roots, count: parseCommentThreadLines(text).length, replies }
 }
 
 function PagesIconButton({
@@ -320,6 +344,7 @@ export function FarmComments({
   const [message, setMessage] = useState("")
   const [bulkSplitText, setBulkSplitText] = useState("")
   const [splitMessages, setSplitMessages] = useState<Record<string, string>>({})
+  const [splitReplyParents, setSplitReplyParents] = useState<Record<string, string>>({})
   const [commentPhoto, setCommentPhoto] = useState<File | null>(null)
   const [commentPhotoError, setCommentPhotoError] = useState("")
   const [commentPhotoPreview, setCommentPhotoPreview] = useState("")
@@ -435,6 +460,7 @@ export function FarmComments({
     setMessage("")
     setBulkSplitText("")
     setSplitMessages({})
+    setSplitReplyParents({})
     setCommentPhoto(null)
     for (const preview of Object.values(splitPhotoPreviews)) URL.revokeObjectURL(preview)
     setSplitPhotos({})
@@ -529,13 +555,11 @@ export function FarmComments({
   }
 
   function generateSplitMessages() {
-    const lines = bulkSplitText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+    const lines = parseCommentThreadLines(bulkSplitText)
     const keys = postUrls.flatMap((_, postIndex) =>
       selectedPages.map((page) => messageKey(postIndex, page.listId)),
     )
+    const keyPostIndexes = new Map(keys.map((key) => [key, Number(key.split(":")[0] || 0)] as const))
     if (lines.length === 0 || keys.length === 0) return
 
     setSplitMessages((current) => {
@@ -544,7 +568,19 @@ export function FarmComments({
         delete next[key]
       }
       keys.forEach((key, index) => {
-        if (lines[index]) next[key] = lines[index]
+        if (lines[index]) next[key] = lines[index].text
+      })
+      return next
+    })
+    setSplitReplyParents(() => {
+      const next: Record<string, string> = {}
+      keys.forEach((key, index) => {
+        const parentIndex = lines[index]?.parentIndex
+        if (parentIndex === null || parentIndex === undefined) return
+        const parentKey = keys[parentIndex]
+        if (!parentKey) return
+        if (keyPostIndexes.get(parentKey) !== keyPostIndexes.get(key)) return
+        next[key] = parentKey
       })
       return next
     })
@@ -558,6 +594,8 @@ export function FarmComments({
         url,
         message: contentMode === "ai" ? "" : messageFor(page.listId, postIndex),
         aiComment: contentMode === "ai",
+        clientKey: messageKey(postIndex, page.listId),
+        replyToKey: splitPerPage ? splitReplyParents[messageKey(postIndex, page.listId)] : undefined,
         photoKey: splitPerPage ? messageKey(postIndex, page.listId) : undefined,
       })),
     )
@@ -851,7 +889,7 @@ export function FarmComments({
                     <div className="grid gap-1">
                       <p className="text-sm font-medium">Раздельный текст</p>
                       <p className="text-xs text-muted-foreground">
-                        Каждая новая строка станет отдельным комментарием.
+                        Новая строка — комментарий, Tab или 4 пробела — ответ к комментарию выше.
                       </p>
                     </div>
                     <Button
