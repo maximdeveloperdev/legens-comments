@@ -391,6 +391,9 @@ export async function duplicateFarmTask(input: {
   if (nextJobs.some(({ message }) => message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
   }
+  if (task.action !== "likeonly" && nextJobs.some(({ job, message }) => !message && !job.aiComment)) {
+    return { error: "Заполните комментарии или оставьте AI-комментарий для генерации" }
+  }
 
   const antiSpam = await validateFarmCommentAntiSpam({
     jobs: nextJobs.map(({ job, message }) => ({
