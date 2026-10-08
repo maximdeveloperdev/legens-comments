@@ -28,6 +28,7 @@ model User {
   buyerTeams       TeamBuyer[]
   farmTasks        FarmTask[]     @relation("FarmTaskCreator")
   fanPageAssets    FanPageAsset[] @relation("FanPageAssetCreator")
+  fanFormatJobs    FanFormatJob[] @relation("FanFormatJobCreator")
 }
 
 model Team {
@@ -182,6 +183,29 @@ model FarmJob {
 
   @@index([status, createdAt])
   @@index([taskId, createdAt])
+}
+
+model FanFormatJob {
+  id              String        @id @default(cuid())
+  createdAt       DateTime      @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  status          FarmJobStatus @default(PENDING)
+  createdBy       String
+  createdByUserId String?
+  createdByUser   User?         @relation("FanFormatJobCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  profileId       String
+  total           Int
+  fans            Json
+  formatted       Json?
+  pending         Json?
+  failed          Json?
+  message         String        @default("")
+  error           String?
+
+  @@index([status, createdAt])
+  @@index([profileId, createdAt])
+  @@index([createdByUserId, createdAt])
 }
 
 model FbAutouploadBindingGroup {

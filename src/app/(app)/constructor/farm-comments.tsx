@@ -233,6 +233,36 @@ async function readSwitchEvents(
   }
 }
 
+type FormatJobStatus = "PENDING" | "RUNNING" | "DONE" | "ERROR"
+
+type FormatJobSnapshot = {
+  id: string
+  status: FormatJobStatus
+  total: number
+  message: string
+  error: string | null
+  formattedCount: number
+  pendingCount: number
+  failedCount: number
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function formatJobsFinished(jobs: FormatJobSnapshot[]) {
+  return jobs.length > 0 && jobs.every((job) => job.status === "DONE" || job.status === "ERROR")
+}
+
+async function fetchFormatJobs(ids: string[]) {
+  const response = await fetch(`/api/format-fans?ids=${encodeURIComponent(ids.join(","))}`, {
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error("Не удалось получить статус форматирования")
+  const data = (await response.json()) as { jobs?: FormatJobSnapshot[] }
+  return data.jobs ?? []
+}
+
 export function FarmComments({
   profiles,
   countries = {},
@@ -588,46 +618,54 @@ export function FarmComments({
     setFormatPending(true)
     pushAppNotification(
       "Форматирование фанок",
-      `Запущено · ${selectedPages.length} фанок`,
+      `Ставим в фон · ${selectedPages.length} фанок`,
       { tone: "queue" },
     )
 
-    let okCount = 0
-    let pendingCount = 0
-    let failCount = 0
+    let queuedIds: string[] = []
     try {
-      for (const [profileId, pages] of byProfile.entries()) {
-        const response = await fetch("/api/format-fans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+      const response = await fetch("/api/format-fans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobs: [...byProfile.entries()].map(([profileId, pages]) => ({
             profileId,
             fans: pages.map((page) => ({
               name: page.displayName,
               geo: page.displayGeo,
               teamMarker: page.displayTeamMarker,
             })),
-          }),
-        })
-        let profileOk = false
-        let formattedCount = 0
-        let reviewCount = 0
-        let failedCount = 0
-        await readSwitchEvents(response, (event) => {
-          if (event.type === "done") {
-            profileOk = event.ok === true
-            formattedCount = event.formatted?.length ?? 0
-            reviewCount = event.pending?.length ?? 0
-            failedCount = event.failed?.length ?? 0
-          }
-        })
-        okCount += formattedCount
-        pendingCount += reviewCount
-        failCount += failedCount || (profileOk ? 0 : Math.max(0, pages.length - formattedCount - reviewCount))
+          })),
+        }),
+      })
+      const data = (await response.json().catch(() => null)) as
+        | { jobs?: Array<{ id: string; profileId: string; total: number }>; error?: string }
+        | null
+      if (!response.ok || !data?.jobs?.length) {
+        throw new Error(data?.error || "Не удалось поставить форматирование в очередь")
       }
-    } catch {
-      failCount += selectedPages.length || 1
-    } finally {
+
+      queuedIds = data.jobs.map((job) => job.id)
+      setSelectedIds([])
+      pushAppNotification(
+        "Форматирование фанок",
+        `Фоновая задача создана · ${data.jobs.length} профил. · ${selectedPages.length} фанок`,
+        { tone: "queue" },
+      )
+
+      let jobs: FormatJobSnapshot[] = []
+      for (let attempt = 0; attempt < 720; attempt += 1) {
+        await wait(2500)
+        jobs = await fetchFormatJobs(queuedIds)
+        if (formatJobsFinished(jobs)) break
+      }
+
+      const okCount = jobs.reduce((sum, job) => sum + job.formattedCount, 0)
+      const pendingCount = jobs.reduce((sum, job) => sum + job.pendingCount, 0)
+      const failCount = jobs.reduce(
+        (sum, job) => sum + job.failedCount + (job.status === "ERROR" && job.failedCount === 0 ? 1 : 0),
+        0,
+      )
       const summary = [
         `${okCount} ок`,
         pendingCount > 0 ? `${pendingCount} на review` : "",
@@ -644,6 +682,17 @@ export function FarmComments({
         failCount === 0 && pendingCount === 0 ? `Готово · ${okCount} фанок` : summary,
         { tone: failCount > 0 ? "error" : pendingCount > 0 ? "queue" : "success" },
       )
+    } catch (error) {
+      pushAppNotification(
+        queuedIds.length > 0 ? "Форматирование фанок" : "Форматирование фанок · ошибка",
+        queuedIds.length > 0
+          ? "Фоновая задача продолжает идти на сервере; статус будет в логах"
+          : error instanceof Error
+            ? error.message
+            : "Не удалось запустить форматирование",
+        { tone: queuedIds.length > 0 ? "queue" : "error" },
+      )
+    } finally {
       setFormatPending(false)
       router.refresh()
     }
