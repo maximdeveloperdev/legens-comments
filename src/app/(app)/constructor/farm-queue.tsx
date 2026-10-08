@@ -1124,10 +1124,14 @@ export function FarmQueue({
         tone: "error",
       })
     } else {
-      pushAppNotification("Задача скопирована", `В очередь · ${result.total ?? 0} шт.`, {
-        href: "/queue?tab=work",
-        tone: "queue",
-      })
+      pushAppNotification(
+        "Задача скопирована",
+        `В очередь · ${result.total ?? 0} шт.${result.rewritten ? ` AI перефразировал дублей: ${result.rewritten}.` : ""}`,
+        {
+          href: "/queue?tab=work",
+          tone: "queue",
+        },
+      )
       setDuplicateTask(null)
       setDuplicateUrls("")
       setDuplicateMessages({})

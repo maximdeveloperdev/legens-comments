@@ -7,7 +7,7 @@ export const FARM_COMMENT_COOLDOWN_MINUTES = 15
 const FARM_COMMENT_COOLDOWN_MS = FARM_COMMENT_COOLDOWN_MINUTES * 60_000
 const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF]/g
 
-type FarmAntiSpamJob = {
+export type FarmAntiSpamJob = {
   id?: string
   profileId: string
   fanName?: string
@@ -24,6 +24,16 @@ type FarmAntiSpamCandidate = FarmAntiSpamJob & {
 type FarmAntiSpamResult = {
   ok: boolean
   message?: string
+  conflicts?: FarmAntiSpamConflict[]
+}
+
+export type FarmAntiSpamConflict = {
+  index: number
+  fan: string
+  url: string
+  reason: "batch" | "queue" | "history"
+  message: string
+  conflictingMessage?: string
 }
 
 export function normalizeFarmCommentForAntiSpam(value: string) {
@@ -89,6 +99,20 @@ export async function validateFarmCommentAntiSpam(input: {
   now?: Date
   excludeJobIds?: string[]
 }): Promise<FarmAntiSpamResult> {
+  const conflicts = await findFarmCommentAntiSpamConflicts(input)
+  if (conflicts.length === 0) return { ok: true }
+  return {
+    ok: false,
+    message: conflicts[0].message,
+    conflicts,
+  }
+}
+
+export async function findFarmCommentAntiSpamConflicts(input: {
+  jobs: FarmAntiSpamJob[]
+  now?: Date
+  excludeJobIds?: string[]
+}): Promise<FarmAntiSpamConflict[]> {
   const candidates: FarmAntiSpamCandidate[] = input.jobs
     .map((job, index) => ({
       ...job,
@@ -101,7 +125,7 @@ export async function validateFarmCommentAntiSpam(input: {
     }))
     .filter((job) => job.profileId && job.url && job.hash)
 
-  if (candidates.length === 0) return { ok: true }
+  if (candidates.length === 0) return []
 
   const byProfileAndText = new Map<string, FarmAntiSpamCandidate[]>()
   for (const job of candidates) {
@@ -109,12 +133,26 @@ export async function validateFarmCommentAntiSpam(input: {
     byProfileAndText.set(key, [...(byProfileAndText.get(key) || []), job])
   }
 
+  const conflicts: FarmAntiSpamConflict[] = []
+  const conflictIndexes = new Set<number>()
+  const pushConflict = (conflict: FarmAntiSpamConflict) => {
+    if (conflictIndexes.has(conflict.index)) return
+    conflictIndexes.add(conflict.index)
+    conflicts.push(conflict)
+  }
+
   for (const group of byProfileAndText.values()) {
     if (group.length < 2) continue
     const first = group[0]
-    return {
-      ok: false,
-      message: conflictMessage(fanLabel(first), group[1]?.url || first.url, "batch"),
+    for (const duplicate of group.slice(1)) {
+      pushConflict({
+        index: duplicate.index,
+        fan: fanLabel(duplicate),
+        url: duplicate.url || first.url,
+        reason: "batch",
+        message: conflictMessage(fanLabel(duplicate), duplicate.url || first.url, "batch"),
+        conflictingMessage: first.message,
+      })
     }
   }
 
@@ -158,15 +196,16 @@ export async function validateFarmCommentAntiSpam(input: {
     const conflict = conflicts.find((job) => sameFanPage(candidate, job))
     if (!conflict) continue
     const inQueue = conflict.status === FarmJobStatus.PENDING || conflict.status === FarmJobStatus.RUNNING
-    return {
-      ok: false,
-      message: conflictMessage(
-        fanLabel(candidate),
-        conflict.url || candidate.url,
-        inQueue ? "queue" : "history",
-      ),
-    }
+    const reason = inQueue ? "queue" : "history"
+    pushConflict({
+      index: candidate.index,
+      fan: fanLabel(candidate),
+      url: conflict.url || candidate.url,
+      reason,
+      message: conflictMessage(fanLabel(candidate), conflict.url || candidate.url, reason),
+      conflictingMessage: conflict.message,
+    })
   }
 
-  return { ok: true }
+  return conflicts
 }

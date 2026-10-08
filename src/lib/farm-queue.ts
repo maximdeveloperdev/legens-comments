@@ -2,7 +2,7 @@ import { FarmJobStatus, Prisma, type FarmJob } from "@prisma/client"
 import { writeActionLog } from "@/lib/action-log"
 import { listAdsPowerProfiles } from "@/lib/adspower"
 import { prisma } from "@/lib/db"
-import { validateFarmCommentAntiSpam } from "@/lib/farm-anti-spam"
+import { rewriteFarmJobsForAntiSpam } from "@/lib/farm-comment-auto-rewrite"
 import { formatFarmJobError } from "@/lib/farm-job-error"
 import type { FarmQueueAccess } from "@/lib/farm-queue-access"
 import { farmTaskAccessWhere } from "@/lib/farm-queue-access"
@@ -160,9 +160,9 @@ async function runFarmJob(job: FarmJob) {
   }
 
   try {
-    const message = likeOnly ? "" : await resolveJobMessage(job, log)
+    let message = likeOnly ? "" : await resolveJobMessage(job, log)
     if (!likeOnly) {
-      const antiSpam = await validateFarmCommentAntiSpam({
+      const antiSpam = await rewriteFarmJobsForAntiSpam({
         jobs: [
           {
             id: job.id,
@@ -173,9 +173,21 @@ async function runFarmJob(job: FarmJob) {
           },
         ],
         excludeJobIds: [job.id],
+        onRewrite: ({ attempt, reason }) => {
+          log({ level: "info", text: `Антиспам: перефразируем комментарий через ChatGPT (${attempt}/3). ${reason}` })
+        },
       })
       if (!antiSpam.ok) {
-        throw new Error(antiSpam.message || "Антиспам: повтор комментария")
+        throw new Error(antiSpam.message || "Антиспам: не удалось перефразировать повтор комментария")
+      }
+      const safeJob = antiSpam.jobs[0]
+      if (safeJob?.message && safeJob.message !== message) {
+        message = safeJob.message
+        await prisma.farmJob.update({
+          where: { id: job.id },
+          data: { message, aiComment: false },
+        })
+        log({ level: "ok", text: "Антиспам: комментарий перефразирован и сохранён" })
       }
     }
     const result = await runFacebookComment(

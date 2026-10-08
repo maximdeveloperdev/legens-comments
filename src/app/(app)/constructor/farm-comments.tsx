@@ -548,7 +548,7 @@ export function FarmComments({
       clearForm()
       pushAppNotification(
         "Задача в очереди",
-        `${actionLabel(action)} · ${result.total || jobs.length} шт. Можно создавать следующую.`,
+        `${actionLabel(action)} · ${result.total || jobs.length} шт.${result.rewritten ? ` AI перефразировал дублей: ${result.rewritten}.` : ""} Можно создавать следующую.`,
         { href: "/queue?tab=work", tone: "queue" },
       )
       void fetch("/api/farm-queue", { method: "POST" })

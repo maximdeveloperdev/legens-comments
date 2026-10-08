@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache"
 import { after } from "next/server"
 import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
-import { validateFarmCommentAntiSpam } from "@/lib/farm-anti-spam"
+import { rewriteFarmJobsForAntiSpam } from "@/lib/farm-comment-auto-rewrite"
 import { kickFarmQueue } from "@/lib/farm-queue"
 import { farmTaskAccessWhere, getFarmQueueAccess } from "@/lib/farm-queue-access"
 import { prisma } from "@/lib/db"
@@ -18,6 +18,7 @@ export type EnqueueFarmResult = {
   error?: string
   taskId?: string
   total?: number
+  rewritten?: number
 }
 
 type EnqueueFarmInput = {
@@ -122,9 +123,20 @@ async function createFarmTask(
   if (jobs.some((job) => job.message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
   }
-  const antiSpam = await validateFarmCommentAntiSpam({ jobs })
-  if (!antiSpam.ok) {
-    return { error: antiSpam.message || "Антиспам: проверь комментарии" }
+  let finalJobs = jobs
+  let rewritten = 0
+  if (action !== "likeonly") {
+    const antiSpam = await rewriteFarmJobsForAntiSpam({ jobs }).catch((error) => ({
+      ok: false,
+      jobs,
+      rewritten: 0,
+      message: error instanceof Error ? error.message : "Антиспам: не удалось перефразировать комментарии",
+    }))
+    if (!antiSpam.ok) {
+      return { error: antiSpam.message || "Антиспам: проверь комментарии" }
+    }
+    finalJobs = antiSpam.jobs
+    rewritten = antiSpam.rewritten
   }
 
   const task = await prisma.farmTask.create({
@@ -132,9 +144,9 @@ async function createFarmTask(
       createdBy: session.name,
       createdByUserId: session.id,
       action,
-      total: jobs.length,
+      total: finalJobs.length,
       jobs: {
-        create: jobs.map((job) => ({
+        create: finalJobs.map((job) => ({
           action,
           profileId: job.profileId,
           fanName: job.fanName,
@@ -159,14 +171,14 @@ async function createFarmTask(
   await writeTrackerLog({
     userName: session.name,
     action: "Создал задачу",
-    detail: `${kind} · ${jobs.length} шт. в очередь`,
+    detail: `${kind} · ${finalJobs.length} шт. в очередь${rewritten > 0 ? ` · AI перефразировал ${rewritten}` : ""}`,
   })
 
   after(() => {
     kickFarmQueue()
   })
 
-  return { taskId: task.id, total: jobs.length }
+  return { taskId: task.id, total: finalJobs.length, rewritten }
 }
 
 export async function enqueueFarmTask(input: EnqueueFarmInput): Promise<EnqueueFarmResult> {
@@ -336,7 +348,7 @@ export async function duplicateFarmTask(input: {
   taskId: string
   urls: string[]
   comments?: Array<{ jobId?: string; message?: string }>
-}): Promise<{ error?: string; taskId?: string; total?: number }> {
+}): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
   if (!session) {
     return { error: "Нужно войти в аккаунт" }
@@ -395,18 +407,25 @@ export async function duplicateFarmTask(input: {
     return { error: "Заполните комментарии или оставьте AI-комментарий для генерации" }
   }
 
-  const antiSpam = await validateFarmCommentAntiSpam({
+  const antiSpam = await rewriteFarmJobsForAntiSpam({
     jobs: nextJobs.map(({ job, message }) => ({
+      id: job.id,
       profileId: job.profileId,
       fanName: job.fanName,
       url: urlByOriginal.get(job.url) ?? newUrls[0],
       message,
       aiComment: job.aiComment && !message,
     })),
-  })
+  }).catch((error) => ({
+    ok: false,
+    jobs: [],
+    rewritten: 0,
+    message: error instanceof Error ? error.message : "Антиспам: не удалось перефразировать комментарии",
+  }))
   if (!antiSpam.ok) {
     return { error: antiSpam.message || "Антиспам: проверь комментарии" }
   }
+  const rewrittenMessages = new Map(antiSpam.jobs.map((job) => [job.id || "", job.message]))
 
   const duplicated = await prisma.farmTask.create({
     data: {
@@ -420,8 +439,8 @@ export async function duplicateFarmTask(input: {
           profileId: job.profileId,
           fanName: job.fanName,
           url: urlByOriginal.get(job.url) ?? newUrls[0],
-          message,
-          aiComment: job.aiComment && !message,
+          message: rewrittenMessages.get(job.id) ?? message,
+          aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
           photoPath: job.photoPath,
         })),
       },
@@ -431,7 +450,7 @@ export async function duplicateFarmTask(input: {
   await writeTrackerLog({
     userName: session.name,
     action: "Скопировал задачу",
-    detail: `${task.action} · ${task.jobs.length} шт. · ${originalUrls.length} → ${newUrls.length} пост.`,
+    detail: `${task.action} · ${task.jobs.length} шт. · ${originalUrls.length} → ${newUrls.length} пост.${antiSpam.rewritten > 0 ? ` · AI перефразировал ${antiSpam.rewritten}` : ""}`,
   })
 
   revalidatePath("/stats")
@@ -442,7 +461,7 @@ export async function duplicateFarmTask(input: {
     kickFarmQueue()
   })
 
-  return { taskId: duplicated.id, total: task.jobs.length }
+  return { taskId: duplicated.id, total: task.jobs.length, rewritten: antiSpam.rewritten }
 }
 
 export async function deleteFarmTasks(taskIds: string[]): Promise<{ error?: string; deleted?: number }> {
