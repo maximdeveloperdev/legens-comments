@@ -85,6 +85,15 @@ type QueueTask = {
 
 type QueueTab = "work" | "completed"
 type QueueScope = "all" | "team" | "own"
+export type QueueSort = "latest" | "oldest"
+export type QueueStatusFilter =
+  | "all"
+  | "succeed"
+  | "in_progress"
+  | "pending"
+  | "all_failed"
+  | "failed"
+  | "partially_failed"
 type ConfirmAction =
   | { kind: "start"; taskId: string }
   | { kind: "stop"; taskId: string }
@@ -115,6 +124,21 @@ const statusVariant: Record<
   DONE: "outline",
   ERROR: "destructive",
 }
+
+const sortOptions: Array<{ value: QueueSort; label: string }> = [
+  { value: "latest", label: "Latest first" },
+  { value: "oldest", label: "Oldest first" },
+]
+
+const statusFilterOptions: Array<{ value: QueueStatusFilter; label: string }> = [
+  { value: "all", label: "Status" },
+  { value: "succeed", label: "Succeed" },
+  { value: "in_progress", label: "In progress" },
+  { value: "pending", label: "Pending" },
+  { value: "all_failed", label: "All failed" },
+  { value: "failed", label: "Failed" },
+  { value: "partially_failed", label: "Partially failed" },
+]
 
 function formatWhen(value: string) {
   return new Date(value).toLocaleString("ru-RU", {
@@ -357,6 +381,20 @@ function taskStatus(task: QueueTask): QueueJob["status"] {
   if (task.counts.pending > 0) return "PENDING"
   if (task.counts.error > 0) return "ERROR"
   return "DONE"
+}
+
+function taskMatchesStatusFilter(task: QueueTask, filter: QueueStatusFilter) {
+  if (filter === "all") return true
+  const pending = task.counts.pending
+  const running = task.counts.running
+  const done = task.counts.done
+  const error = task.counts.error
+  if (filter === "succeed") return done > 0 && error === 0 && pending === 0 && running === 0
+  if (filter === "in_progress") return running > 0
+  if (filter === "pending") return running === 0 && pending > 0
+  if (filter === "all_failed") return error > 0 && done === 0 && pending === 0 && running === 0
+  if (filter === "partially_failed") return error > 0 && (done > 0 || pending > 0 || running > 0)
+  return error > 0
 }
 
 function taskTab(task: QueueTask): QueueTab {
@@ -828,6 +866,10 @@ function TasksCardList({
   totalTasks,
   queuePositions,
   query,
+  sortOrder,
+  statusFilter,
+  teamFilter,
+  teamOptions,
   page,
   totalPages,
   pageSize,
@@ -838,6 +880,10 @@ function TasksCardList({
   onDuplicate,
   onDeleteTask,
   onQueryChange,
+  onSearch,
+  onSortChange,
+  onStatusFilterChange,
+  onTeamFilterChange,
   onPageChange,
   onPageSizeChange,
   canManage,
@@ -848,6 +894,10 @@ function TasksCardList({
   totalTasks: number
   queuePositions: Map<string, number>
   query: string
+  sortOrder: QueueSort
+  statusFilter: QueueStatusFilter
+  teamFilter: string
+  teamOptions: string[]
   page: number
   totalPages: number
   pageSize: number
@@ -858,6 +908,10 @@ function TasksCardList({
   onDuplicate: (task: QueueTask) => void
   onDeleteTask: (taskId: string) => void
   onQueryChange: (value: string) => void
+  onSearch: () => void
+  onSortChange: (value: QueueSort) => void
+  onStatusFilterChange: (value: QueueStatusFilter) => void
+  onTeamFilterChange: (value: string) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   canManage: boolean
@@ -868,32 +922,75 @@ function TasksCardList({
     <section className="grid gap-4">
       {tools ? (
         <div className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative min-w-0 flex-1">
+          <div className="grid gap-3 xl:grid-cols-[minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(16rem,1.2fr)_auto] xl:items-center">
+            <select
+              value={sortOrder}
+              onChange={(event) => onSortChange(event.target.value as QueueSort)}
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Сортировка задач"
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(event) => onStatusFilterChange(event.target.value as QueueStatusFilter)}
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Фильтр статуса"
+            >
+              {statusFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={teamFilter}
+              onChange={(event) => onTeamFilterChange(event.target.value)}
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Фильтр команды"
+            >
+              <option value="all">Team</option>
+              {teamOptions.map((team) => (
+                <option key={team} value={team}>
+                  {team}
+                </option>
+              ))}
+            </select>
+            <div className="relative min-w-0">
               <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => onQueryChange(event.target.value)}
-                placeholder="Поиск по юзеру, фанке, посту, статусу или ошибке"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") onSearch()
+                }}
+                placeholder="Title, Post URL, Owner nickname..."
                 className="pl-8"
                 aria-label="Поиск по задачам"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{totalTasks} найдено</Badge>
-              <select
-                value={pageSize}
-                onChange={(event) => onPageSizeChange(Number(event.target.value))}
-                className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
-                aria-label="Задач на странице"
-              >
-                {PAGE_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size} / стр.
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Button type="button" onClick={onSearch}>
+              Search
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{totalTasks} найдено</Badge>
+            <select
+              value={pageSize}
+              onChange={(event) => onPageSizeChange(Number(event.target.value))}
+              className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
+              aria-label="Задач на странице"
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} / стр.
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       ) : null}
@@ -1075,12 +1172,16 @@ export function FarmQueue({
   full = false,
   cards = false,
   taskCards = false,
+  taskFilters = false,
   active = true,
   canManage = true,
   showTabs = false,
   tableTools = false,
   initialTab = "work",
   initialQuery = "",
+  initialSort = "latest",
+  initialStatus = "all",
+  initialTeam = "all",
   initialPage = 1,
   initialPageSize = 50,
   currentUserName,
@@ -1089,12 +1190,16 @@ export function FarmQueue({
   full?: boolean
   cards?: boolean
   taskCards?: boolean
+  taskFilters?: boolean
   active?: boolean
   canManage?: boolean
   showTabs?: boolean
   tableTools?: boolean
   initialTab?: QueueTab
   initialQuery?: string
+  initialSort?: QueueSort
+  initialStatus?: QueueStatusFilter
+  initialTeam?: string
   initialPage?: number
   initialPageSize?: number
   currentUserName?: string
@@ -1112,6 +1217,10 @@ export function FarmQueue({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [tab, setTab] = useState<QueueTab>(initialTab)
   const [query, setQuery] = useState(initialQuery)
+  const [queryDraft, setQueryDraft] = useState(initialQuery)
+  const [sortOrder, setSortOrder] = useState<QueueSort>(initialSort)
+  const [statusFilter, setStatusFilter] = useState<QueueStatusFilter>(initialStatus)
+  const [teamFilter, setTeamFilter] = useState(initialTeam.trim() || "all")
   const [page, setPage] = useState(Math.max(1, initialPage))
   const [pageSize, setPageSize] = useState(safeInitialPageSize)
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([])
@@ -1227,34 +1336,56 @@ export function FarmQueue({
   }, [tasks])
   const cardStats = tableTools ? taskStats : stats
   const visibleTasks = showTabs ? (tab === "work" ? workTasks : completedTasks) : tasks
+  const teamOptions = useMemo(
+    () =>
+      [...new Set(visibleTasks.map((task) => task.teamName).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right, "ru")),
+    [visibleTasks],
+  )
   const filteredTasks = useMemo(() => {
     if (!tableTools) return visibleTasks
     const needle = query.trim().toLowerCase()
-    if (!needle) return visibleTasks
-    return visibleTasks.filter((task) => {
-      const status = statusLabel[taskStatus(task)]
-      const action = actionLabel[task.action] || task.action
-      return [
-        task.createdBy,
-        action,
-        status,
-        String(task.total),
-        formatWhen(task.createdAt),
-        ...task.jobs.flatMap((job) => [
-          job.fanName,
-          job.profileId,
-          job.url,
-          job.aiComment ? "ChatGPT" : job.message,
-          job.photoPath ? "фото" : "",
-          job.error || "",
-          statusLabel[job.status],
-        ]),
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    })
-  }, [query, tableTools, visibleTasks])
+    let next = visibleTasks
+    if (taskFilters && statusFilter !== "all") {
+      next = next.filter((task) => taskMatchesStatusFilter(task, statusFilter))
+    }
+    if (taskFilters && teamFilter !== "all") {
+      next = next.filter((task) => task.teamName === teamFilter)
+    }
+    if (needle) {
+      next = next.filter((task) => {
+        const status = statusLabel[taskStatus(task)]
+        const action = actionLabel[task.action] || task.action
+        return [
+          task.name,
+          task.createdBy,
+          task.teamName,
+          action,
+          status,
+          String(task.total),
+          formatWhen(task.createdAt),
+          ...task.jobs.flatMap((job) => [
+            job.fanName,
+            job.profileId,
+            job.url,
+            job.aiComment ? "ChatGPT" : job.message,
+            job.photoPath ? "фото" : "",
+            job.error || "",
+            statusLabel[job.status],
+          ]),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(needle)
+      })
+    }
+    if (!taskFilters) return next
+    return [...next].sort((left, right) =>
+      sortOrder === "latest"
+        ? right.createdAt.localeCompare(left.createdAt)
+        : left.createdAt.localeCompare(right.createdAt),
+    )
+  }, [query, sortOrder, statusFilter, tableTools, taskFilters, teamFilter, visibleTasks])
   const ownerStats = useMemo(() => buildOwnerStats(filteredTasks), [filteredTasks])
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -1270,25 +1401,62 @@ export function FarmQueue({
     window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}`)
   }
 
-  function syncUrl(next: { query?: string; page?: number; pageSize?: number }) {
+  function syncUrl(next: {
+    query?: string
+    page?: number
+    pageSize?: number
+    sort?: QueueSort
+    status?: QueueStatusFilter
+    team?: string
+  }) {
     if (!tableTools || typeof window === "undefined") return
     const url = new URL(window.location.href)
     const nextQuery = next.query ?? query
     const nextPage = next.page ?? page
     const nextPageSize = next.pageSize ?? pageSize
+    const nextSort = next.sort ?? sortOrder
+    const nextStatus = next.status ?? statusFilter
+    const nextTeam = next.team ?? teamFilter
 
     if (nextQuery.trim()) url.searchParams.set("q", nextQuery.trim())
     else url.searchParams.delete("q")
     url.searchParams.set("page", String(nextPage))
     url.searchParams.set("size", String(nextPageSize))
+    if (taskFilters) {
+      if (nextSort === "latest") url.searchParams.delete("sort")
+      else url.searchParams.set("sort", nextSort)
+      if (nextStatus === "all") url.searchParams.delete("status")
+      else url.searchParams.set("status", nextStatus)
+      if (nextTeam === "all") url.searchParams.delete("team")
+      else url.searchParams.set("team", nextTeam)
+    }
     const search = url.searchParams.toString()
     window.history.replaceState(null, "", `${url.pathname}${search ? `?${search}` : ""}`)
   }
 
   function changeQuery(value: string) {
     setQuery(value)
+    setQueryDraft(value)
     setPage(1)
     syncUrl({ query: value, page: 1 })
+  }
+
+  function changeSort(value: QueueSort) {
+    setSortOrder(value)
+    setPage(1)
+    syncUrl({ sort: value, page: 1 })
+  }
+
+  function changeStatusFilter(value: QueueStatusFilter) {
+    setStatusFilter(value)
+    setPage(1)
+    syncUrl({ status: value, page: 1 })
+  }
+
+  function changeTeamFilter(value: string) {
+    setTeamFilter(value)
+    setPage(1)
+    syncUrl({ team: value, page: 1 })
   }
 
   function changePageSize(value: number) {
@@ -1528,7 +1696,11 @@ export function FarmQueue({
                 tasks={pagedTasks}
                 totalTasks={filteredTasks.length}
                 queuePositions={queuePositions}
-                query={query}
+                query={queryDraft}
+                sortOrder={sortOrder}
+                statusFilter={statusFilter}
+                teamFilter={teamFilter}
+                teamOptions={teamOptions}
                 page={currentPage}
                 totalPages={totalPages}
                 pageSize={pageSize}
@@ -1538,7 +1710,11 @@ export function FarmQueue({
                 onDetails={setDetailsTask}
                 onDuplicate={openDuplicateTask}
                 onDeleteTask={(taskId) => setConfirmAction({ kind: "delete", taskIds: [taskId] })}
-                onQueryChange={changeQuery}
+                onQueryChange={setQueryDraft}
+                onSearch={() => changeQuery(queryDraft)}
+                onSortChange={changeSort}
+                onStatusFilterChange={changeStatusFilter}
+                onTeamFilterChange={changeTeamFilter}
                 onPageChange={changePage}
                 onPageSizeChange={changePageSize}
                 canManage={canManage}

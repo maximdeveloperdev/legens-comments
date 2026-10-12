@@ -1,17 +1,30 @@
 import Link from "next/link"
 import { PlusCircle } from "lucide-react"
-import { FarmQueue } from "@/app/(app)/constructor/farm-queue"
+import { FarmQueue, type QueueSort, type QueueStatusFilter } from "@/app/(app)/constructor/farm-queue"
 import { Button } from "@/components/ui/button"
 import { getActiveSession } from "@/lib/session"
 
 const PAGE_SIZES = new Set([20, 50, 100, 200, 500])
+const SORTS = new Set<QueueSort>(["latest", "oldest"])
+const STATUSES = new Set<QueueStatusFilter>([
+  "all",
+  "succeed",
+  "in_progress",
+  "pending",
+  "all_failed",
+  "failed",
+  "partially_failed",
+])
 
 type TasksListPageProps = {
-  searchParams: Promise<{ tab?: string; q?: string; page?: string; size?: string }>
-}
-
-function queueTab(value: string | undefined) {
-  return value === "completed" ? "completed" : "work"
+  searchParams: Promise<{
+    q?: string
+    page?: string
+    size?: string
+    sort?: string
+    status?: string
+    team?: string
+  }>
 }
 
 function parsePage(value: string | undefined) {
@@ -22,6 +35,14 @@ function parsePage(value: string | undefined) {
 function parsePageSize(value: string | undefined) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && PAGE_SIZES.has(parsed) ? parsed : 50
+}
+
+function parseSort(value: string | undefined): QueueSort {
+  return SORTS.has(value as QueueSort) ? (value as QueueSort) : "latest"
+}
+
+function parseStatus(value: string | undefined): QueueStatusFilter {
+  return STATUSES.has(value as QueueStatusFilter) ? (value as QueueStatusFilter) : "all"
 }
 
 function queueScope(role: string | undefined) {
@@ -53,13 +74,15 @@ export default async function TasksListPage({ searchParams }: TasksListPageProps
       <FarmQueue
         full
         taskCards
-        showTabs
+        taskFilters
         tableTools
-        initialTab={queueTab(params.tab)}
         canManage={canManage}
         currentUserName={user?.name}
         queueScope={queueScope(user?.role)}
         initialQuery={params.q ?? ""}
+        initialSort={parseSort(params.sort)}
+        initialStatus={parseStatus(params.status)}
+        initialTeam={params.team?.trim() || "all"}
         initialPage={parsePage(params.page)}
         initialPageSize={parsePageSize(params.size)}
       />
