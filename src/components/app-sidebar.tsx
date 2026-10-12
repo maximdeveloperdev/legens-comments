@@ -37,6 +37,7 @@ import { dashboardNav, type NavItem } from "@/lib/nav"
 
 const icons = {
   "/constructor": <BlocksIcon />,
+  "/tasks": <ListOrderedIcon />,
   "/queue": <ListOrderedIcon />,
   "/teams": <UsersIcon />,
   "/fan-page-library": <ImagesIcon />,

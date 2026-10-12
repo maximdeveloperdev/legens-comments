@@ -16,6 +16,10 @@ export const dashboardNav: NavItem[] = [
         href: "/constructor",
       },
       {
+        title: "Таски",
+        href: "/tasks",
+      },
+      {
         title: "Очередь",
         href: "/queue",
       },

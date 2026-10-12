@@ -154,6 +154,7 @@ model FanPageAsset {
 model FarmTask {
   id              String    @id @default(cuid())
   createdAt       DateTime  @default(now())
+  name            String    @default("")
   createdBy       String
   createdByUserId String?
   createdByUser   User?     @relation("FarmTaskCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)

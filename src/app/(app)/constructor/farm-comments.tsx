@@ -359,6 +359,7 @@ export function FarmComments({
   const visibleIds = pageList.map((page) => page.listId)
   const selectedPages = pageList.filter((page) => selectedIds.includes(page.listId))
   const postUrls = posts.map((value) => value.trim()).filter(Boolean)
+  const splitPostSlots = postUrls.length > 0 ? postUrls : [""]
   const splitPerPage =
     contentMode === "split"
 
@@ -493,7 +494,7 @@ export function FarmComments({
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
-    const keys = postUrls.flatMap((_, postIndex) =>
+    const keys = splitPostSlots.flatMap((_, postIndex) =>
       selectedPages.map((page) => messageKey(postIndex, page.listId)),
     )
     if (lines.length === 0 || keys.length === 0) return
@@ -817,7 +818,7 @@ export function FarmComments({
                     <Button
                       type="button"
                       size="sm"
-                      disabled={bulkSplitText.trim().length === 0 || postUrls.length === 0 || selectedPages.length === 0}
+                      disabled={bulkSplitText.trim().length === 0 || selectedPages.length === 0}
                       onClick={generateSplitMessages}
                     >
                       <Sparkles />
@@ -831,11 +832,15 @@ export function FarmComments({
                     rows={5}
                   />
                 </div>
-                {postUrls.map((url, postIndex) => (
-                  <div key={`${postIndex}-${url}`} className="grid gap-2">
-                    {postUrls.length > 1 ? (
+                {splitPostSlots.map((url, postIndex) => (
+                  <div key={`${postIndex}-${url || "draft"}`} className="grid gap-2">
+                    {splitPostSlots.length > 1 ? (
                       <p className="truncate text-xs font-medium text-muted-foreground">
                         Пост {postIndex + 1}: {url}
+                      </p>
+                    ) : postUrls.length === 0 ? (
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Ссылка ещё не заполнена — комментарии подготовятся для первого поста.
                       </p>
                     ) : null}
                     {selectedPages.map((page) => {

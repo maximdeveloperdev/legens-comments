@@ -22,8 +22,12 @@ export type EnqueueFarmResult = {
 }
 
 type EnqueueFarmInput = {
-  action: "comment" | "like" | "likeonly" | "subscribe"
+  name?: string
+  action: "comment" | "like" | "likeonly" | "subscribe" | "mixed"
   jobs: Array<{
+    action?: "comment" | "like" | "likeonly" | "subscribe"
+    clientKey?: string
+    replyToKey?: string
     profileId: string
     fanName?: string
     url: string
@@ -35,6 +39,7 @@ type EnqueueFarmInput = {
 
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
+const FARM_ACTIONS = new Set(["comment", "like", "likeonly", "subscribe"])
 
 type FarmJobCreateRow = {
   id: string
@@ -134,23 +139,29 @@ async function createFarmTask(
   }
 
   const action = input.action
-  if (action !== "comment" && action !== "like" && action !== "likeonly" && action !== "subscribe") {
+  if (action !== "mixed" && !FARM_ACTIONS.has(action)) {
     return { error: "Неизвестное действие" }
   }
 
   const jobs = input.jobs
-    .map((job) => ({
-      profileId: job.profileId.trim(),
-      fanName: (job.fanName || "").trim(),
-      url: normalizeFacebookUrl(job.url),
-      message: job.message.trim(),
-      aiComment: action !== "likeonly" && job.aiComment === true,
-      photoPath:
-        action !== "likeonly"
-          ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
-          : "",
-    }))
-    .filter((job) => job.profileId && isFacebookUrl(job.url) && (action === "likeonly" || job.aiComment || job.message))
+    .map((job) => {
+      const jobAction = job.action && FARM_ACTIONS.has(job.action) ? job.action : action === "mixed" ? "comment" : action
+      return {
+        action: jobAction,
+        profileId: job.profileId.trim(),
+        fanName: (job.fanName || "").trim(),
+        url: normalizeFacebookUrl(job.url),
+        message: job.message.trim(),
+        aiComment: jobAction !== "likeonly" && job.aiComment === true,
+        clientKey: (job.clientKey || "").trim(),
+        replyToKey: (job.replyToKey || "").trim(),
+        photoPath:
+          jobAction !== "likeonly"
+            ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
+            : "",
+      }
+    })
+    .filter((job) => job.profileId && isFacebookUrl(job.url) && (job.action === "likeonly" || job.aiComment || job.message))
 
   if (jobs.length === 0) {
     return { error: "Нет заданий для очереди" }
@@ -163,35 +174,51 @@ async function createFarmTask(
   }
   let finalJobs = jobs
   let rewritten = 0
-  if (action !== "likeonly") {
-    const antiSpam = await rewriteFarmJobsForAntiSpam({ jobs }).catch((error) => ({
+  const commentJobs = jobs.filter((job) => job.action !== "likeonly")
+  if (commentJobs.length > 0) {
+    const antiSpam = await rewriteFarmJobsForAntiSpam({ jobs: commentJobs }).catch((error) => ({
       ok: false,
-      jobs,
+      jobs: commentJobs,
       rewritten: 0,
       message: error instanceof Error ? error.message : "Антиспам: не удалось перефразировать комментарии",
     }))
     if (!antiSpam.ok) {
       return { error: antiSpam.message || "Антиспам: проверь комментарии" }
     }
-    finalJobs = antiSpam.jobs
+    let commentIndex = 0
+    finalJobs = jobs.map((job) => {
+      if (job.action === "likeonly") return job
+      const rewrittenJob = antiSpam.jobs[commentIndex]
+      commentIndex += 1
+      return rewrittenJob || job
+    })
     rewritten = antiSpam.rewritten
   }
 
-  const taskRows = finalJobs.map((job) => ({
-    id: randomUUID(),
-    action,
-    profileId: job.profileId,
-    fanName: job.fanName,
-    url: job.url,
-    message: job.message,
-    aiComment: job.aiComment,
-    photoPath: job.photoPath,
-    replyToJobId: null,
-  }))
+  const taskRows = (() => {
+    const idByClientKey = new Map<string, string>()
+    const rows = finalJobs.map((job) => {
+      const id = randomUUID()
+      if (job.clientKey) idByClientKey.set(job.clientKey, id)
+      return { ...job, id }
+    })
+    return rows.map((job) => ({
+      id: job.id,
+      action: job.action,
+      profileId: job.profileId,
+      fanName: job.fanName,
+      url: job.url,
+      message: job.message,
+      aiComment: job.aiComment,
+      photoPath: job.photoPath,
+      replyToJobId: job.replyToKey ? idByClientKey.get(job.replyToKey) || null : null,
+    }))
+  })()
 
   const task = await prisma.$transaction(async (tx) => {
     const createdTask = await tx.farmTask.create({
       data: {
+        name: (input.name || "").trim(),
         createdBy: session.name,
         createdByUserId: session.id,
         action,
@@ -209,17 +236,21 @@ async function createFarmTask(
         ? "Комментарий + лайк"
         : action === "likeonly"
           ? "Лайк"
+          : action === "mixed"
+            ? "Task"
           : "Комментарий"
 
+  const taskName = (input.name || "").trim()
   await writeTrackerLog({
     userName: session.name,
     action: "Создал задачу",
-    detail: `${kind} · ${finalJobs.length} шт. в очередь${rewritten > 0 ? ` · AI перефразировал ${rewritten}` : ""}`,
+    detail: `${taskName ? `${taskName} · ` : ""}${kind} · ${finalJobs.length} шт. в очередь${rewritten > 0 ? ` · AI перефразировал ${rewritten}` : ""}`,
   })
 
   after(() => {
     kickFarmQueue()
   })
+  revalidatePath("/tasks")
 
   return { taskId: task.id, total: finalJobs.length, rewritten }
 }
@@ -446,12 +477,13 @@ export async function duplicateFarmTask(input: {
   if (nextJobs.some(({ message }) => message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
   }
-  if (task.action !== "likeonly" && nextJobs.some(({ job, message }) => !message && !job.aiComment)) {
+  if (nextJobs.some(({ job, message }) => job.action !== "likeonly" && !message && !job.aiComment)) {
     return { error: "Заполните комментарии или оставьте AI-комментарий для генерации" }
   }
 
+  const commentNextJobs = nextJobs.filter(({ job }) => job.action !== "likeonly")
   const antiSpam = await rewriteFarmJobsForAntiSpam({
-    jobs: nextJobs.map(({ job, message }) => ({
+    jobs: commentNextJobs.map(({ job, message }) => ({
       id: job.id,
       profileId: job.profileId,
       fanName: job.fanName,
@@ -480,12 +512,13 @@ export async function duplicateFarmTask(input: {
     message: rewrittenMessages.get(job.id) ?? message,
     aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
     photoPath: job.photoPath,
-    replyToJobId: null,
+    replyToJobId: job.replyToJobId ? newIdByOldId.get(job.replyToJobId) || null : null,
   }))
 
   const duplicated = await prisma.$transaction(async (tx) => {
     const createdTask = await tx.farmTask.create({
       data: {
+        name: task.name ? `${task.name} · копия` : "",
         createdBy: session.name,
         createdByUserId: session.id,
         action: task.action,
@@ -505,6 +538,7 @@ export async function duplicateFarmTask(input: {
   revalidatePath("/stats")
   revalidatePath("/queue")
   revalidatePath("/constructor")
+  revalidatePath("/tasks")
 
   after(() => {
     kickFarmQueue()
@@ -555,6 +589,7 @@ export async function deleteFarmTasks(taskIds: string[]): Promise<{ error?: stri
   revalidatePath("/stats")
   revalidatePath("/queue")
   revalidatePath("/constructor")
+  revalidatePath("/tasks")
 
   return { deleted: deleted.count }
 }

@@ -66,6 +66,7 @@ type QueueJob = {
 
 type QueueTask = {
   id: string
+  name: string
   createdAt: string
   finishedAt: string | null
   durationMs: number | null
@@ -220,7 +221,7 @@ function TaskDetailsDialog({
         {task ? (
           <>
             <DialogHeader>
-              <DialogTitle>Задача · {actionLabel[task.action] || task.action}</DialogTitle>
+              <DialogTitle>{task.name.trim() || `Задача · ${actionLabel[task.action] || task.action}`}</DialogTitle>
               <DialogDescription>
                 {task.createdBy} · {formatWhen(task.createdAt)} · {task.total} коммент.
               </DialogDescription>
@@ -650,7 +651,12 @@ function TasksTable({
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    {actionLabel[task.action] || task.action} · {task.total} шт.
+                    <div className="grid gap-0.5">
+                      <span>{task.name.trim() || actionLabel[task.action] || task.action}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {actionLabel[task.action] || task.action} · {task.total} шт.
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <TaskCommentStatus task={task} />
