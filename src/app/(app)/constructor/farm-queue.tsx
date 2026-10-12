@@ -762,7 +762,6 @@ function TasksTable({
 
 function TaskActionIcon({
   label,
-  href,
   disabled,
   destructive,
   primary,
@@ -770,7 +769,6 @@ function TaskActionIcon({
   children,
 }: {
   label: string
-  href?: string
   disabled?: boolean
   destructive?: boolean
   primary?: boolean
@@ -778,7 +776,7 @@ function TaskActionIcon({
   children: ReactNode
 }) {
   const className = cn(
-    "inline-flex size-8 shrink-0 items-center justify-center rounded-lg border text-muted-foreground transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40",
+    "inline-flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3.5",
     primary
       ? "border-primary bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
       : destructive
@@ -788,28 +786,41 @@ function TaskActionIcon({
 
   return (
     <Tooltip>
-      {href && !disabled ? (
-        <TooltipTrigger
-          render={<a href={href} target="_blank" rel="noreferrer" />}
-          aria-label={label}
-          className={className}
-        >
-          {children}
-        </TooltipTrigger>
-      ) : (
-        <TooltipTrigger
-          type="button"
-          disabled={disabled}
-          aria-label={label}
-          onClick={onClick}
-          className={className}
-        >
-          {children}
-        </TooltipTrigger>
-      )}
+      <TooltipTrigger
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        onClick={onClick}
+        className={className}
+      >
+        {children}
+      </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
+}
+
+async function copyPostUrl(url: string) {
+  if (!url) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url)
+    } else {
+      const textarea = document.createElement("textarea")
+      textarea.value = url
+      textarea.setAttribute("readonly", "true")
+      textarea.style.position = "fixed"
+      textarea.style.left = "-9999px"
+      document.body.append(textarea)
+      textarea.select()
+      const copied = document.execCommand("copy")
+      textarea.remove()
+      if (!copied) throw new Error("copy failed")
+    }
+    pushAppNotification("Task list", "Ссылка на пост скопирована", { tone: "success" })
+  } catch {
+    pushAppNotification("Task list", "Не удалось скопировать ссылку", { tone: "error" })
+  }
 }
 
 function TasksCardList({
@@ -928,7 +939,11 @@ function TasksCardList({
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
-                    <TaskActionIcon label="Открыть пост" href={firstUrl} disabled={!firstUrl}>
+                    <TaskActionIcon
+                      label="Скопировать ссылку на пост"
+                      disabled={!firstUrl}
+                      onClick={() => void copyPostUrl(firstUrl)}
+                    >
                       <LinkIcon />
                     </TaskActionIcon>
                     {canManage ? (
