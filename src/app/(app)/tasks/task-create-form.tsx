@@ -43,6 +43,7 @@ type CommentDraft = DraftUnit & {
 
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
+const MAX_POST_REACTIONS = 20
 
 function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -250,7 +251,7 @@ export function TaskCreateForm({
     const photos = new Map<string, File>()
     const skipped: string[] = []
 
-    for (let index = 0; index < postReactionCount; index += 1) {
+    for (let index = 0; index < Math.min(postReactionCount, MAX_POST_REACTIONS); index += 1) {
       const fan = pickFan(fans, used, globalGender, globalGeo)
       if (!fan) break
       jobs.push({
@@ -474,8 +475,8 @@ export function TaskCreateForm({
           label="Post Reactions"
           value={postReactionCount}
           min={0}
-          max={Math.max(20, matchingFans.length)}
-          onChange={setPostReactionCount}
+          max={MAX_POST_REACTIONS}
+          onChange={(value) => setPostReactionCount(Math.min(value, MAX_POST_REACTIONS))}
         />
       </section>
 
