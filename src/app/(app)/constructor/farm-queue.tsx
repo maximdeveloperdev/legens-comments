@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -861,6 +862,34 @@ async function copyPostUrl(url: string) {
   }
 }
 
+function QueueFilterSelect({
+  label,
+  value,
+  onChange,
+  className,
+  children,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div className={cn("relative min-w-0", className)}>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 w-full appearance-none rounded-lg border border-input bg-background py-0 pr-8 pl-3 text-sm leading-8 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        aria-label={label}
+      >
+        {children}
+      </select>
+      <ChevronDownIcon className="pointer-events-none absolute top-1/2 right-1.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+    </div>
+  )
+}
+
 function TasksCardList({
   tasks,
   totalTasks,
@@ -923,35 +952,32 @@ function TasksCardList({
       {tools ? (
         <div className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
           <div className="grid gap-3 xl:grid-cols-[minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(16rem,1.2fr)_auto] xl:items-center">
-            <select
+            <QueueFilterSelect
+              label="Сортировка задач"
               value={sortOrder}
-              onChange={(event) => onSortChange(event.target.value as QueueSort)}
-              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              aria-label="Сортировка задач"
+              onChange={(value) => onSortChange(value as QueueSort)}
             >
               {sortOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
-            </select>
-            <select
+            </QueueFilterSelect>
+            <QueueFilterSelect
+              label="Фильтр статуса"
               value={statusFilter}
-              onChange={(event) => onStatusFilterChange(event.target.value as QueueStatusFilter)}
-              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              aria-label="Фильтр статуса"
+              onChange={(value) => onStatusFilterChange(value as QueueStatusFilter)}
             >
               {statusFilterOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
-            </select>
-            <select
+            </QueueFilterSelect>
+            <QueueFilterSelect
+              label="Фильтр команды"
               value={teamFilter}
-              onChange={(event) => onTeamFilterChange(event.target.value)}
-              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              aria-label="Фильтр команды"
+              onChange={onTeamFilterChange}
             >
               <option value="all">Team</option>
               {teamOptions.map((team) => (
@@ -959,7 +985,7 @@ function TasksCardList({
                   {team}
                 </option>
               ))}
-            </select>
+            </QueueFilterSelect>
             <div className="relative min-w-0">
               <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -979,18 +1005,18 @@ function TasksCardList({
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{totalTasks} найдено</Badge>
-            <select
-              value={pageSize}
-              onChange={(event) => onPageSizeChange(Number(event.target.value))}
-              className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
-              aria-label="Задач на странице"
+            <QueueFilterSelect
+              label="Задач на странице"
+              value={String(pageSize)}
+              onChange={(value) => onPageSizeChange(Number(value))}
+              className="w-28"
             >
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={size}>
                   {size} / стр.
                 </option>
               ))}
-            </select>
+            </QueueFilterSelect>
           </div>
         </div>
       ) : null}
