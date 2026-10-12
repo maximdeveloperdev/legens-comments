@@ -246,16 +246,16 @@ function TaskDetailsDialog({
 
   return (
     <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-5xl">
         {task ? (
           <>
-            <DialogHeader>
+            <DialogHeader className="pr-8">
               <DialogTitle>{task.name.trim() || `Задача · ${actionLabel[task.action] || task.action}`}</DialogTitle>
               <DialogDescription>
                 {task.createdBy} · {formatWhen(task.createdAt)} · {task.total} коммент.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4">
+            <div className="grid min-h-0 gap-4 overflow-y-auto pr-2">
               <div className="flex flex-wrap items-center gap-2">
                 <TaskCommentStatus task={task} />
                 <Badge variant={errors.length > 0 ? "destructive" : "outline"}>
@@ -269,7 +269,7 @@ function TaskDetailsDialog({
               {errors.length > 0 ? (
                 <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
                   <p className="text-sm font-medium text-destructive">Лог ошибок</p>
-                  <div className="grid max-h-36 min-w-0 gap-1 overflow-y-auto text-sm">
+                  <div className="grid max-h-40 min-w-0 gap-1 overflow-y-auto text-sm">
                     {errors.map((job) => (
                       <p key={job.id} className="min-w-0 break-words text-destructive [overflow-wrap:anywhere]">
                         {job.fanName || job.profileId}: {job.error}
@@ -278,7 +278,7 @@ function TaskDetailsDialog({
                   </div>
                 </div>
               ) : null}
-              <div className="max-h-[28rem] overflow-y-auto rounded-xl border">
+              <div className="min-w-0 overflow-auto rounded-xl border">
                 <Table>
                   <TableHeader>
                     <TableRow>
