@@ -1186,75 +1186,80 @@ export function FarmComments({
           setConfirmOpen(open)
         }}
       >
-        <DialogContent className="sm:max-w-lg" showCloseButton={!enqueueing}>
-          <DialogHeader>
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-lg"
+          showCloseButton={!enqueueing}
+        >
+          <DialogHeader className="pr-8">
             <DialogTitle>Проверь задачу</DialogTitle>
             <DialogDescription>
               Задача сразу попадёт в очередь и пойдёт в фоне. Можно сразу создавать следующую.
             </DialogDescription>
           </DialogHeader>
-          <dl className="grid gap-3 text-sm">
-            <ConfirmRow label="Действие" value={actionLabel(action)} />
-            <ConfirmRow
-              label="Посты"
-              value={
-                <span className="grid gap-1">
-                  {postUrls.map((url) => (
-                    <span key={url} className="break-all">
-                      {url}
-                    </span>
-                  ))}
-                </span>
-              }
-            />
-            <ConfirmRow
-              label="Страницы"
-              value={`${selectedPages.length}: ${selectedPages.map((page) => page.displayName).join(", ")}`}
-            />
-            {action === "likeonly" ? null : (
-              <>
-            <ConfirmRow
-              label="Контент"
-              value={
-                contentMode === "ai"
-                  ? "ChatGPT · сгенерирует при выполнении"
-                  : splitPerPage
-                    ? "Разный текст на каждый пост и страницу"
-                    : "Один текст для всех"
-              }
-            />
-            {splitPerPage && splitPhotoCount > 0 ? (
+          <div className="min-h-0 overflow-y-auto pr-2">
+            <dl className="grid gap-3 text-sm">
+              <ConfirmRow label="Действие" value={actionLabel(action)} />
               <ConfirmRow
-                label="Фото"
-                value={`${splitPhotoCount} персонал.`}
-              />
-            ) : commentPhoto ? (
-              <ConfirmRow
-                label="Фото"
-                value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
-              />
-            ) : null}
-            {contentMode === "ai" ? null : (
-              <ConfirmRow
-                label="Сообщение"
+                label="Посты"
                 value={
-                  splitPerPage
-                    ? postUrls.flatMap((url, postIndex) =>
-                        selectedPages.map((page) => (
-                          <span key={messageKey(postIndex, page.listId)} className="block">
-                            {postUrls.length > 1 ? `Пост ${postIndex + 1} · ` : ""}
-                            {page.displayName}: {(splitMessages[messageKey(postIndex, page.listId)] ?? "").trim() || "—"}
-                          </span>
-                        )),
-                      )
-                    : message.trim()
+                  <span className="grid gap-1">
+                    {postUrls.map((url) => (
+                      <span key={url} className="break-all">
+                        {url}
+                      </span>
+                    ))}
+                  </span>
                 }
               />
-            )}
-              </>
-            )}
-          </dl>
-          <DialogFooter>
+              <ConfirmRow
+                label="Страницы"
+                value={`${selectedPages.length}: ${selectedPages.map((page) => page.displayName).join(", ")}`}
+              />
+              {action === "likeonly" ? null : (
+                <>
+                  <ConfirmRow
+                    label="Контент"
+                    value={
+                      contentMode === "ai"
+                        ? "ChatGPT · сгенерирует при выполнении"
+                        : splitPerPage
+                          ? "Разный текст на каждый пост и страницу"
+                          : "Один текст для всех"
+                    }
+                  />
+                  {splitPerPage && splitPhotoCount > 0 ? (
+                    <ConfirmRow
+                      label="Фото"
+                      value={`${splitPhotoCount} персонал.`}
+                    />
+                  ) : commentPhoto ? (
+                    <ConfirmRow
+                      label="Фото"
+                      value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
+                    />
+                  ) : null}
+                  {contentMode === "ai" ? null : (
+                    <ConfirmRow
+                      label="Сообщение"
+                      value={
+                        splitPerPage
+                          ? postUrls.flatMap((url, postIndex) =>
+                              selectedPages.map((page) => (
+                                <span key={messageKey(postIndex, page.listId)} className="block">
+                                  {postUrls.length > 1 ? `Пост ${postIndex + 1} · ` : ""}
+                                  {page.displayName}: {(splitMessages[messageKey(postIndex, page.listId)] ?? "").trim() || "—"}
+                                </span>
+                              )),
+                            )
+                          : message.trim()
+                      }
+                    />
+                  )}
+                </>
+              )}
+            </dl>
+          </div>
+          <DialogFooter className="shrink-0">
             <Button
               type="button"
               variant="outline"
