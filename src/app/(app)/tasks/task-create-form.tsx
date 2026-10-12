@@ -374,13 +374,13 @@ export function TaskCreateForm({
       }
       const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
-        pushAppNotification("Task create", result.error, { href: "/tasks?tab=list", tone: "error" })
+        pushAppNotification("Task create", result.error, { href: "/tasks/list?tab=work", tone: "error" })
         return
       }
       pushAppNotification(
         "Task create",
         `${name} · ${result.total || jobs.length} действий в очереди${result.rewritten ? ` · AI перефразировал: ${result.rewritten}` : ""}`,
-        { href: "/tasks?tab=list", tone: "queue" },
+        { href: "/tasks/list?tab=work", tone: "queue" },
       )
       clearForm()
       void fetch("/api/farm-queue", { method: "POST" })

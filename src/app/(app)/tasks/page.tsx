@@ -8,29 +8,7 @@ import { TasksWorkspace } from "./tasks-workspace"
 export const maxDuration = 180
 
 type TasksPageProps = {
-  searchParams: Promise<{ tab?: string; q?: string; page?: string; size?: string }>
-}
-
-const PAGE_SIZES = new Set([20, 50, 100, 200, 500])
-
-function tasksTab(value: string | undefined) {
-  return value === "list" ? "list" : "create"
-}
-
-function parsePage(value: string | undefined) {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
-}
-
-function parsePageSize(value: string | undefined) {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && PAGE_SIZES.has(parsed) ? parsed : 50
-}
-
-function queueScope(role: string | undefined) {
-  if (role === "ADMIN") return "all"
-  if (role === "TEAM_LEAD") return "team"
-  return "own"
+  searchParams: Promise<Record<string, string | undefined>>
 }
 
 async function teamMarkersForUser(userId: string | undefined, role: string | undefined) {
@@ -51,7 +29,7 @@ async function teamMarkersForUser(userId: string | undefined, role: string | und
 
 export default async function TasksPage({ searchParams }: TasksPageProps) {
   const user = await getActiveSession()
-  const params = await searchParams
+  await searchParams
   const canManage = user?.role === "ADMIN"
   const [result, countryRows, allowedMarkers] = await Promise.all([
     listAdsPowerProfiles({ includeOpen: canManage }),
@@ -88,13 +66,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     <TasksWorkspace
       profiles={profiles}
       countries={countries}
-      canManage={canManage}
-      currentUserName={user?.name}
-      queueScope={queueScope(user?.role)}
-      initialTab={tasksTab(params.tab)}
-      initialQuery={params.q ?? ""}
-      initialPage={parsePage(params.page)}
-      initialPageSize={parsePageSize(params.size)}
       error={result.ok ? undefined : result.message}
     />
   )

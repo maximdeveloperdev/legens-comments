@@ -6,6 +6,7 @@ import Link from "next/link"
 import {
   BarChart3Icon,
   BlocksIcon,
+  ClipboardPlusIcon,
   CloudUploadIcon,
   ClockIcon,
   CircleUserRoundIcon,
@@ -37,7 +38,8 @@ import { dashboardNav, type NavItem } from "@/lib/nav"
 
 const icons = {
   "/constructor": <BlocksIcon />,
-  "/tasks": <ListOrderedIcon />,
+  "/tasks": <ClipboardPlusIcon />,
+  "/tasks/list": <ListOrderedIcon />,
   "/queue": <ListOrderedIcon />,
   "/teams": <UsersIcon />,
   "/fan-page-library": <ImagesIcon />,

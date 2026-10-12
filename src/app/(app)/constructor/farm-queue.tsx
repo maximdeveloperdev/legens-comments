@@ -1,12 +1,14 @@
 "use client"
 
 import Image from "next/image"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
   EyeIcon,
+  InfoIcon,
+  LinkIcon,
   Loader2,
   Play,
   SearchIcon,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react"
 import { deleteFarmTasks, duplicateFarmTask, startFarmTask, stopFarmTask } from "@/app/actions/farm-queue"
 import { pushAppNotification } from "@/lib/app-notifications"
+import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -37,6 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type QueueStats = {
   pending: number
@@ -368,6 +372,10 @@ function TaskCommentStatus({ task }: { task: QueueTask }) {
       {task.counts.pending > 0 ? <Badge variant="secondary">wait {task.counts.pending}</Badge> : null}
     </div>
   )
+}
+
+function taskTitle(task: QueueTask) {
+  return task.name.trim() || actionLabel[task.action] || task.action
 }
 
 function cleanFanName(value: string) {
@@ -752,6 +760,265 @@ function TasksTable({
   )
 }
 
+function TaskActionIcon({
+  label,
+  href,
+  disabled,
+  destructive,
+  primary,
+  onClick,
+  children,
+}: {
+  label: string
+  href?: string
+  disabled?: boolean
+  destructive?: boolean
+  primary?: boolean
+  onClick?: () => void
+  children: ReactNode
+}) {
+  const className = cn(
+    "inline-flex size-8 shrink-0 items-center justify-center rounded-lg border text-muted-foreground transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40",
+    primary
+      ? "border-primary bg-primary text-primary-foreground hover:bg-primary/80 hover:text-primary-foreground"
+      : destructive
+        ? "border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/10"
+        : "border-border bg-background hover:bg-muted hover:text-foreground",
+  )
+
+  return (
+    <Tooltip>
+      {href && !disabled ? (
+        <TooltipTrigger
+          render={<a href={href} target="_blank" rel="noreferrer" />}
+          aria-label={label}
+          className={className}
+        >
+          {children}
+        </TooltipTrigger>
+      ) : (
+        <TooltipTrigger
+          type="button"
+          disabled={disabled}
+          aria-label={label}
+          onClick={onClick}
+          className={className}
+        >
+          {children}
+        </TooltipTrigger>
+      )}
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function TasksCardList({
+  tasks,
+  totalTasks,
+  queuePositions,
+  query,
+  page,
+  totalPages,
+  pageSize,
+  busyId,
+  onStop,
+  onStart,
+  onDetails,
+  onDuplicate,
+  onDeleteTask,
+  onQueryChange,
+  onPageChange,
+  onPageSizeChange,
+  canManage,
+  currentUserName,
+  tools = false,
+}: {
+  tasks: QueueTask[]
+  totalTasks: number
+  queuePositions: Map<string, number>
+  query: string
+  page: number
+  totalPages: number
+  pageSize: number
+  busyId: string | null
+  onStop: (taskId: string) => void
+  onStart: (taskId: string) => void
+  onDetails: (task: QueueTask) => void
+  onDuplicate: (task: QueueTask) => void
+  onDeleteTask: (taskId: string) => void
+  onQueryChange: (value: string) => void
+  onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: number) => void
+  canManage: boolean
+  currentUserName?: string
+  tools?: boolean
+}) {
+  return (
+    <section className="grid gap-4">
+      {tools ? (
+        <div className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative min-w-0 flex-1">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder="Поиск по юзеру, фанке, посту, статусу или ошибке"
+                className="pl-8"
+                aria-label="Поиск по задачам"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{totalTasks} найдено</Badge>
+              <select
+                value={pageSize}
+                onChange={(event) => onPageSizeChange(Number(event.target.value))}
+                className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
+                aria-label="Задач на странице"
+              >
+                {PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size} / стр.
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tasks.length === 0 ? (
+        <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {query ? "По этому поиску ничего не найдено" : "Очередь пустая"}
+          </p>
+        </section>
+      ) : (
+        <div className="grid gap-4">
+          {tasks.map((task) => {
+            const status = taskStatus(task)
+            const busy = busyId === task.id || busyId === "all"
+            const mine = Boolean(currentUserName && task.createdBy === currentUserName)
+            const position = queuePositions.get(task.id)
+            const urls = uniqueTaskUrls(task)
+            const firstUrl = urls[0]
+            const serviceMessage = taskServiceMessage(task)
+            const firstPhoto = task.jobs.find((job) => job.photoPath)?.photoPath || ""
+            const runningOrPending = task.counts.running > 0 || task.counts.pending > 0
+
+            return (
+              <article
+                key={task.id}
+                className={cn(
+                  "grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5",
+                  mine ? "border-primary/30 bg-primary/5" : undefined,
+                )}
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="grid min-w-0 gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h2 className="min-w-0 truncate font-heading text-base font-medium text-primary">
+                        {taskTitle(task)}
+                      </h2>
+                      <Badge variant={statusVariant[status]}>{statusLabel[status]}</Badge>
+                      {position ? <Badge variant="secondary">#{position}</Badge> : null}
+                      {mine ? <Badge variant="secondary">Моя</Badge> : null}
+                    </div>
+                    <TaskCommentStatus task={task} />
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+                    <TaskActionIcon label="Открыть пост" href={firstUrl} disabled={!firstUrl}>
+                      <LinkIcon />
+                    </TaskActionIcon>
+                    {canManage ? (
+                      <TaskActionIcon
+                        label="Удалить"
+                        destructive
+                        disabled={busy}
+                        onClick={() => onDeleteTask(task.id)}
+                      >
+                        {busyId === "delete" ? <Loader2 className="animate-spin" /> : <Trash2Icon />}
+                      </TaskActionIcon>
+                    ) : null}
+                    <TaskActionIcon label="Копировать" disabled={busy} onClick={() => onDuplicate(task)}>
+                      <CopyIcon />
+                    </TaskActionIcon>
+                    {canManage ? (
+                      <TaskActionIcon
+                        label={runningOrPending ? "Стоп" : "Старт"}
+                        primary={!runningOrPending}
+                        disabled={busy}
+                        onClick={() => (runningOrPending ? onStop(task.id) : onStart(task.id))}
+                      >
+                        {busy ? <Loader2 className="animate-spin" /> : runningOrPending ? <Square /> : <Play />}
+                      </TaskActionIcon>
+                    ) : null}
+                    <TaskActionIcon label="Инфо" onClick={() => onDetails(task)}>
+                      <InfoIcon />
+                    </TaskActionIcon>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                  <TaskMetaList task={task} />
+                  {firstPhoto ? (
+                    <a
+                      href={firstPhoto}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block w-fit overflow-hidden rounded-lg border bg-muted/30"
+                    >
+                      <Image
+                        src={firstPhoto}
+                        alt=""
+                        width={180}
+                        height={96}
+                        className="h-24 w-44 object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : null}
+                </div>
+
+                <ServiceMessage message={serviceMessage} />
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      {tools && totalTasks > 0 ? (
+        <div className="flex flex-col gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Страница {page} из {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => onPageChange(page - 1)}
+            >
+              <ChevronLeftIcon />
+              Назад
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => onPageChange(page + 1)}
+            >
+              Вперёд
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function QueueTabs({
   value,
   workCount,
@@ -792,6 +1059,7 @@ function QueueTabs({
 export function FarmQueue({
   full = false,
   cards = false,
+  taskCards = false,
   active = true,
   canManage = true,
   showTabs = false,
@@ -805,6 +1073,7 @@ export function FarmQueue({
 }: {
   full?: boolean
   cards?: boolean
+  taskCards?: boolean
   active?: boolean
   canManage?: boolean
   showTabs?: boolean
@@ -1239,30 +1508,54 @@ export function FarmQueue({
         loaded ? (
           <>
             {cards && tableTools ? <OwnerStatsTable stats={ownerStats} /> : null}
-            <TasksTable
-              tasks={pagedTasks}
-              totalTasks={filteredTasks.length}
-              queuePositions={queuePositions}
-              query={query}
-              page={currentPage}
-              totalPages={totalPages}
-              pageSize={pageSize}
-              selectedIds={selectedTaskIds}
-              busyId={busyId}
-              onStop={(taskId) => setConfirmAction({ kind: "stop", taskId })}
-              onStart={(taskId) => setConfirmAction({ kind: "start", taskId })}
-              onDetails={setDetailsTask}
-              onDuplicate={openDuplicateTask}
-              onDelete={() => setConfirmAction({ kind: "delete", taskIds: selectedTaskIds })}
-              onQueryChange={changeQuery}
-              onPageChange={changePage}
-              onPageSizeChange={changePageSize}
-              onToggleSelected={toggleSelected}
-              onTogglePage={togglePage}
-              canManage={canManage}
-              currentUserName={currentUserName}
-              tools={tableTools}
-            />
+            {taskCards ? (
+              <TasksCardList
+                tasks={pagedTasks}
+                totalTasks={filteredTasks.length}
+                queuePositions={queuePositions}
+                query={query}
+                page={currentPage}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                busyId={busyId}
+                onStop={(taskId) => setConfirmAction({ kind: "stop", taskId })}
+                onStart={(taskId) => setConfirmAction({ kind: "start", taskId })}
+                onDetails={setDetailsTask}
+                onDuplicate={openDuplicateTask}
+                onDeleteTask={(taskId) => setConfirmAction({ kind: "delete", taskIds: [taskId] })}
+                onQueryChange={changeQuery}
+                onPageChange={changePage}
+                onPageSizeChange={changePageSize}
+                canManage={canManage}
+                currentUserName={currentUserName}
+                tools={tableTools}
+              />
+            ) : (
+              <TasksTable
+                tasks={pagedTasks}
+                totalTasks={filteredTasks.length}
+                queuePositions={queuePositions}
+                query={query}
+                page={currentPage}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                selectedIds={selectedTaskIds}
+                busyId={busyId}
+                onStop={(taskId) => setConfirmAction({ kind: "stop", taskId })}
+                onStart={(taskId) => setConfirmAction({ kind: "start", taskId })}
+                onDetails={setDetailsTask}
+                onDuplicate={openDuplicateTask}
+                onDelete={() => setConfirmAction({ kind: "delete", taskIds: selectedTaskIds })}
+                onQueryChange={changeQuery}
+                onPageChange={changePage}
+                onPageSizeChange={changePageSize}
+                onToggleSelected={toggleSelected}
+                onTogglePage={togglePage}
+                canManage={canManage}
+                currentUserName={currentUserName}
+                tools={tableTools}
+              />
+            )}
           </>
         ) : (
           <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
