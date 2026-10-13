@@ -20,6 +20,11 @@ RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/src/lib/fan-gender.ts ./src/lib/fan-gender.ts
+COPY --from=builder /app/src/lib/openai-account.ts ./src/lib/openai-account.ts
+COPY --from=builder /app/src/lib/profile-geo.ts ./src/lib/profile-geo.ts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

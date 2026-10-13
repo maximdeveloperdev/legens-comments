@@ -50,6 +50,7 @@ export async function generateFanIdentity(input: {
   currentName: string
   geo: string
   countryName?: string
+  gender?: "male" | "female"
   includeMediaPrompts?: boolean
   avoidNames?: string[]
   avoidFirstNames?: string[]
@@ -60,6 +61,10 @@ export async function generateFanIdentity(input: {
 
   const geo = input.geo.trim().toUpperCase() || "EU"
   const country = input.countryName?.trim() || geo
+  const requestedGender = normalizeGender(input.gender)
+  const genderInstruction = requestedGender
+    ? `Generate a ${requestedGender} person's first name and last name for this geo.`
+    : "Generate a new human first name and last name for this geo."
   const includeMediaPrompts = input.includeMediaPrompts !== false
   const avoidNames = [...new Set((input.avoidNames || []).map(normalizeName).filter(Boolean))].slice(0, 80)
   const avoidFirstNames = [...new Set((input.avoidFirstNames || []).map(normalizeName).filter(Boolean))].slice(0, 80)
@@ -97,7 +102,7 @@ Geo code: ${geo}
 Country: ${country}
 ${avoidBlock ? `\n${avoidBlock}\n` : ""}
 
-Generate a new human first name and last name for this geo. The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female. Also write:
+${genderInstruction} The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female. Also write:
 - an avatar prompt for a realistic, original adult profile photo matching the country/geo;
 - a cover photo theme and prompt. Pick one theme from nature, cars, venue/cafe, history, music. Cover photo should be a wide banner scene, no person as the main subject, no text, no logos.
 
@@ -108,7 +113,7 @@ Geo code: ${geo}
 Country: ${country}
 ${avoidBlock ? `\n${avoidBlock}\n` : ""}
 
-Generate only a new human first name and last name for this geo. The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female.
+${genderInstruction} The name must not match the avoid lists, and should use a different first-name and surname family from the avoid lists when possible. Also return the person's gender as male or female.
 Return JSON:
 {"firstName":"...","lastName":"...","fullName":"First Last","gender":"male|female"}`,
         },

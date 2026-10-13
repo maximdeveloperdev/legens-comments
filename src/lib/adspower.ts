@@ -569,6 +569,25 @@ export async function listAdsPowerProfiles(options: { includeOpen?: boolean } = 
   }
 }
 
+export async function getAdsPowerProfile(userId: string): Promise<{
+  ok: boolean
+  message: string
+  profile?: AdsPowerProfile
+}> {
+  const id = userId.trim()
+  if (!id) return { ok: false, message: "Нет ID профиля" }
+
+  try {
+    const profile = await findProfileRow(id)
+    if (!profile.ok || !profile.row) {
+      return { ok: false, message: profile.message || "Профиль AdsPower не найден" }
+    }
+    return { ok: true, message: "OK", profile: mapProfile(profile.row, new Set()) }
+  } catch {
+    return { ok: false, message: "Не удалось получить профиль AdsPower" }
+  }
+}
+
 export async function markAdsPowerProfileBanned(userId: string): Promise<{ ok: boolean; message: string; name?: string }> {
   const id = userId.trim()
   if (!id) return { ok: false, message: "Нет ID профиля" }

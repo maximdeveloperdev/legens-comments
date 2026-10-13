@@ -35,11 +35,13 @@ type FarmPage = AdsPowerProfile & {
   browserId: string
   displayGeo: string
   displayTeamMarker: string
+  gender?: string | null
   synced: boolean
 }
 
 type FarmAction = "comment" | "like" | "likeonly" | "subscribe"
 type ContentMode = "same" | "split" | "ai"
+type GenderFilter = "ALL" | "MALE" | "FEMALE" | "UNKNOWN"
 
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
@@ -74,6 +76,18 @@ function avatarTone(value: string) {
   return AVATAR_TONES[hash]
 }
 
+function fanGenderLabel(gender?: string | null) {
+  if (gender === "MALE") return "Муж."
+  if (gender === "FEMALE") return "Жен."
+  return "Пол не определён"
+}
+
+function fanGenderTone(gender?: string | null) {
+  if (gender === "MALE") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+  if (gender === "FEMALE") return "border-pink-200 bg-pink-50 text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-200"
+  return "border-muted-foreground/20 bg-muted text-muted-foreground"
+}
+
 function groupKey(profile: AdsPowerProfile) {
   return profile.groupName.trim() || profile.name.trim() || profile.id
 }
@@ -91,6 +105,7 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
       browserId: profile.id,
       displayGeo: profileDisplayGeo(profile, countryCodes),
       displayTeamMarker: profileTeamMarkerFromName(profile.name),
+      gender: fan.gender,
       synced: true,
     }))
   }
@@ -102,6 +117,7 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
       browserId: profile.id,
       displayGeo: profileDisplayGeo(profile, countryCodes),
       displayTeamMarker: profileTeamMarkerFromName(profile.name),
+      gender: null,
       synced: false,
     },
   ]
@@ -290,6 +306,7 @@ export function FarmComments({
   const [pageQuery, setPageQuery] = useState("")
   const [activeGroups, setActiveGroups] = useState<string[]>([])
   const [geoFilter, setGeoFilter] = useState<string | null>(null)
+  const [genderFilter, setGenderFilter] = useState<GenderFilter>("ALL")
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [syncPending, setSyncPending] = useState(false)
   const [formatPending, setFormatPending] = useState(false)
@@ -347,6 +364,9 @@ export function FarmComments({
       .flatMap((profile) => pagesFromProfile(profile, countryCodes))
       .filter((page) => {
         if (geoFilter && (page.displayGeo || UNKNOWN_GEO) !== geoFilter) return false
+        if (genderFilter === "MALE" && page.gender !== "MALE") return false
+        if (genderFilter === "FEMALE" && page.gender !== "FEMALE") return false
+        if (genderFilter === "UNKNOWN" && (page.gender === "MALE" || page.gender === "FEMALE")) return false
         if (!needle) return true
         return [page.displayName, page.name, page.serial, page.username, page.displayGeo, page.id]
           .join(" ")
@@ -354,7 +374,7 @@ export function FarmComments({
           .includes(needle)
       })
       .sort((left, right) => left.displayName.localeCompare(right.displayName, "ru"))
-  }, [activeProfiles, countryCodes, geoFilter, pageQuery])
+  }, [activeProfiles, countryCodes, genderFilter, geoFilter, pageQuery])
 
   const visibleIds = pageList.map((page) => page.listId)
   const selectedPages = pageList.filter((page) => selectedIds.includes(page.listId))
@@ -635,6 +655,7 @@ export function FarmComments({
               name: page.displayName,
               geo: page.displayGeo,
               teamMarker: page.displayTeamMarker,
+              gender: page.gender,
             })),
           })),
         }),
@@ -1132,6 +1153,25 @@ export function FarmComments({
                   </Button>
                 ))}
               </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  ["ALL", "Все полы"],
+                  ["FEMALE", "Жен."],
+                  ["MALE", "Муж."],
+                  ["UNKNOWN", "Не определено"],
+                ].map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="xs"
+                    variant={genderFilter === value ? "secondary" : "outline"}
+                    className="rounded-full"
+                    onClick={() => setGenderFilter(value as GenderFilter)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
 
               {pageList.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">Никого не нашли</p>
@@ -1168,7 +1208,16 @@ export function FarmComments({
                             <span className="block truncate text-sm font-medium">
                               {page.displayName}
                             </span>
-                            {page.synced ? null : (
+                            {page.synced ? (
+                              <span
+                                className={cn(
+                                  "mt-1 inline-flex h-5 items-center rounded-full border px-1.5 text-[0.68rem] font-medium",
+                                  fanGenderTone(page.gender),
+                                )}
+                              >
+                                {fanGenderLabel(page.gender)}
+                              </span>
+                            ) : (
                               <span className="block text-xs text-muted-foreground">
                                 Имя AdsPower
                               </span>

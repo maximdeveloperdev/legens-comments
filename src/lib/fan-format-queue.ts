@@ -13,7 +13,7 @@ let processing = false
 
 export type FanFormatQueueInput = {
   profileId: string
-  fans: Array<{ name: string; geo?: string; teamMarker?: string }>
+  fans: Array<{ name: string; geo?: string; teamMarker?: string; gender?: string | null }>
 }
 
 export type FanFormatJobView = {
@@ -39,21 +39,31 @@ function normalizeMarker(value: string | undefined) {
   return (value || "").trim().toUpperCase()
 }
 
+function normalizeFanGender(value: unknown): "male" | "female" | "" {
+  const gender = String(value || "").trim().toLowerCase()
+  if (gender === "male" || gender === "m" || gender === Gender.MALE.toLowerCase()) return "male"
+  if (gender === "female" || gender === "f" || gender === Gender.FEMALE.toLowerCase()) return "female"
+  return ""
+}
+
 function normalizeFans(value: unknown) {
   if (!Array.isArray(value)) return []
   return value
     .map((fan) => {
       if (!fan || typeof fan !== "object") return null
-      const item = fan as { name?: unknown; geo?: unknown; teamMarker?: unknown }
+      const item = fan as { name?: unknown; geo?: unknown; teamMarker?: unknown; gender?: unknown }
       const name = typeof item.name === "string" ? item.name.trim() : ""
       if (!name) return null
       return {
         name,
         geo: typeof item.geo === "string" ? item.geo.trim().toUpperCase() : "",
         teamMarker: typeof item.teamMarker === "string" ? normalizeMarker(item.teamMarker) : "",
+        gender: normalizeFanGender(item.gender),
       }
     })
-    .filter((fan): fan is { name: string; geo: string; teamMarker: string } => Boolean(fan))
+    .filter((fan): fan is { name: string; geo: string; teamMarker: string; gender: "male" | "female" | "" } =>
+      Boolean(fan),
+    )
 }
 
 function identityGenderToAssetGender(gender: string | undefined) {
@@ -355,6 +365,7 @@ async function runFanFormatJob(job: DbFanFormatJob) {
       currentName: fan.name,
       geo: fan.geo,
       teamMarker: fan.teamMarker,
+      gender: fan.gender,
     }))
     const existingFanRows = await prisma.facebookFan.findMany({
       where: { adsPowerUserId: job.profileId },
@@ -365,7 +376,7 @@ async function runFanFormatJob(job: DbFanFormatJob) {
     const result = await runFacebookFanFormatQueue(
       job.profileId,
       queueJobs,
-      async (fan: FacebookFanFormatJob & { geo?: string; teamMarker?: string }) => {
+      async (fan: FacebookFanFormatJob & { geo?: string; teamMarker?: string; gender?: "male" | "female" | "" }) => {
         const country = fan.geo ? countries[fan.geo] : undefined
         log({
           level: "info",
@@ -377,21 +388,26 @@ async function runFanFormatJob(job: DbFanFormatJob) {
             currentName: fan.currentName,
             geo: fan.geo || "",
             countryName: country?.nameEn || country?.nameRu,
+            gender: fan.gender || undefined,
             includeMediaPrompts: false,
             ...buildAvoidInput(nameAvoid, fan.geo),
           })
           const fullKey = normalizeNameKey(candidate.fullName)
           const duplicateName = nameAvoid.fullKeys.has(fullKey)
           const tooCommon = identityUsesCommonName(candidate, fan.geo)
+          const wrongGender = fan.gender && candidate.gender !== fan.gender
 
-          if (duplicateName && attempt >= GENERATION_ATTEMPTS) {
-            throw new Error(`ChatGPT вернул повтор имени после ${GENERATION_ATTEMPTS} попыток: ${candidate.fullName}`)
+          if ((duplicateName || wrongGender) && attempt >= GENERATION_ATTEMPTS) {
+            const reason = wrongGender
+              ? `не тот пол (${candidate.gender}, ожидали ${fan.gender})`
+              : `повтор имени после ${GENERATION_ATTEMPTS} попыток`
+            throw new Error(`ChatGPT вернул ${reason}: ${candidate.fullName}`)
           }
 
-          if ((duplicateName || tooCommon) && attempt < GENERATION_ATTEMPTS) {
+          if ((duplicateName || tooCommon || wrongGender) && attempt < GENERATION_ATTEMPTS) {
             log({
               level: "info",
-              text: `Имя ${candidate.fullName} похоже на повтор/частый шаблон — перегенерируем (${attempt}/${GENERATION_ATTEMPTS})`,
+              text: `Имя ${candidate.fullName} не подошло${wrongGender ? " по полу" : ""} — перегенерируем (${attempt}/${GENERATION_ATTEMPTS})`,
             })
             addAvoidName(nameAvoid, candidate.fullName)
             continue

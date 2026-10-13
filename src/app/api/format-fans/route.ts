@@ -7,10 +7,10 @@ export const dynamic = "force-dynamic"
 
 type FormatFanRequest = {
   profileId?: string
-  fans?: Array<{ name?: string; geo?: string; teamMarker?: string }>
+  fans?: Array<{ name?: string; geo?: string; teamMarker?: string; gender?: string | null }>
   jobs?: Array<{
     profileId?: string
-    fans?: Array<{ name?: string; geo?: string; teamMarker?: string }>
+    fans?: Array<{ name?: string; geo?: string; teamMarker?: string; gender?: string | null }>
   }>
 }
 
@@ -24,6 +24,7 @@ function normalizeFans(value: FormatFanRequest["fans"]) {
       name: fan.name?.trim() || "",
       geo: fan.geo?.trim().toUpperCase() || "",
       teamMarker: normalizeMarker(fan.teamMarker),
+      gender: fan.gender === "MALE" || fan.gender === "FEMALE" ? fan.gender : "",
     }))
     .filter((fan) => fan.name)
 }

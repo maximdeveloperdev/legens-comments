@@ -3,6 +3,7 @@ import path from "node:path"
 import { chromium, type Browser, type Frame, type Locator, type Page } from "playwright-core"
 import {
   checkAdsPowerProfileProxy,
+  getAdsPowerProfile,
   getAdsPowerFacebookCredentials,
   getAdsPowerFacebookPassword,
   markAdsPowerProfileBanned,
@@ -10,6 +11,7 @@ import {
   stopAdsPowerBrowser,
 } from "@/lib/adspower"
 import { replaceFacebookFans, type SyncedFan } from "@/lib/facebook-fans"
+import { profileGeoFromName } from "@/lib/profile-geo"
 
 export type SwitchLogLevel = "info" | "ok" | "error"
 
@@ -2698,9 +2700,9 @@ export async function runFacebookFanFormatQueue<T extends FanFormatJob>(
   return { ok: failed.length === 0, message, formatted, pending, failed }
 }
 
-async function saveFans(profileId: string, fans: SyncedFan[], log: (line: SwitchLog) => void) {
+async function saveFans(profileId: string, fans: SyncedFan[], log: (line: SwitchLog) => void, geo?: string) {
   if (fans.length === 0) return
-  await replaceFacebookFans(profileId, fans)
+  await replaceFacebookFans(profileId, fans, { geo, log })
   log({
     level: "ok",
     text: `Сохранили ${fans.length} ${fans.length === 1 ? "фанку" : "фанок"} в список страниц`,
@@ -2722,12 +2724,14 @@ export async function runFacebookFanSync(
     const opened = await openFacebookPage(id, onLog)
     browser = opened.browser
     page = opened.page
+    const adspowerProfile = await getAdsPowerProfile(id)
+    const profileGeo = adspowerProfile.profile ? profileGeoFromName(adspowerProfile.profile.name) : ""
     await ensureSwitcherOpen(page, onLog)
     const fans = await scrapeFans(page, onLog)
     if (fans.length === 0) {
       throw new Error("В меню нет фанок")
     }
-    await saveFans(id, fans, onLog)
+    await saveFans(id, fans, onLog, profileGeo)
     await page.keyboard.press("Escape").catch(() => undefined)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Синхронизация не прошла"
