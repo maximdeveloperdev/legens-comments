@@ -711,9 +711,14 @@ export function FarmComments({
           )
         : message.trim().length > 0))
   const splitPhotoCount = Object.keys(splitPhotos).length
+  const showTaskBuilder = false
 
   return (
-    <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1.1fr)_minmax(16rem,0.9fr)]">
+    <div className={cn(
+      "grid items-start gap-4",
+      showTaskBuilder ? "sm:grid-cols-[minmax(0,1.1fr)_minmax(16rem,0.9fr)]" : "sm:grid-cols-1",
+    )}>
+      {showTaskBuilder ? (
       <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="grid gap-1">
           <h2 className="font-heading text-base font-medium">Пост и действия</h2>
@@ -952,6 +957,7 @@ export function FarmComments({
           {`Создать задачу (${selectedPages.length * postUrls.length})`}
         </Button>
       </section>
+      ) : null}
 
       <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex items-center justify-between gap-3">
@@ -1179,6 +1185,7 @@ export function FarmComments({
         </div>
       </section>
 
+      {showTaskBuilder ? (
       <Dialog
         open={confirmOpen}
         onOpenChange={(open) => {
@@ -1275,6 +1282,7 @@ export function FarmComments({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      ) : null}
     </div>
   )
 }
