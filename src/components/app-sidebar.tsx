@@ -62,6 +62,7 @@ const icons = {
 function filterNavItems(items: NavItem[], role: "ADMIN" | "TEAM_LEAD" | "FARMER" | "USER"): NavItem[] {
   return items
     .filter((item) => {
+      if (item.hidden) return false
       if (item.adminOnly && role !== "ADMIN") return false
       if (role === "ADMIN") return true
       return (

@@ -2,6 +2,7 @@ export type NavItem = {
   title: string
   href: string
   adminOnly?: boolean
+  hidden?: boolean
   badge?: string
   items?: NavItem[]
 }
@@ -26,6 +27,7 @@ export const dashboardNav: NavItem[] = [
       {
         title: "Очередь",
         href: "/queue",
+        hidden: true,
       },
       {
         title: "Юзеры",
