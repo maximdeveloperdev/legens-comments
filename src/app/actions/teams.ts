@@ -46,13 +46,17 @@ async function validateTeamInput(formData: FormData) {
 
   const buyers = buyerIds.length
     ? await prisma.user.findMany({
-        where: { id: { in: buyerIds }, role: UserRole.USER, active: true },
+        where: {
+          id: { in: buyerIds },
+          role: { in: [UserRole.FARMER, UserRole.USER] },
+          active: true,
+        },
         select: { id: true },
       })
     : []
 
   if (buyers.length !== buyerIds.length) {
-    return { error: "В байерах есть неактивный пользователь или не юзер" }
+    return { error: "В байерах есть неактивный пользователь или неподходящая роль" }
   }
 
   return {

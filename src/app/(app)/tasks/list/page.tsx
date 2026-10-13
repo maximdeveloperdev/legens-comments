@@ -60,14 +60,14 @@ export default async function TasksListPage({ searchParams }: TasksListPageProps
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <section className="flex items-center justify-between gap-4 rounded-2xl border bg-gradient-to-r from-muted/80 to-card p-4 md:p-5">
         <div className="grid min-w-0 gap-1">
-          <h1 className="font-heading text-lg font-medium">Task list</h1>
+          <h1 className="font-heading text-lg font-medium">Список задач</h1>
           <p className="text-sm text-muted-foreground">
-            Список задач с быстрыми действиями, статусами и service message внизу карточки.
+            Список задач с быстрыми действиями, статусами и сервисным сообщением внизу карточки.
           </p>
         </div>
         <Button render={<Link href="/tasks" />}>
           <PlusCircle />
-          Task create
+          Создать задачу
         </Button>
       </section>
 

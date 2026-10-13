@@ -42,7 +42,7 @@ export function ProfileForm({
   user: {
     name: string
     email: string
-    role: "ADMIN" | "TEAM_LEAD" | "USER"
+    role: "ADMIN" | "TEAM_LEAD" | "FARMER" | "USER"
     twoFactorEnabled: boolean
     avatarUrl: string | null
   }

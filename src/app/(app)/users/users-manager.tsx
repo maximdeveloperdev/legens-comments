@@ -511,6 +511,7 @@ export function UsersManager({
                     if (
                       value === UserRole.ADMIN ||
                       value === UserRole.TEAM_LEAD ||
+                      value === UserRole.FARMER ||
                       value === UserRole.USER
                     ) {
                       setForm((current) => ({ ...current, role: value }))
@@ -523,6 +524,7 @@ export function UsersManager({
                   <SelectContent>
                     <SelectItem value={UserRole.ADMIN}>Админ</SelectItem>
                     <SelectItem value={UserRole.TEAM_LEAD}>Тимлид</SelectItem>
+                    <SelectItem value={UserRole.FARMER}>Фармер</SelectItem>
                     <SelectItem value={UserRole.USER}>Юзер</SelectItem>
                   </SelectContent>
                 </Select>

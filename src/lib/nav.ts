@@ -12,15 +12,15 @@ export const dashboardNav: NavItem[] = [
     href: "/constructor",
     items: [
       {
-        title: "Конструктор",
+        title: "AdsPower аккаунты",
         href: "/constructor",
       },
       {
-        title: "Task create",
+        title: "Создать задачу",
         href: "/tasks",
       },
       {
-        title: "Task list",
+        title: "Список задач",
         href: "/tasks/list",
       },
       {

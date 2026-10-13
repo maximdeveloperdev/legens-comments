@@ -24,15 +24,15 @@ export function TasksWorkspace({
             <PlusCircle className="size-5" />
           </span>
           <div className="grid min-w-0 gap-1">
-            <h1 className="font-heading text-lg font-medium">Task create</h1>
+            <h1 className="font-heading text-lg font-medium">Создать задачу</h1>
             <p className="text-sm text-muted-foreground">
-              Создание задачи с targeting, комментариями, reply, картинками и реакциями.
+              Создание задачи с таргетингом фанок, комментариями, ответами, картинками и реакциями.
             </p>
           </div>
         </div>
         <Button variant="outline" render={<Link href="/tasks/list" />}>
           <ListTree />
-          Task list
+          Список задач
         </Button>
       </section>
 

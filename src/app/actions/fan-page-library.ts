@@ -39,6 +39,10 @@ function normalizeGeoCode(value: string) {
   return value.trim().toUpperCase()
 }
 
+function hasLibraryManageAccess(role: UserRole) {
+  return role !== UserRole.USER && role !== UserRole.FARMER
+}
+
 async function getAllowedTeamIds(userId: string, role: UserRole) {
   if (role === UserRole.ADMIN) return null
 
@@ -73,7 +77,7 @@ export async function uploadFanPageAsset(formData: FormData): Promise<FanPageLib
 export async function updateFanPageAssets(formData: FormData): Promise<FanPageLibraryActionResult> {
   const session = await getActiveSession()
   if (!session) return { error: "Нет доступа" }
-  if (session.role === UserRole.USER) return { error: "Нет доступа" }
+  if (!hasLibraryManageAccess(session.role)) return { error: "Нет доступа" }
 
   const ids = Array.from(new Set(formData.getAll("ids").map((id) => String(id).trim()).filter(Boolean)))
   if (ids.length === 0) return { error: "Выберите картинки" }
@@ -161,7 +165,7 @@ export async function updateFanPageAssets(formData: FormData): Promise<FanPageLi
 export async function deleteFanPageAsset(formData: FormData): Promise<FanPageLibraryActionResult> {
   const session = await getActiveSession()
   if (!session) return { error: "Нет доступа" }
-  if (session.role === UserRole.USER) return { error: "Нет доступа" }
+  if (!hasLibraryManageAccess(session.role)) return { error: "Нет доступ" }
 
   const id = getString(formData, "id")
   if (!id) return { error: "Картинка не найдена" }
@@ -194,7 +198,7 @@ export async function deleteFanPageAsset(formData: FormData): Promise<FanPageLib
 export async function deleteFanPageAssets(formData: FormData): Promise<FanPageLibraryActionResult> {
   const session = await getActiveSession()
   if (!session) return { error: "Нет доступа" }
-  if (session.role === UserRole.USER) return { error: "Нет доступа" }
+  if (!hasLibraryManageAccess(session.role)) return { error: "Нет доступа" }
 
   const ids = Array.from(new Set(formData.getAll("ids").map((id) => String(id).trim()).filter(Boolean)))
   if (ids.length === 0) return { error: "Выберите картинки" }

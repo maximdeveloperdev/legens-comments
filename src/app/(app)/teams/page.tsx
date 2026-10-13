@@ -37,7 +37,7 @@ export default async function TeamsPage() {
     prisma.user.findMany({
       where: {
         active: true,
-        role: { in: [UserRole.TEAM_LEAD, UserRole.USER] },
+        role: { in: [UserRole.TEAM_LEAD, UserRole.FARMER, UserRole.USER] },
       },
       orderBy: [{ role: "asc" }, { name: "asc" }],
       select: { id: true, name: true, email: true, role: true },
@@ -45,7 +45,7 @@ export default async function TeamsPage() {
   ])
 
   const teamLeads = users.filter((user) => user.role === UserRole.TEAM_LEAD)
-  const buyers = users.filter((user) => user.role === UserRole.USER)
+  const buyers = users.filter((user) => user.role === UserRole.FARMER || user.role === UserRole.USER)
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">

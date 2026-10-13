@@ -59,7 +59,7 @@ const icons = {
   "/settings": <Settings2Icon />,
 }
 
-function filterNavItems(items: NavItem[], role: "ADMIN" | "TEAM_LEAD" | "USER"): NavItem[] {
+function filterNavItems(items: NavItem[], role: "ADMIN" | "TEAM_LEAD" | "FARMER" | "USER"): NavItem[] {
   return items
     .filter((item) => {
       if (item.adminOnly && role !== "ADMIN") return false
@@ -97,7 +97,7 @@ export function AppSidebar({
     name: string
     email: string
     avatar: string
-    role: "ADMIN" | "TEAM_LEAD" | "USER"
+    role: "ADMIN" | "TEAM_LEAD" | "FARMER" | "USER"
   }
 }) {
   const visibleNav = filterNavItems(dashboardNav, user.role)

@@ -73,7 +73,7 @@ export default async function FanPageLibraryPage() {
           name: country.nameRu,
           flagSvg: country.flagSvg,
         }))}
-        canDelete={session.role !== UserRole.USER}
+        canDelete={session.role !== UserRole.USER && session.role !== UserRole.FARMER}
       />
     </div>
   )

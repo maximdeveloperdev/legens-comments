@@ -136,9 +136,9 @@ function isFacebookUrl(value: string) {
 }
 
 function genderLabel(gender: GenderFilter) {
-  if (gender === "MALE") return "Male"
-  if (gender === "FEMALE") return "Female"
-  return "Any"
+  if (gender === "MALE") return "Мужчины"
+  if (gender === "FEMALE") return "Женщины"
+  return "Любой"
 }
 
 function taskKey(prefix: string, id: string) {
@@ -284,7 +284,7 @@ export function TaskCreateForm({
           })
           if (comment.photo) photos.set(parentKey, comment.photo)
         } else {
-          skipped.push(`Comment ${commentIndex + 1}`)
+          skipped.push(`Комментарий ${commentIndex + 1}`)
         }
       }
 
@@ -304,14 +304,14 @@ export function TaskCreateForm({
         const replyText = replyItem.text.trim()
         if (!replyText) continue
         if (!parentKey) {
-          skipped.push(`Reply ${replyIndex + 1} к Comment ${commentIndex + 1}: нет текста родителя`)
+          skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}: нет текста родителя`)
           continue
         }
         const replyGender = replyItem.gender === "ANY" ? globalGender : replyItem.gender
         const replyGeo = replyItem.geo === "ANY" ? globalGeo : replyItem.geo
         const fan = pickFan(fans, used, replyGender, replyGeo)
         if (!fan) {
-          skipped.push(`Reply ${replyIndex + 1} к Comment ${commentIndex + 1}`)
+          skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}`)
           continue
         }
         const replyKey = taskKey("reply", replyItem.id)
@@ -348,21 +348,21 @@ export function TaskCreateForm({
     const name = taskName.trim()
     const url = normalizeFacebookUrl(postUrl)
     if (!name) {
-      pushAppNotification("Task create", "Введи название таска", { tone: "error" })
+      pushAppNotification("Создание задачи", "Введи название задачи", { tone: "error" })
       return
     }
     if (!isFacebookUrl(url)) {
-      pushAppNotification("Task create", "Вставь корректную ссылку Facebook Post URL", { tone: "error" })
+      pushAppNotification("Создание задачи", "Вставь корректную ссылку на пост Facebook", { tone: "error" })
       return
     }
 
     const { jobs, photos, skipped } = buildJobs()
     if (jobs.length === 0) {
-      pushAppNotification("Task create", "Нет действий для запуска", { tone: "error" })
+      pushAppNotification("Создание задачи", "Нет действий для запуска", { tone: "error" })
       return
     }
     if (skipped.length > 0) {
-      pushAppNotification("Task create", `Не хватает фанок: ${skipped.slice(0, 3).join(", ")}`, { tone: "error" })
+      pushAppNotification("Создание задачи", `Не хватает фанок: ${skipped.slice(0, 3).join(", ")}`, { tone: "error" })
       return
     }
 
@@ -375,11 +375,11 @@ export function TaskCreateForm({
       }
       const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
-        pushAppNotification("Task create", result.error, { href: "/tasks/list?tab=work", tone: "error" })
+        pushAppNotification("Создание задачи", result.error, { href: "/tasks/list?tab=work", tone: "error" })
         return
       }
       pushAppNotification(
-        "Task create",
+        "Создание задачи",
         `${name} · ${result.total || jobs.length} действий в очереди${result.rewritten ? ` · AI перефразировал: ${result.rewritten}` : ""}`,
         { href: "/tasks/list?tab=work", tone: "queue" },
       )
@@ -419,19 +419,19 @@ export function TaskCreateForm({
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="font-heading text-base font-medium">Create New Task</h2>
-            <p className="text-sm text-muted-foreground">Один пост, targeting фанок, комментарии, reply и реакции.</p>
+            <h2 className="font-heading text-base font-medium">Создать новую задачу</h2>
+            <p className="text-sm text-muted-foreground">Один пост, таргетинг фанок, комментарии, ответы и реакции.</p>
           </div>
           <Badge variant="secondary">{totalDraftActions} действий</Badge>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Task Name</span>
-            <Input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Task name..." />
+            <span className="text-sm font-medium">Название задачи</span>
+            <Input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Название задачи..." />
           </label>
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Facebook Post URL</span>
+            <span className="text-sm font-medium">Ссылка на пост Facebook</span>
             <Input
               value={postUrl}
               onChange={(event) => setPostUrl(event.target.value)}
@@ -443,17 +443,17 @@ export function TaskCreateForm({
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-heading text-base font-medium">Commenter targeting</h2>
+          <h2 className="font-heading text-base font-medium">Таргетинг комментаторов</h2>
           <Badge variant="outline">{matchingFans.length} фанок</Badge>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <SelectField label="Gender" value={globalGender} onChange={(value) => setGlobalGender(value as GenderFilter)}>
-            <option value="ANY">Any</option>
-            <option value="MALE">Male</option>
-            <option value="FEMALE">Female</option>
+          <SelectField label="Пол" value={globalGender} onChange={(value) => setGlobalGender(value as GenderFilter)}>
+            <option value="ANY">Любой</option>
+            <option value="MALE">Мужчины</option>
+            <option value="FEMALE">Женщины</option>
           </SelectField>
-          <SelectField label="Geo" value={globalGeo} onChange={setGlobalGeo}>
-            <option value="ANY">Any</option>
+          <SelectField label="Гео" value={globalGeo} onChange={setGlobalGeo}>
+            <option value="ANY">Любое</option>
             {geos.map((geo) => (
               <option key={geo} value={geo}>
                 {countries[geo]?.name || geo}
@@ -461,18 +461,18 @@ export function TaskCreateForm({
             ))}
           </SelectField>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium">Pool</span>
+            <span className="text-sm font-medium">Пул</span>
             <div className="flex h-10 items-center rounded-lg border px-3 text-sm text-muted-foreground">
-              {globalGender === "ANY" ? "Any gender" : genderLabel(globalGender)} · {globalGeo === "ANY" ? "Any geo" : globalGeo}
+              {globalGender === "ANY" ? "Любой пол" : genderLabel(globalGender)} · {globalGeo === "ANY" ? "Любое гео" : globalGeo}
             </div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
-        <h2 className="font-heading text-base font-medium">Post Engagement Settings</h2>
+        <h2 className="font-heading text-base font-medium">Настройки вовлечения поста</h2>
         <RangeField
-          label="Post Reactions"
+          label="Реакции на пост"
           value={postReactionCount}
           min={0}
           max={MAX_POST_REACTIONS}
@@ -482,10 +482,10 @@ export function TaskCreateForm({
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-heading text-base font-medium">Comments</h2>
+          <h2 className="font-heading text-base font-medium">Комментарии</h2>
           <Button type="button" variant="outline" size="sm" onClick={() => setComments((current) => [...current, emptyComment()])}>
             <Plus />
-            Add One More Comment to Post
+            Добавить комментарий
           </Button>
         </div>
 
@@ -493,7 +493,7 @@ export function TaskCreateForm({
           {comments.map((comment, index) => (
             <CommentEditor
               key={comment.id}
-              title={`Comment ${index + 1}`}
+              title={`Комментарий ${index + 1}`}
               unit={comment}
               countries={countries}
               geos={geos}
@@ -509,7 +509,7 @@ export function TaskCreateForm({
                 {comment.replies.map((replyItem, replyIndex) => (
                   <CommentEditor
                     key={replyItem.id}
-                    title={`Reply ${replyIndex + 1}`}
+                    title={`Ответ ${replyIndex + 1}`}
                     reply
                     unit={replyItem}
                     countries={countries}
@@ -544,7 +544,7 @@ export function TaskCreateForm({
                   }
                 >
                   <Reply />
-                  Add Reply to Comment
+                  Добавить ответ к комментарию
                 </Button>
               </div>
             </CommentEditor>
@@ -553,7 +553,7 @@ export function TaskCreateForm({
 
         <Button type="button" size="lg" disabled={submitting} onClick={() => void submitTask()}>
           {submitting ? <Loader2 className="animate-spin" /> : <MessageCircle />}
-          Create task
+          Создать задачу
         </Button>
       </section>
     </div>
@@ -657,17 +657,17 @@ function CommentEditor({
         {onDelete ? (
           <Button type="button" variant="outline" size="sm" onClick={onDelete}>
             <Trash2 />
-            Delete
+            Удалить
           </Button>
         ) : null}
       </div>
       <label className="grid gap-1.5">
-        <span className="text-sm font-medium">Comment Text</span>
+        <span className="text-sm font-medium">Текст комментария</span>
         <Textarea value={unit.text} onChange={(event) => onChange({ text: event.target.value })} rows={5} />
       </label>
       <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="grid gap-2">
-          <span className="text-sm font-medium">Image</span>
+          <span className="text-sm font-medium">Картинка</span>
           <input
             ref={fileInput}
             type="file"
@@ -678,7 +678,7 @@ function CommentEditor({
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={onPickFile}>
               <ImagePlus />
-              Upload
+              Загрузить
             </Button>
             {unit.photo ? (
               <span className="text-xs text-muted-foreground">
@@ -688,7 +688,7 @@ function CommentEditor({
             {unit.photo ? (
               <Button type="button" variant="ghost" size="sm" onClick={() => onPhoto(undefined)}>
                 <Trash2 />
-                Remove
+                Убрать
               </Button>
             ) : null}
           </div>
@@ -703,16 +703,16 @@ function CommentEditor({
             />
           ) : null}
         </div>
-        <RangeField label="Post Reactions" value={unit.reactionCount} min={0} max={50} onChange={(value) => onChange({ reactionCount: value })} />
+        <RangeField label="Реакции на пост" value={unit.reactionCount} min={0} max={50} onChange={(value) => onChange({ reactionCount: value })} />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <SelectField label="Gender" value={unit.gender} onChange={(value) => onChange({ gender: value as GenderFilter })}>
-          <option value="ANY">Any</option>
-          <option value="MALE">Male</option>
-          <option value="FEMALE">Female</option>
+        <SelectField label="Пол" value={unit.gender} onChange={(value) => onChange({ gender: value as GenderFilter })}>
+          <option value="ANY">Любой</option>
+          <option value="MALE">Мужчины</option>
+          <option value="FEMALE">Женщины</option>
         </SelectField>
-        <SelectField label="Geo" value={unit.geo} onChange={(value) => onChange({ geo: value })}>
-          <option value="ANY">Any</option>
+        <SelectField label="Гео" value={unit.geo} onChange={(value) => onChange({ geo: value })}>
+          <option value="ANY">Любое</option>
           {geos.map((geo) => (
             <option key={geo} value={geo}>
               {countries[geo]?.name || geo}
