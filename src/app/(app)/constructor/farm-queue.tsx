@@ -95,6 +95,7 @@ export type QueueStatusFilter =
   | "all_failed"
   | "failed"
   | "partially_failed"
+type TaskStatus = Exclude<QueueStatusFilter, "all">
 type ConfirmAction =
   | { kind: "start"; taskId: string }
   | { kind: "stop"; taskId: string }
@@ -109,14 +110,14 @@ const actionLabel: Record<string, string> = {
   subscribe: "Комментарий + лайк + подписка",
 }
 
-const statusLabel: Record<QueueJob["status"], string> = {
+const jobStatusLabel: Record<QueueJob["status"], string> = {
   PENDING: "В очереди",
   RUNNING: "Идёт",
   DONE: "Готово",
   ERROR: "Ошибка",
 }
 
-const statusVariant: Record<
+const jobStatusVariant: Record<
   QueueJob["status"],
   "secondary" | "default" | "outline" | "destructive"
 > = {
@@ -126,19 +127,37 @@ const statusVariant: Record<
   ERROR: "destructive",
 }
 
+const taskStatusLabel: Record<TaskStatus, string> = {
+  succeed: "Успешно",
+  in_progress: "В работе",
+  pending: "Ожидает",
+  all_failed: "Все с ошибкой",
+  failed: "Есть ошибки",
+  partially_failed: "Частично с ошибкой",
+}
+
+const taskStatusVariant: Record<TaskStatus, "secondary" | "default" | "outline" | "destructive"> = {
+  succeed: "outline",
+  in_progress: "default",
+  pending: "secondary",
+  all_failed: "destructive",
+  failed: "destructive",
+  partially_failed: "secondary",
+}
+
 const sortOptions: Array<{ value: QueueSort; label: string }> = [
-  { value: "latest", label: "Latest first" },
-  { value: "oldest", label: "Oldest first" },
+  { value: "latest", label: "Сначала новые" },
+  { value: "oldest", label: "Сначала старые" },
 ]
 
 const statusFilterOptions: Array<{ value: QueueStatusFilter; label: string }> = [
-  { value: "all", label: "Status" },
-  { value: "succeed", label: "Succeed" },
-  { value: "in_progress", label: "In progress" },
-  { value: "pending", label: "Pending" },
-  { value: "all_failed", label: "All failed" },
-  { value: "failed", label: "Failed" },
-  { value: "partially_failed", label: "Partially failed" },
+  { value: "all", label: "Все статусы" },
+  { value: "succeed", label: taskStatusLabel.succeed },
+  { value: "in_progress", label: taskStatusLabel.in_progress },
+  { value: "pending", label: taskStatusLabel.pending },
+  { value: "all_failed", label: taskStatusLabel.all_failed },
+  { value: "failed", label: taskStatusLabel.failed },
+  { value: "partially_failed", label: taskStatusLabel.partially_failed },
 ]
 
 function formatWhen(value: string) {
@@ -219,7 +238,7 @@ function JobTable({ jobs }: { jobs: QueueJob[] }) {
               </TableCell>
               <TableCell>
                 <div className="grid gap-1">
-                  <Badge variant={statusVariant[job.status]}>{statusLabel[job.status]}</Badge>
+                  <Badge variant={jobStatusVariant[job.status]}>{jobStatusLabel[job.status]}</Badge>
                   {job.error ? (
                     <span className="max-w-xs truncate text-xs text-destructive">{job.error}</span>
                   ) : null}
@@ -327,7 +346,7 @@ function TaskDetailsDialog({
                         </TableCell>
                         <TableCell>
                           <div className="grid gap-1">
-                            <Badge variant={statusVariant[job.status]}>{statusLabel[job.status]}</Badge>
+                            <Badge variant={jobStatusVariant[job.status]}>{jobStatusLabel[job.status]}</Badge>
                             {job.error ? (
                               <span className="max-w-xs text-xs text-destructive">{job.error}</span>
                             ) : null}
@@ -377,25 +396,28 @@ function QueueLoading() {
   return <p className="py-6 text-center text-sm text-muted-foreground">Загружаем очередь…</p>
 }
 
-function taskStatus(task: QueueTask): QueueJob["status"] {
-  if (task.counts.running > 0) return "RUNNING"
-  if (task.counts.pending > 0) return "PENDING"
-  if (task.counts.error > 0) return "ERROR"
-  return "DONE"
+function taskStatus(task: QueueTask): TaskStatus {
+  const { pending, running, done, error } = task.counts
+  if (running > 0) return "in_progress"
+  if (pending > 0 && (done > 0 || error > 0)) return "in_progress"
+  if (pending > 0) return "pending"
+  if (error > 0 && done > 0) return "partially_failed"
+  if (error > 0) return "all_failed"
+  return "succeed"
+}
+
+function taskStatusBucket(task: QueueTask): QueueJob["status"] {
+  const status = taskStatus(task)
+  if (status === "pending") return "PENDING"
+  if (status === "in_progress") return "RUNNING"
+  if (status === "succeed") return "DONE"
+  return "ERROR"
 }
 
 function taskMatchesStatusFilter(task: QueueTask, filter: QueueStatusFilter) {
   if (filter === "all") return true
-  const pending = task.counts.pending
-  const running = task.counts.running
-  const done = task.counts.done
-  const error = task.counts.error
-  if (filter === "succeed") return done > 0 && error === 0 && pending === 0 && running === 0
-  if (filter === "in_progress") return running > 0
-  if (filter === "pending") return running === 0 && pending > 0
-  if (filter === "all_failed") return error > 0 && done === 0 && pending === 0 && running === 0
-  if (filter === "partially_failed") return error > 0 && (done > 0 || pending > 0 || running > 0)
-  return error > 0
+  if (filter === "failed") return task.counts.error > 0
+  return taskStatus(task) === filter
 }
 
 function taskTab(task: QueueTask): QueueTab {
@@ -405,10 +427,10 @@ function taskTab(task: QueueTask): QueueTab {
 function TaskCommentStatus({ task }: { task: QueueTask }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      <Badge variant="outline">ok {task.counts.done}</Badge>
-      {task.counts.error > 0 ? <Badge variant="destructive">err {task.counts.error}</Badge> : null}
-      {task.counts.running > 0 ? <Badge>run {task.counts.running}</Badge> : null}
-      {task.counts.pending > 0 ? <Badge variant="secondary">wait {task.counts.pending}</Badge> : null}
+      <Badge variant="outline">готово {task.counts.done}</Badge>
+      {task.counts.error > 0 ? <Badge variant="destructive">ошибок {task.counts.error}</Badge> : null}
+      {task.counts.running > 0 ? <Badge>идёт {task.counts.running}</Badge> : null}
+      {task.counts.pending > 0 ? <Badge variant="secondary">очередь {task.counts.pending}</Badge> : null}
     </div>
   )
 }
@@ -710,8 +732,8 @@ function TasksTable({
                   </TableCell>
                   <TableCell className="max-w-80">
                     <div className="grid min-w-0 max-w-80 gap-1.5">
-                      <Badge variant={statusVariant[status]} className="w-fit">
-                        {statusLabel[status]}
+                      <Badge variant={taskStatusVariant[status]} className="w-fit">
+                        {taskStatusLabel[status]}
                       </Badge>
                       <ServiceMessage message={serviceMessage} compact />
                     </div>
@@ -979,7 +1001,7 @@ function TasksCardList({
               value={teamFilter}
               onChange={onTeamFilterChange}
             >
-              <option value="all">Team</option>
+              <option value="all">Все команды</option>
               {teamOptions.map((team) => (
                 <option key={team} value={team}>
                   {team}
@@ -994,13 +1016,13 @@ function TasksCardList({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onSearch()
                 }}
-                placeholder="Title, Post URL, Owner nickname..."
+                placeholder="Поиск по названию, ссылке, владельцу, фанке..."
                 className="pl-8"
                 aria-label="Поиск по задачам"
               />
             </div>
             <Button type="button" onClick={onSearch}>
-              Search
+              Поиск
             </Button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1054,7 +1076,7 @@ function TasksCardList({
                       <h2 className="min-w-0 truncate font-heading text-base font-medium text-primary">
                         {taskTitle(task)}
                       </h2>
-                      <Badge variant={statusVariant[status]}>{statusLabel[status]}</Badge>
+                      <Badge variant={taskStatusVariant[status]}>{taskStatusLabel[status]}</Badge>
                       {position ? <Badge variant="secondary">#{position}</Badge> : null}
                       {mine ? <Badge variant="secondary">Моя</Badge> : null}
                     </div>
@@ -1284,13 +1306,13 @@ export function FarmQueue({
             const nextTab = taskTab(task)
             const previousTab = previousTaskTabs.current.get(task.id)
             if (previousTab !== "work" || nextTab !== "completed") continue
-            const status = taskStatus(task)
+            const failed = taskStatusBucket(task) === "ERROR"
             pushAppNotification(
-              status === "ERROR" ? "Задача завершилась с ошибкой" : "Задача готова",
+              failed ? "Задача завершилась с ошибкой" : "Задача готова",
               `${actionLabel[task.action] || task.action} · ${task.total} шт.`,
               {
                 href: "/queue?tab=completed",
-                tone: status === "ERROR" ? "error" : "success",
+                tone: failed ? "error" : "success",
               },
             )
           }
@@ -1332,8 +1354,8 @@ export function FarmQueue({
         .sort((left, right) => {
           const leftStatus = taskStatus(left)
           const rightStatus = taskStatus(right)
-          const leftRank = leftStatus === "RUNNING" ? 0 : 1
-          const rightRank = rightStatus === "RUNNING" ? 0 : 1
+          const leftRank = leftStatus === "in_progress" ? 0 : 1
+          const rightRank = rightStatus === "in_progress" ? 0 : 1
           return leftRank - rightRank || left.createdAt.localeCompare(right.createdAt)
         }),
     [tasks],
@@ -1352,7 +1374,7 @@ export function FarmQueue({
   const taskStats = useMemo(() => {
     const next = { ...emptyStats }
     for (const task of tasks) {
-      const status = taskStatus(task)
+      const status = taskStatusBucket(task)
       if (status === "PENDING") next.pending += 1
       else if (status === "RUNNING") next.running += 1
       else if (status === "DONE") next.done += 1
@@ -1380,7 +1402,7 @@ export function FarmQueue({
     }
     if (needle) {
       next = next.filter((task) => {
-        const status = statusLabel[taskStatus(task)]
+        const status = taskStatusLabel[taskStatus(task)]
         const action = actionLabel[task.action] || task.action
         return [
           task.name,
@@ -1397,7 +1419,7 @@ export function FarmQueue({
             job.aiComment ? "ChatGPT" : job.message,
             job.photoPath ? "фото" : "",
             job.error || "",
-            statusLabel[job.status],
+            jobStatusLabel[job.status],
           ]),
         ]
           .join(" ")
