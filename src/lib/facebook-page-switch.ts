@@ -3725,6 +3725,18 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
 
       const target = candidates[0]?.node || document.scrollingElement || document.documentElement
       target.scrollBy({ top: delta, left: 0, behavior: "auto" })
+      candidates.slice(0, 8).forEach(({ node }) => {
+        node.scrollTop += delta
+      })
+
+      let pointed = document.elementFromPoint(innerWidth / 2, innerHeight / 2) as HTMLElement | null
+      for (let depth = 0; depth < 12 && pointed; depth += 1, pointed = pointed.parentElement) {
+        if (canScroll(pointed)) {
+          pointed.scrollTop += delta
+          break
+        }
+      }
+      document.scrollingElement?.scrollBy({ top: delta, left: 0, behavior: "auto" })
     }, amount)
     .catch(() => undefined)
 
@@ -3748,6 +3760,7 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
 
   await page.mouse.move(point.x, point.y).catch(() => undefined)
   await page.mouse.wheel(0, amount).catch(() => undefined)
+  await page.keyboard.press(amount > 0 ? "PageDown" : "PageUp").catch(() => undefined)
 
   if (amount > 0) {
     await page.mouse.move(dragPoint.x, dragPoint.y + 140).catch(() => undefined)
