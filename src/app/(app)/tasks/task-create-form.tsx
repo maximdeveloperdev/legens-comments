@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import Image from "next/image"
-import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
+import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Sparkles, Trash2 } from "lucide-react"
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -40,6 +40,8 @@ type DraftUnit = {
 type CommentDraft = DraftUnit & {
   replies: DraftUnit[]
 }
+
+type GenerateMode = "text" | "library"
 
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
@@ -145,6 +147,33 @@ function geoSelectionLabel(geos: string[], countries: Record<string, CountryInfo
   return geos.map((geo) => countries[geo]?.name || geo).join(", ")
 }
 
+function commentsFromBulkText(value: string) {
+  const generated: CommentDraft[] = []
+  let currentComment: CommentDraft | null = null
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    if (!rawLine.trim()) continue
+    const isReply = /^\t| {4}/.test(rawLine)
+    const text = rawLine.trim()
+
+    if (isReply && currentComment) {
+      currentComment.replies.push({
+        ...emptyUnit(),
+        text,
+      })
+      continue
+    }
+
+    currentComment = {
+      ...emptyComment(),
+      text,
+    }
+    generated.push(currentComment)
+  }
+
+  return generated
+}
+
 export function TaskCreateForm({
   profiles,
   countries,
@@ -160,6 +189,8 @@ export function TaskCreateForm({
   const [globalGeos, setGlobalGeos] = useState<string[]>([])
   const [postReactionCount, setPostReactionCount] = useState(0)
   const [comments, setComments] = useState<CommentDraft[]>([emptyComment()])
+  const [generateMode, setGenerateMode] = useState<GenerateMode>("text")
+  const [bulkCommentsText, setBulkCommentsText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
   const countryCodes = useMemo(() => Object.keys(countries), [countries])
@@ -221,18 +252,35 @@ export function TaskCreateForm({
   }
 
   function clearForm() {
-    for (const comment of comments) {
-      if (comment.preview) URL.revokeObjectURL(comment.preview)
-      for (const replyItem of comment.replies) {
-        if (replyItem.preview) URL.revokeObjectURL(replyItem.preview)
-      }
-    }
+    revokeCommentPreviews(comments)
     setTaskName("")
     setPostUrl("")
     setGlobalGender("ANY")
     setGlobalGeos([])
     setPostReactionCount(0)
+    setBulkCommentsText("")
+    setGenerateMode("text")
     setComments([emptyComment()])
+  }
+
+  function revokeCommentPreviews(items: CommentDraft[]) {
+    for (const comment of items) {
+      if (comment.preview) URL.revokeObjectURL(comment.preview)
+      for (const replyItem of comment.replies) {
+        if (replyItem.preview) URL.revokeObjectURL(replyItem.preview)
+      }
+    }
+  }
+
+  function generateCommentsFromText() {
+    const generated = commentsFromBulkText(bulkCommentsText)
+    if (generated.length === 0) {
+      pushAppNotification("Комментарии", "Вставь текст комментариев", { tone: "error" })
+      return
+    }
+    revokeCommentPreviews(comments)
+    setComments(generated)
+    pushAppNotification("Комментарии", `Сгенерировано: ${generated.length} комментариев`, { tone: "success" })
   }
 
   function buildJobs() {
@@ -484,6 +532,60 @@ export function TaskCreateForm({
           max={MAX_POST_REACTIONS}
           onChange={(value) => setPostReactionCount(Math.min(value, MAX_POST_REACTIONS))}
         />
+      </section>
+
+      <section className="grid gap-4 rounded-2xl border bg-primary/5 p-4 shadow-sm md:p-5">
+        <h2 className="font-heading text-base font-medium">Генерация комментариев</h2>
+        <div className="grid gap-3">
+          <div className="grid h-10 grid-cols-2 rounded-lg border bg-background p-1">
+            {(
+              [
+                { id: "text", label: "Из текста" },
+                { id: "library", label: "Из библиотеки" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setGenerateMode(option.id)}
+                className={cn(
+                  "inline-flex items-center justify-center rounded-md px-3 text-sm font-medium transition-colors",
+                  generateMode === option.id
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          {generateMode === "text" ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Один комментарий на строку. Начни строку с Tab или 4 пробелов, чтобы сделать reply к комментарию выше.
+              </p>
+              <Textarea
+                value={bulkCommentsText}
+                onChange={(event) => setBulkCommentsText(event.target.value)}
+                placeholder={"Первый комментарий\n    Ответ к первому\nВторой комментарий"}
+                rows={7}
+              />
+              <Button
+                type="button"
+                disabled={bulkCommentsText.trim().length === 0}
+                onClick={generateCommentsFromText}
+              >
+                <Sparkles />
+                Generate
+              </Button>
+            </>
+          ) : (
+            <div className="rounded-xl border bg-background px-3 py-6 text-center text-sm text-muted-foreground">
+              Библиотека комментариев пока не подключена.
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
