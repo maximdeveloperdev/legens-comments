@@ -68,6 +68,10 @@ const COMMENT_RE =
   /comment as|write a comment|write a public comment|write a reply|reply as|напишите комментарий|оставьте комментарий|коммент|ответьте|ответить|написати коментар|відповісти|skomentuj jako|napisz komentarz|odpowiedz|comentar como|escribe un comentario|responder|escrever um comentário|escreva um comentário|responder|commenta come|scrivi un commento|rispondi|commenter en tant que|écrivez un commentaire|répondre|kommentieren als|schreibe einen kommentar|antworten/i
 const COMMENT_ACTION_RE =
   /^(Comment|Комментарий|Комментировать|Коментар|Skomentuj|Comentar|Commenta|Commenter|Kommentieren)$/i
+const COMMENT_SORT_RE =
+  /^(Most relevant|All comments|Newest|Oldest|Самые актуальные|Все комментарии|Сначала новые|Новые|Найновіші|Усі коментарі|Najnowsze|Wszystkie komentarze|Más relevantes|Todos los comentarios|Más recientes|Mais relevantes|Todos os comentários|Mais recentes|Più pertinenti|Tutti i commenti|Più recenti|Les plus pertinents|Tous les commentaires|Plus récents|Relevanteste|Alle Kommentare|Neueste)$/i
+const COMMENT_SORT_NEWEST_RE =
+  /^(Newest|Сначала новые|Новые|Найновіші|Najnowsze|Más recientes|Mais recentes|Più recenti|Plus récents|Neueste)$/i
 const COMMENT_PHOTO_RE =
   /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add|camera|камера/i
 const SUSPENDED_PAGE_RE =
@@ -3622,6 +3626,90 @@ async function clickVisibleCommentExpansion(page: Page) {
     .catch(() => false)
 }
 
+async function markCommentSortControl(page: Page) {
+  return page
+    .evaluate((pattern) => {
+      document.querySelectorAll("[data-farm-comment-sort]").forEach((node) => {
+        node.removeAttribute("data-farm-comment-sort")
+      })
+
+      const sortRe = new RegExp(pattern, "i")
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 18 &&
+          box.height >= 12 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        )
+      }
+      const labelOf = (node: Element) =>
+        [
+          node.getAttribute("aria-label") || "",
+          node.getAttribute("title") || "",
+          (node as HTMLElement).innerText || node.textContent || "",
+        ]
+          .join(" ")
+          .replace(/[\u200B-\u200F\uFEFF]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+
+      const candidates = [...document.querySelectorAll('button, [role="button"], a, span, div')]
+        .filter((node) => visible(node))
+        .map((node) => ({
+          node: node as HTMLElement,
+          label: labelOf(node),
+          rect: (node as HTMLElement).getBoundingClientRect(),
+        }))
+        .filter(({ label, rect }) => sortRe.test(label) && label.length <= 80 && rect.top > 120)
+        .sort((left, right) => left.rect.top - right.rect.top || left.rect.left - right.rect.left)
+
+      const target = candidates[0]?.node
+      if (!target) return false
+      const clickable = (target.closest('button, [role="button"], a, [tabindex="0"]') || target) as HTMLElement
+      clickable.setAttribute("data-farm-comment-sort", "true")
+      return true
+    }, COMMENT_SORT_RE.source)
+    .catch(() => false)
+}
+
+async function preferNewestComments(page: Page, log: (line: SwitchLog) => void) {
+  const currentNewest = page.getByText(COMMENT_SORT_NEWEST_RE).first()
+  if (await visible(currentNewest)) return
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!(await markCommentSortControl(page))) {
+      await scrollFacebookPostComments(page, 420)
+      await pause(350)
+      continue
+    }
+
+    const sort = page.locator('[data-farm-comment-sort="true"]').first()
+    if (!((await forceClick(sort, 2500)) || (await clickAtBox(page, sort)))) continue
+    await pause(500)
+
+    const newest = page
+      .getByRole("menuitemradio", { name: COMMENT_SORT_NEWEST_RE })
+      .or(page.getByRole("menuitem", { name: COMMENT_SORT_NEWEST_RE }))
+      .or(page.getByRole("option", { name: COMMENT_SORT_NEWEST_RE }))
+      .or(page.getByText(COMMENT_SORT_NEWEST_RE))
+      .last()
+    if (await clickIfVisible(newest, 2500)) {
+      log({ level: "ok", text: "Сортировка комментариев: Newest" })
+      await pause(1200)
+      return
+    }
+    await page.keyboard.press("Escape").catch(() => undefined)
+    await pause(300)
+  }
+}
+
 async function markCommentExpansionNearText(page: Page, parentText: string) {
   const sample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
   if (sample.length < 4) return false
@@ -3913,6 +4001,7 @@ async function waitForReplyComposer(page: Page, log: (line: SwitchLog) => void) 
 }
 
 async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void) {
+  await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 22; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
       await findTextInFacebookPost(page, parentText)
@@ -4333,6 +4422,7 @@ async function likeCommentByText(
   log: (line: SwitchLog) => void,
   parentText?: string,
 ) {
+  await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 22; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText || commentText))) {
