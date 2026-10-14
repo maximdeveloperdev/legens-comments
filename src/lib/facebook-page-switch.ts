@@ -3568,7 +3568,27 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
     }, amount)
     .catch(() => undefined)
 
+  const dialogBox = await page
+    .locator('[role="dialog"]')
+    .last()
+    .boundingBox({ timeout: 1500 })
+    .catch(() => null)
+  const point = dialogBox
+    ? {
+        x: dialogBox.x + dialogBox.width / 2,
+        y: Math.max(dialogBox.y + 120, Math.min(dialogBox.y + dialogBox.height - 150, dialogBox.y + dialogBox.height / 2)),
+      }
+    : { x: 420, y: 320 }
+
+  await page.mouse.move(point.x, point.y).catch(() => undefined)
   await page.mouse.wheel(0, amount).catch(() => undefined)
+
+  if (amount > 0) {
+    await page.mouse.move(point.x, point.y + 140).catch(() => undefined)
+    await page.mouse.down().catch(() => undefined)
+    await page.mouse.move(point.x, point.y - 160, { steps: 8 }).catch(() => undefined)
+    await page.mouse.up().catch(() => undefined)
+  }
 }
 
 async function markReplyComposerNearButton(page: Page) {
