@@ -2850,20 +2850,36 @@ async function visibleActorName(page: Page) {
 
 async function revealCommentBox(page: Page, log: (line: SwitchLog) => void) {
   await assertFacebookContentAvailable(page, log)
-  const commentAction = page.getByRole("button", { name: COMMENT_ACTION_RE }).first()
-  if (await clickIfVisible(commentAction, 4000)) {
-    log({ level: "ok", text: "Нажали «Комментарий» под постом" })
-    await pause(700)
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const commentAction = page.getByRole("button", { name: COMMENT_ACTION_RE }).first()
+    if (attempt === 0 || attempt % 4 === 0) {
+      if (await clickIfVisible(commentAction, attempt === 0 ? 4000 : 1200)) {
+        log({ level: "ok", text: "Нажали «Комментарий» под постом" })
+        await pause(700)
+      }
+    }
+
+    const box = commentBox(page)
+    if (await visible(box)) {
+      await box.scrollIntoViewIfNeeded()
+      return box
+    }
+    try {
+      await box.waitFor({ state: "visible", timeout: attempt === 0 ? 3500 : 1200 })
+      await box.scrollIntoViewIfNeeded()
+      return box
+    } catch {
+      if (attempt === 0) {
+        log({ level: "info", text: "Поле комментария не видно — прокручиваем пост" })
+      }
+      await assertFacebookContentAvailable(page, log)
+      await clickVisibleCommentExpansion(page)
+      await scrollFacebookPostComments(page, attempt % 3 === 2 ? -420 : 720)
+      await pause(500)
+    }
   }
-  const box = commentBox(page)
-  try {
-    await box.waitFor({ state: "visible", timeout: 15_000 })
-  } catch (error) {
-    await assertFacebookContentAvailable(page, log)
-    throw error
-  }
-  await box.scrollIntoViewIfNeeded()
-  return box
+
+  throw new Error("Не найдено поле комментария на посте. Возможно, пост закрыт, комментарии отключены или Facebook показал другой экран.")
 }
 
 async function identityMenuOpened(page: Page) {
