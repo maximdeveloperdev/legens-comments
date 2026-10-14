@@ -3033,6 +3033,14 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
     await dismissCookies(page, log)
     await dismissOverlays(page)
   }
+  if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
+    log({ level: "info", text: `Facebook открыл ленту после switch — открываем пост заново ${postUrl}` })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+    await dismissCookies(page, log)
+    await dismissOverlays(page)
+  }
   await revealCommentBox(page, log)
   who = await commentAsName(page)
   if (!sameFan(who, name)) {
