@@ -34,7 +34,7 @@ type DraftUnit = {
   preview: string
   reactionCount: number
   gender: GenderFilter
-  geo: string
+  geos: string[]
 }
 
 type CommentDraft = DraftUnit & {
@@ -58,7 +58,7 @@ function emptyUnit(): DraftUnit {
     preview: "",
     reactionCount: 0,
     gender: "ANY",
-    geo: "ANY",
+    geos: [],
   }
 }
 
@@ -101,14 +101,14 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
   ]
 }
 
-function matchesTarget(fan: TaskFan, gender: GenderFilter, geo: string) {
+function matchesTarget(fan: TaskFan, gender: GenderFilter, geos: string[]) {
   if (gender !== "ANY" && fan.gender !== gender) return false
-  if (geo !== "ANY" && fan.geo !== geo) return false
+  if (geos.length > 0 && !geos.includes(fan.geo)) return false
   return true
 }
 
-function pickFan(fans: TaskFan[], used: Set<string>, gender: GenderFilter, geo: string) {
-  const matching = fans.filter((fan) => matchesTarget(fan, gender, geo))
+function pickFan(fans: TaskFan[], used: Set<string>, gender: GenderFilter, geos: string[]) {
+  const matching = fans.filter((fan) => matchesTarget(fan, gender, geos))
   const fresh = matching.find((fan) => !used.has(fan.listId))
   if (!fresh) return null
   used.add(fresh.listId)
@@ -136,14 +136,13 @@ function isFacebookUrl(value: string) {
   }
 }
 
-function genderLabel(gender: GenderFilter) {
-  if (gender === "MALE") return "Мужчины"
-  if (gender === "FEMALE") return "Женщины"
-  return "Любой"
-}
-
 function taskKey(prefix: string, id: string) {
   return `${prefix}:${id}`
+}
+
+function geoSelectionLabel(geos: string[], countries: Record<string, CountryInfo>, emptyLabel: string) {
+  if (geos.length === 0) return emptyLabel
+  return geos.map((geo) => countries[geo]?.name || geo).join(", ")
 }
 
 export function TaskCreateForm({
@@ -158,7 +157,7 @@ export function TaskCreateForm({
   const [taskName, setTaskName] = useState("")
   const [postUrl, setPostUrl] = useState("")
   const [globalGender, setGlobalGender] = useState<GenderFilter>("ANY")
-  const [globalGeo, setGlobalGeo] = useState("ANY")
+  const [globalGeos, setGlobalGeos] = useState<string[]>([])
   const [postReactionCount, setPostReactionCount] = useState(0)
   const [comments, setComments] = useState<CommentDraft[]>([emptyComment()])
   const [submitting, setSubmitting] = useState(false)
@@ -178,8 +177,8 @@ export function TaskCreateForm({
     })
   }, [countries, fans])
   const matchingFans = useMemo(
-    () => fans.filter((fan) => matchesTarget(fan, globalGender, globalGeo)),
-    [fans, globalGender, globalGeo],
+    () => fans.filter((fan) => matchesTarget(fan, globalGender, globalGeos)),
+    [fans, globalGender, globalGeos],
   )
 
   function updateComment(id: string, patch: Partial<CommentDraft>) {
@@ -231,7 +230,7 @@ export function TaskCreateForm({
     setTaskName("")
     setPostUrl("")
     setGlobalGender("ANY")
-    setGlobalGeo("ANY")
+    setGlobalGeos([])
     setPostReactionCount(0)
     setComments([emptyComment()])
   }
@@ -253,7 +252,7 @@ export function TaskCreateForm({
     const skipped: string[] = []
 
     for (let index = 0; index < Math.min(postReactionCount, MAX_POST_REACTIONS); index += 1) {
-      const fan = pickFan(fans, used, globalGender, globalGeo)
+      const fan = pickFan(fans, used, globalGender, globalGeos)
       if (!fan) break
       jobs.push({
         action: "likeonly",
@@ -267,11 +266,11 @@ export function TaskCreateForm({
     for (const [commentIndex, comment] of comments.entries()) {
       const commentText = comment.text.trim()
       const commentGender = comment.gender === "ANY" ? globalGender : comment.gender
-      const commentGeo = comment.geo === "ANY" ? globalGeo : comment.geo
+      const commentGeos = comment.geos.length === 0 ? globalGeos : comment.geos
       let parentKey = ""
 
       if (commentText) {
-        const fan = pickFan(fans, used, commentGender, commentGeo)
+        const fan = pickFan(fans, used, commentGender, commentGeos)
         if (fan) {
           parentKey = taskKey("comment", comment.id)
           jobs.push({
@@ -293,7 +292,7 @@ export function TaskCreateForm({
         skipped.push(`Лайки к комментарию ${commentIndex + 1}: нет текста родителя`)
       } else {
         for (let index = 0; index < comment.reactionCount; index += 1) {
-          const fan = pickFan(fans, used, commentGender, commentGeo)
+          const fan = pickFan(fans, used, commentGender, commentGeos)
           if (!fan) {
             skipped.push(`Лайк ${index + 1} к комментарию ${commentIndex + 1}`)
             break
@@ -317,8 +316,8 @@ export function TaskCreateForm({
           continue
         }
         const replyGender = replyItem.gender === "ANY" ? globalGender : replyItem.gender
-        const replyGeo = replyItem.geo === "ANY" ? globalGeo : replyItem.geo
-        const fan = pickFan(fans, used, replyGender, replyGeo)
+        const replyGeos = replyItem.geos.length === 0 ? globalGeos : replyItem.geos
+        const fan = pickFan(fans, used, replyGender, replyGeos)
         if (!fan) {
           skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}`)
           continue
@@ -337,7 +336,7 @@ export function TaskCreateForm({
         if (replyItem.photo) photos.set(replyKey, replyItem.photo)
 
         for (let index = 0; index < replyItem.reactionCount; index += 1) {
-          const reactionFan = pickFan(fans, used, replyGender, replyGeo)
+          const reactionFan = pickFan(fans, used, replyGender, replyGeos)
           if (!reactionFan) {
             skipped.push(`Лайк ${index + 1} к ответу ${replyIndex + 1}`)
             break
@@ -459,26 +458,20 @@ export function TaskCreateForm({
           <h2 className="font-heading text-base font-medium">Таргетинг комментаторов</h2>
           <Badge variant="outline">{matchingFans.length} фанок</Badge>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <SelectField label="Пол" value={globalGender} onChange={(value) => setGlobalGender(value as GenderFilter)}>
             <option value="ANY">Любой</option>
             <option value="MALE">Мужчины</option>
             <option value="FEMALE">Женщины</option>
           </SelectField>
-          <SelectField label="Гео" value={globalGeo} onChange={setGlobalGeo}>
-            <option value="ANY">Любое</option>
-            {geos.map((geo) => (
-              <option key={geo} value={geo}>
-                {countries[geo]?.name || geo}
-              </option>
-            ))}
-          </SelectField>
-          <div className="grid gap-1.5">
-            <span className="text-sm font-medium">Пул</span>
-            <div className="flex h-10 items-center rounded-lg border px-3 text-sm text-muted-foreground">
-              {globalGender === "ANY" ? "Любой пол" : genderLabel(globalGender)} · {globalGeo === "ANY" ? "Любое гео" : globalGeo}
-            </div>
-          </div>
+          <GeoMultiSelect
+            label="Гео"
+            value={globalGeos}
+            geos={geos}
+            countries={countries}
+            emptyLabel="Любое гео"
+            onChange={setGlobalGeos}
+          />
         </div>
       </section>
 
@@ -595,6 +588,70 @@ function SelectField({
         {children}
       </select>
     </label>
+  )
+}
+
+function GeoMultiSelect({
+  label,
+  value,
+  geos,
+  countries,
+  emptyLabel,
+  onChange,
+}: {
+  label: string
+  value: string[]
+  geos: string[]
+  countries: Record<string, CountryInfo>
+  emptyLabel: string
+  onChange: (value: string[]) => void
+}) {
+  const selected = new Set(value)
+
+  function toggleGeo(geo: string) {
+    if (selected.has(geo)) {
+      onChange(value.filter((item) => item !== geo))
+      return
+    }
+    onChange([...value, geo])
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{label}</span>
+        {value.length > 0 ? (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={() => onChange([])}
+          >
+            Очистить
+          </button>
+        ) : null}
+      </div>
+      <div className="rounded-lg border bg-background p-2">
+        <div className="mb-2 min-h-5 truncate text-xs text-muted-foreground" title={geoSelectionLabel(value, countries, emptyLabel)}>
+          {geoSelectionLabel(value, countries, emptyLabel)}
+        </div>
+        <div className="grid max-h-36 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
+          {geos.map((geo) => (
+            <label
+              key={geo}
+              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(geo)}
+                onChange={() => toggleGeo(geo)}
+                className="size-4 shrink-0 accent-primary"
+              />
+              <span className="truncate">{countries[geo]?.name || geo}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -730,14 +787,14 @@ function CommentEditor({
           <option value="MALE">Мужчины</option>
           <option value="FEMALE">Женщины</option>
         </SelectField>
-        <SelectField label="Гео" value={unit.geo} onChange={(value) => onChange({ geo: value })}>
-          <option value="ANY">Любое</option>
-          {geos.map((geo) => (
-            <option key={geo} value={geo}>
-              {countries[geo]?.name || geo}
-            </option>
-          ))}
-        </SelectField>
+        <GeoMultiSelect
+          label="Гео"
+          value={unit.geos}
+          geos={geos}
+          countries={countries}
+          emptyLabel="Как в задаче"
+          onChange={(value) => onChange({ geos: value })}
+        />
       </div>
       {children}
     </div>
