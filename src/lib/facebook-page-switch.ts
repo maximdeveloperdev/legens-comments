@@ -3530,6 +3530,47 @@ async function clickVisibleCommentExpansion(page: Page) {
     .catch(() => false)
 }
 
+async function scrollFacebookPostComments(page: Page, amount = 700) {
+  await page
+    .evaluate((delta) => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 120 &&
+          box.height >= 120 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const canScroll = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 80
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
+      const roots = dialog ? [dialog, ...([...dialog.querySelectorAll("div")] as HTMLElement[])] : []
+      const candidates = roots
+        .filter((node) => visible(node) && canScroll(node))
+        .map((node) => {
+          const rect = node.getBoundingClientRect()
+          const text = `${node.getAttribute("aria-label") || ""} ${node.innerText || ""}`
+          const looksLikePost = /post|пост|comment|коммент|reply|ответ|Camille Bouchard/i.test(text)
+          return {
+            node,
+            score: (looksLikePost ? 10_000_000 : 0) + rect.height * rect.width,
+          }
+        })
+        .sort((left, right) => right.score - left.score)
+
+      const target = candidates[0]?.node || document.scrollingElement || document.documentElement
+      target.scrollBy({ top: delta, left: 0, behavior: "instant" })
+    }, amount)
+    .catch(() => undefined)
+
+  await page.mouse.wheel(0, amount).catch(() => undefined)
+}
+
 async function markReplyComposerNearButton(page: Page) {
   return page
     .evaluate(() => {
@@ -3650,7 +3691,7 @@ async function openReplyComposer(page: Page, parentText: string, log: (line: Swi
       await clickVisibleCommentExpansion(page)
       await pause(900)
     }
-    await page.mouse.wheel(0, 700).catch(() => undefined)
+    await scrollFacebookPostComments(page, 760)
     await pause(700)
   }
 
@@ -4027,7 +4068,7 @@ async function likeCommentByText(page: Page, parentText: string, log: (line: Swi
       await clickVisibleCommentExpansion(page)
       await pause(900)
     }
-    await page.mouse.wheel(0, 700).catch(() => undefined)
+    await scrollFacebookPostComments(page, 760)
     await pause(700)
   }
 
