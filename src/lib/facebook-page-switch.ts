@@ -3887,6 +3887,30 @@ async function replyAppearsUnderParent(page: Page, parentText: string, replyText
     .catch(() => false)
 }
 
+async function scrollTextIntoViewInFacebookPost(page: Page, text: string) {
+  const sample = text.replace(/\s+/g, " ").trim().slice(0, 180)
+  if (sample.length < 4) return false
+  return page
+    .evaluate((needle) => {
+      const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
+      const wanted = normalize(needle)
+      const composer = document.querySelector('[data-farm-comment-composer="true"]')
+      const visibleEnough = (el: Element) => {
+        const style = getComputedStyle(el)
+        return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || "1") > 0
+      }
+      const candidates = [...document.body.querySelectorAll("div, span")]
+        .filter((node) => !composer?.contains(node) && !node.contains(composer))
+        .filter((node) => visibleEnough(node) && normalize((node as HTMLElement).innerText || "").includes(wanted))
+        .filter((node) => ![...node.children].some((child) => normalize((child as HTMLElement).innerText || "").includes(wanted)))
+      const target = candidates[0] as HTMLElement | undefined
+      if (!target) return false
+      target.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" })
+      return true
+    }, sample)
+    .catch(() => false)
+}
+
 async function waitForSubmittedReply(page: Page, parentText: string, replyText: string) {
   const deadline = Date.now() + 20_000
   while (Date.now() < deadline) {
@@ -4206,11 +4230,17 @@ async function likeCommentByText(
 ) {
   for (let attempt = 0; attempt < 22; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
-      await findTextInFacebookPost(page, parentText || commentText)
+      if (!(await scrollTextIntoViewInFacebookPost(page, parentText || commentText))) {
+        await findTextInFacebookPost(page, parentText || commentText)
+      }
       await pause(700)
     }
     if (parentText && attempt % 2 === 0) {
+      await scrollTextIntoViewInFacebookPost(page, parentText)
+      await pause(300)
       await clickCommentExpansionNearText(page, parentText)
+      await pause(300)
+      await scrollTextIntoViewInFacebookPost(page, commentText)
       await pause(600)
     }
     const status = await markCommentLikeButtonForText(page, commentText)
