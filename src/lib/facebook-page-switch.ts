@@ -3579,16 +3579,45 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
         y: Math.max(dialogBox.y + 120, Math.min(dialogBox.y + dialogBox.height - 150, dialogBox.y + dialogBox.height / 2)),
       }
     : { x: 420, y: 320 }
+  const dragPoint = dialogBox
+    ? {
+        x: dialogBox.x + dialogBox.width - 10,
+        y: Math.max(dialogBox.y + 120, Math.min(dialogBox.y + dialogBox.height - 150, dialogBox.y + dialogBox.height / 2)),
+      }
+    : point
 
   await page.mouse.move(point.x, point.y).catch(() => undefined)
   await page.mouse.wheel(0, amount).catch(() => undefined)
 
   if (amount > 0) {
-    await page.mouse.move(point.x, point.y + 140).catch(() => undefined)
+    await page.mouse.move(dragPoint.x, dragPoint.y + 140).catch(() => undefined)
     await page.mouse.down().catch(() => undefined)
-    await page.mouse.move(point.x, point.y - 160, { steps: 8 }).catch(() => undefined)
+    await page.mouse.move(dragPoint.x, dragPoint.y - 160, { steps: 8 }).catch(() => undefined)
     await page.mouse.up().catch(() => undefined)
   }
+}
+
+async function findTextInFacebookPost(page: Page, text: string) {
+  const sample = text.replace(/\s+/g, " ").trim().slice(0, 120)
+  if (sample.length < 4) return false
+  return page
+    .evaluate((needle) => {
+      window.getSelection()?.removeAllRanges()
+      const browserFind = (window as Window & {
+        find?: (
+          string: string,
+          caseSensitive?: boolean,
+          backwards?: boolean,
+          wrapAround?: boolean,
+          wholeWord?: boolean,
+          searchInFrames?: boolean,
+          showDialog?: boolean,
+        ) => boolean
+      }).find
+      const found = browserFind?.(needle, false, false, true, false, false, false)
+      return Boolean(found)
+    }, sample)
+    .catch(() => false)
 }
 
 async function markReplyComposerNearButton(page: Page) {
@@ -3695,7 +3724,11 @@ async function waitForReplyComposer(page: Page, log: (line: SwitchLog) => void) 
 }
 
 async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 22; attempt += 1) {
+    if (attempt > 0 && attempt % 4 === 0) {
+      await findTextInFacebookPost(page, parentText)
+      await pause(700)
+    }
     if (await markReplyButtonForComment(page, parentText)) {
       const button = page.locator('[data-farm-reply-button="true"]').last()
       await button.scrollIntoViewIfNeeded().catch(() => undefined)
@@ -4067,7 +4100,11 @@ async function markCommentLikeButtonForText(page: Page, parentText: string) {
 }
 
 async function likeCommentByText(page: Page, parentText: string, log: (line: SwitchLog) => void) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 22; attempt += 1) {
+    if (attempt > 0 && attempt % 4 === 0) {
+      await findTextInFacebookPost(page, parentText)
+      await pause(700)
+    }
     const status = await markCommentLikeButtonForText(page, parentText)
     if (status === "already") {
       log({ level: "ok", text: "Лайк к комментарию уже стоит" })
