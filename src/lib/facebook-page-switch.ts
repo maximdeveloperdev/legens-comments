@@ -3564,7 +3564,7 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
         .sort((left, right) => right.score - left.score)
 
       const target = candidates[0]?.node || document.scrollingElement || document.documentElement
-      target.scrollBy({ top: delta, left: 0, behavior: "instant" })
+      target.scrollBy({ top: delta, left: 0, behavior: "auto" })
     }, amount)
     .catch(() => undefined)
 
