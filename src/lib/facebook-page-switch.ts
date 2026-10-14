@@ -3878,6 +3878,48 @@ async function scrollFacebookPostComments(page: Page, amount = 700) {
   }
 }
 
+async function resetFacebookPostCommentSearch(page: Page) {
+  await page.keyboard.press("Home").catch(() => undefined)
+  await page
+    .evaluate(() => {
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 120 &&
+          box.height >= 120 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        )
+      }
+      const canScroll = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 80
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
+      const roots = dialog ? [dialog, ...([...dialog.querySelectorAll("div")] as HTMLElement[])] : []
+      roots
+        .filter((node) => visible(node) && canScroll(node))
+        .forEach((node) => {
+          node.scrollTop = 0
+        })
+      document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+    })
+    .catch(() => undefined)
+  for (let step = 0; step < 2; step += 1) {
+    await scrollFacebookPostComments(page, -1800)
+    await pause(250)
+  }
+}
+
+function commentSearchScrollAmount(attempt: number) {
+  if (attempt === 0) return 0
+  if (attempt % 7 === 0) return -2600
+  if (attempt % 5 === 0) return -1400
+  return 720
+}
+
 async function findTextInFacebookPost(page: Page, text: string) {
   const sample = text.replace(/\s+/g, " ").trim().slice(0, 120)
   if (sample.length < 4) return false
@@ -4005,10 +4047,14 @@ async function waitForReplyComposer(page: Page, log: (line: SwitchLog) => void) 
 }
 
 async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void) {
+  log({ level: "info", text: "Ищем родительский комментарий для reply" })
+  await resetFacebookPostCommentSearch(page)
   await preferNewestComments(page, log)
-  for (let attempt = 0; attempt < 22; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
-      await findTextInFacebookPost(page, parentText)
+      if (!(await scrollTextIntoViewInFacebookPost(page, parentText))) {
+        await findTextInFacebookPost(page, parentText)
+      }
       await pause(700)
     }
     if (await markReplyButtonForComment(page, parentText)) {
@@ -4026,7 +4072,10 @@ async function openReplyComposer(page: Page, parentText: string, log: (line: Swi
       await clickVisibleCommentExpansion(page)
       await pause(900)
     }
-    await scrollFacebookPostComments(page, 760)
+    const scrollAmount = commentSearchScrollAmount(attempt)
+    if (scrollAmount !== 0) {
+      await scrollFacebookPostComments(page, scrollAmount)
+    }
     await pause(700)
   }
 
@@ -4426,8 +4475,10 @@ async function likeCommentByText(
   log: (line: SwitchLog) => void,
   parentText?: string,
 ) {
+  log({ level: "info", text: "Ищем комментарий для лайка" })
+  await resetFacebookPostCommentSearch(page)
   await preferNewestComments(page, log)
-  for (let attempt = 0; attempt < 22; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText || commentText))) {
         await findTextInFacebookPost(page, parentText || commentText)
@@ -4462,7 +4513,10 @@ async function likeCommentByText(
       await clickVisibleCommentExpansion(page)
       await pause(900)
     }
-    await scrollFacebookPostComments(page, 760)
+    const scrollAmount = commentSearchScrollAmount(attempt)
+    if (scrollAmount !== 0) {
+      await scrollFacebookPostComments(page, scrollAmount)
+    }
     await pause(700)
   }
 
