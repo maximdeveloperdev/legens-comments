@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import Image from "next/image"
-import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Sparkles, Trash2 } from "lucide-react"
+import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -534,7 +534,7 @@ export function TaskCreateForm({
         />
       </section>
 
-      <section className="grid gap-4 rounded-2xl border bg-primary/5 p-4 shadow-sm md:p-5">
+      <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <h2 className="font-heading text-base font-medium">Генерация комментариев</h2>
         <div className="grid gap-3">
           <div className="grid h-10 grid-cols-2 rounded-lg border bg-background p-1">
@@ -576,7 +576,6 @@ export function TaskCreateForm({
                 disabled={bulkCommentsText.trim().length === 0}
                 onClick={generateCommentsFromText}
               >
-                <Sparkles />
                 Generate
               </Button>
             </>
@@ -708,16 +707,6 @@ function GeoMultiSelect({
   emptyLabel: string
   onChange: (value: string[]) => void
 }) {
-  const selected = new Set(value)
-
-  function toggleGeo(geo: string) {
-    if (selected.has(geo)) {
-      onChange(value.filter((item) => item !== geo))
-      return
-    }
-    onChange([...value, geo])
-  }
-
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -732,27 +721,23 @@ function GeoMultiSelect({
           </button>
         ) : null}
       </div>
-      <div className="rounded-lg border bg-background p-2">
-        <div className="mb-2 min-h-5 truncate text-xs text-muted-foreground" title={geoSelectionLabel(value, countries, emptyLabel)}>
-          {geoSelectionLabel(value, countries, emptyLabel)}
-        </div>
-        <div className="grid max-h-36 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
-          {geos.map((geo) => (
-            <label
-              key={geo}
-              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(geo)}
-                onChange={() => toggleGeo(geo)}
-                className="size-4 shrink-0 accent-primary"
-              />
-              <span className="truncate">{countries[geo]?.name || geo}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <select
+        multiple
+        value={value}
+        onChange={(event) =>
+          onChange(Array.from(event.currentTarget.selectedOptions, (option) => option.value))
+        }
+        className="min-h-28 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        {geos.map((geo) => (
+          <option key={geo} value={geo}>
+            {countries[geo]?.name || geo}
+          </option>
+        ))}
+      </select>
+      <span className="truncate text-xs text-muted-foreground" title={geoSelectionLabel(value, countries, emptyLabel)}>
+        {geoSelectionLabel(value, countries, emptyLabel)}
+      </span>
     </div>
   )
 }
