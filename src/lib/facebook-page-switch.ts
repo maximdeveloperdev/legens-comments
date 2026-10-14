@@ -276,6 +276,37 @@ async function dismissOverlays(page: Page) {
         await pause(250)
       }
     }
+    if (await visible(open.first())) {
+      const box = await open
+        .first()
+        .boundingBox({ timeout: 1000 })
+        .catch(() => null)
+      if (box) {
+        await page.mouse.click(box.x + box.width - 34, box.y + 30).catch(() => undefined)
+        await pause(350)
+      }
+    }
+    if (await visible(open.first())) {
+      await open
+        .first()
+        .evaluate((node) => {
+          const buttons = [...node.querySelectorAll('button, [role="button"], [aria-label]')] as HTMLElement[]
+          const close = buttons.find((button) => {
+            const label = [
+              button.getAttribute("aria-label") || "",
+              button.getAttribute("title") || "",
+              button.innerText || button.textContent || "",
+            ]
+              .join(" ")
+              .replace(/\s+/g, " ")
+              .trim()
+            return /^(Close|Закрыть|Fermer|Cerrar|Chiudi|Zamknij|Schließen)$/i.test(label)
+          })
+          close?.click()
+        })
+        .catch(() => undefined)
+      await pause(350)
+    }
   }
   await page.keyboard.press("Escape").catch(() => undefined)
 }
@@ -2994,6 +3025,14 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
   }
   await revealCommentBox(page, log)
   await dismissOverlays(page)
+  if (await visible(profilesDialog(page).first())) {
+    log({ level: "info", text: "Список профилей не закрылся — перезагружаем пост" })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+    await dismissCookies(page, log)
+    await dismissOverlays(page)
+  }
   await revealCommentBox(page, log)
   who = await commentAsName(page)
   if (!sameFan(who, name)) {
