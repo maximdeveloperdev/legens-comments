@@ -55,9 +55,9 @@ function pause(ms: number) {
 const FACEBOOK_DEBUG_DIR = path.join(process.cwd(), ".debug", "facebook-errors")
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
 
-const PROFILE_LAYER_STRONG_RE =
-  /your profiles|profiles\s*&\s*pages|switch to interact|search profiles|see more profiles|see all profiles|посмотреть все профили|показать все профили|искать профил|пошук проф|zobacz wszystkie profile|zobacz więcej profili|szukaj profili|ver todos los perfiles|ver más perfiles|buscar perfiles|ver todos os perfis|ver mais perfis|pesquisar perfis|vedi tutti i profili|vedi altri profili|cerca profili|voir tous les profils|voir plus de profils|rechercher profils|alle profile ansehen|mehr profile anzeigen|profile suchen/i
-const PROFILE_LAYER_STRONG_RE_SOURCE = PROFILE_LAYER_STRONG_RE.source
+const PROFILE_LAYER_RE =
+  /your profiles|switch to interact|search profiles|see more profiles|see all profiles|профил|страниц|tw[oó]j profil|profile|przełącz|perfiles|p[aá]ginas|perfis|profili|profilo|profils|seiten/i
+const PROFILE_LAYER_RE_SOURCE = PROFILE_LAYER_RE.source
 const SEE_ALL_PROFILES_RE =
   /See all profiles|Посмотреть все профили|Показать все профили|Zobacz wszystkie profile|Ver todos los perfiles|Ver todos os perfis|Vedi tutti i profili|Voir tous les profils|Alle Profile ansehen/i
 const SEE_MORE_PROFILES_RE =
@@ -265,7 +265,7 @@ async function clickIfVisible(locator: Locator, timeoutMs = 2500) {
 async function dismissOverlays(page: Page) {
   for (let step = 0; step < 4; step += 1) {
     const open = page.locator('[role="dialog"], [role="menu"]').filter({
-      hasText: PROFILE_LAYER_STRONG_RE,
+      hasText: PROFILE_LAYER_RE,
     })
     if (!(await visible(open.first()))) break
     await page.keyboard.press("Escape").catch(() => undefined)
@@ -390,7 +390,7 @@ function switcherRoot(page: Page) {
 
 function profilesDialog(page: Page) {
   return page.locator('[role="dialog"]:visible, [role="menu"]:visible, [aria-modal="true"]:visible').filter({
-    hasText: PROFILE_LAYER_STRONG_RE,
+    hasText: PROFILE_LAYER_RE,
   })
 }
 
@@ -419,7 +419,7 @@ async function waitForProfilesLayer(page: Page, timeoutMs = 12_000) {
         return profileLayerRe.test(text)
       })
     },
-    PROFILE_LAYER_STRONG_RE_SOURCE,
+    PROFILE_LAYER_RE_SOURCE,
     { timeout: timeoutMs },
   )
 }
@@ -511,7 +511,7 @@ async function scrapeFans(page: Page, log: (line: SwitchLog) => void): Promise<S
 
 function identityOverlay(page: Page) {
   return page.locator('[role="dialog"], [role="menu"], [role="listbox"], [aria-modal="true"]').filter({
-    hasText: PROFILE_LAYER_STRONG_RE,
+    hasText: PROFILE_LAYER_RE,
   })
 }
 
