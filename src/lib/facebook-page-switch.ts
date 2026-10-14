@@ -3530,12 +3530,16 @@ async function clickVisibleCommentExpansion(page: Page) {
     .catch(() => false)
 }
 
-async function clickCommentExpansionNearText(page: Page, parentText: string) {
+async function markCommentExpansionNearText(page: Page, parentText: string) {
   const sample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
   if (sample.length < 4) return false
   return page
     .evaluate(
       ({ needle }) => {
+        document.querySelectorAll("[data-farm-comment-expansion]").forEach((node) => {
+          node.removeAttribute("data-farm-comment-expansion")
+        })
+
         const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
         const wanted = normalize(needle)
         const composer = document.querySelector('[data-farm-comment-composer="true"]')
@@ -3573,35 +3577,41 @@ async function clickCommentExpansionNearText(page: Page, parentText: string) {
 
         for (const textNode of textNodes) {
           const textBox = (textNode as HTMLElement).getBoundingClientRect()
-          let root: HTMLElement | null = textNode as HTMLElement
-          for (let depth = 0; depth < 14 && root; depth += 1, root = root.parentElement) {
-            const controls = [...root.querySelectorAll('a, button, span, div, [role="button"], [tabindex="0"]')]
-              .filter((node) => visible(node))
-              .map((node) => ({
-                node: node as HTMLElement,
-                label: labelOf(node),
-                box: (node as HTMLElement).getBoundingClientRect(),
-              }))
-              .filter(({ label, box }) => {
-                if (!labelRe.test(label)) return false
-                return box.top >= textBox.bottom - 8 && box.top < textBox.bottom + 260
-              })
-              .sort((left, right) => {
-                const leftDistance = Math.abs(left.box.top - textBox.bottom)
-                const rightDistance = Math.abs(right.box.top - textBox.bottom)
-                return leftDistance - rightDistance || left.box.left - right.box.left
-              })
-            const target = controls[0]?.node
-            if (!target) continue
-            target.click()
-            return true
-          }
+          const controls = [...document.body.querySelectorAll('a, button, span, div, [role="button"], [tabindex="0"]')]
+            .filter((node) => visible(node))
+            .map((node) => ({
+              node: node as HTMLElement,
+              label: labelOf(node),
+              box: (node as HTMLElement).getBoundingClientRect(),
+            }))
+            .filter(({ label, box }) => {
+              if (!labelRe.test(label)) return false
+              if (box.top < textBox.bottom - 10 || box.top > textBox.bottom + 260) return false
+              return box.left >= textBox.left - 40 && box.left < textBox.left + 360
+            })
+            .sort((left, right) => {
+              const leftDistance = Math.abs(left.box.top - textBox.bottom)
+              const rightDistance = Math.abs(right.box.top - textBox.bottom)
+              return leftDistance - rightDistance || left.box.left - right.box.left
+            })
+          const target = controls[0]?.node
+          if (!target) continue
+          target.setAttribute("data-farm-comment-expansion", "true")
+          return true
         }
         return false
       },
       { needle: sample },
     )
     .catch(() => false)
+}
+
+async function clickCommentExpansionNearText(page: Page, parentText: string) {
+  if (!(await markCommentExpansionNearText(page, parentText))) return false
+  const button = page.locator('[data-farm-comment-expansion="true"]').first()
+  await button.scrollIntoViewIfNeeded().catch(() => undefined)
+  await pause(200)
+  return (await forceClick(button, 2500)) || (await clickAtBox(page, button))
 }
 
 async function scrollFacebookPostComments(page: Page, amount = 700) {
