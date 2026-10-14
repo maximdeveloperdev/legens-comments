@@ -3074,9 +3074,45 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
 }
 
 async function ensurePostStillOpen(page: Page, postUrl: string, log: (line: SwitchLog) => void) {
-  if (/\/posts\/|story_fbid|permalink/i.test(page.url())) return
+  const lost = await page
+    .evaluate(() => {
+      const text = (document.body.innerText || "").replace(/\s+/g, " ")
+      const urlLooksLikePost = /\/posts\/|story_fbid|permalink/i.test(location.href)
+      const mediaViewer = /this (photo|video) is from a post|view post/i.test(text)
+      const homeFeed = /what'?s on your mind|create story|follow more profiles/i.test(text)
+      const unavailable = /this page isn['’]?t available right now|reload page/i.test(text)
+      return !urlLooksLikePost || mediaViewer || homeFeed || unavailable
+    })
+    .catch(() => !/\/posts\/|story_fbid|permalink/i.test(page.url()))
 
-  log({ level: "info", text: `Facebook увёл не на пост — открываем пост заново ${postUrl}` })
+  if (!lost) return
+
+  const viewPost = page
+    .getByRole("link", { name: /^View post$/i })
+    .or(page.getByRole("button", { name: /^View post$/i }))
+    .or(page.getByText(/^View post$/i))
+    .last()
+  if (await clickIfVisible(viewPost, 2500)) {
+    log({ level: "info", text: "Facebook открыл фото/видео вместо ветки — нажали View post" })
+    await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined)
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
+    await pause(1500)
+  }
+
+  const stillLost = await page
+    .evaluate(() => {
+      const text = (document.body.innerText || "").replace(/\s+/g, " ")
+      const urlLooksLikePost = /\/posts\/|story_fbid|permalink/i.test(location.href)
+      const mediaViewer = /this (photo|video) is from a post|view post/i.test(text)
+      const homeFeed = /what'?s on your mind|create story|follow more profiles/i.test(text)
+      const unavailable = /this page isn['’]?t available right now|reload page/i.test(text)
+      return !urlLooksLikePost || mediaViewer || homeFeed || unavailable
+    })
+    .catch(() => true)
+
+  if (!stillLost) return
+
+  log({ level: "info", text: `Facebook увёл не в ветку поста — открываем пост заново ${postUrl}` })
   await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
   await pause(2500)
@@ -4046,11 +4082,15 @@ async function waitForReplyComposer(page: Page, log: (line: SwitchLog) => void) 
   throw new Error("Не открылось поле ответа под родительским комментарием")
 }
 
-async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void) {
+async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void, postUrl?: string) {
   log({ level: "info", text: "Ищем родительский комментарий для reply" })
+  if (postUrl) await ensurePostStillOpen(page, postUrl, log)
   await resetFacebookPostCommentSearch(page)
   await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (postUrl && attempt > 0 && attempt % 8 === 0) {
+      await ensurePostStillOpen(page, postUrl, log)
+    }
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText))) {
         await findTextInFacebookPost(page, parentText)
@@ -4174,8 +4214,9 @@ async function writeCommentReply(
   parentText: string,
   log: (line: SwitchLog) => void,
   photoPath?: string,
+  postUrl?: string,
 ) {
-  const box = await openReplyComposer(page, parentText, log)
+  const box = await openReplyComposer(page, parentText, log, postUrl)
   await fillCommentText(page, box, text)
   log({ level: "ok", text: "Поле ответа открыто" })
   await pause(400)
@@ -4474,11 +4515,16 @@ async function likeCommentByText(
   commentText: string,
   log: (line: SwitchLog) => void,
   parentText?: string,
+  postUrl?: string,
 ) {
   log({ level: "info", text: "Ищем комментарий для лайка" })
+  if (postUrl) await ensurePostStillOpen(page, postUrl, log)
   await resetFacebookPostCommentSearch(page)
   await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (postUrl && attempt > 0 && attempt % 8 === 0) {
+      await ensurePostStillOpen(page, postUrl, log)
+    }
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText || commentText))) {
         await findTextInFacebookPost(page, parentText || commentText)
@@ -4930,9 +4976,9 @@ export async function runFacebookComment(
     }
 
     if (input.likeCommentText) {
-      await likeCommentByText(page, input.likeCommentText, onLog, input.likeCommentParentText)
+      await likeCommentByText(page, input.likeCommentText, onLog, input.likeCommentParentText, input.url)
     } else if (!input.likeOnly && input.replyToText) {
-      await writeCommentReply(page, input.message, input.replyToText, onLog, input.photoPath)
+      await writeCommentReply(page, input.message, input.replyToText, onLog, input.photoPath, input.url)
     } else if (!input.likeOnly) {
       await writePostComment(page, input.message, onLog, input.photoPath)
     }
