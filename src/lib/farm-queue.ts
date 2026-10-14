@@ -187,7 +187,16 @@ async function runFarmJob(job: FarmJob) {
     const parentJob = job.replyToJobId
       ? await prisma.farmJob.findUnique({
           where: { id: job.replyToJobId },
-          select: { status: true, message: true, fanName: true },
+          select: {
+            status: true,
+            message: true,
+            fanName: true,
+            replyToJob: {
+              select: {
+                message: true,
+              },
+            },
+          },
         })
       : null
     if (commentLikeOnly && !job.replyToJobId) {
@@ -241,6 +250,7 @@ async function runFarmJob(job: FarmJob) {
         photoPath: job.photoPath || undefined,
         fanName: job.fanName || undefined,
         likeCommentText: commentLikeOnly ? parentJob?.message || undefined : undefined,
+        likeCommentParentText: commentLikeOnly ? parentJob?.replyToJob?.message || undefined : undefined,
         replyToText: !commentLikeOnly ? parentJob?.message || undefined : undefined,
         likeOnly,
         likeWithComment,

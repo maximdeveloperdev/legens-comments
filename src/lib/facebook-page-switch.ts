@@ -3493,7 +3493,7 @@ async function clickVisibleCommentExpansion(page: Page) {
   return page
     .evaluate(() => {
       const labelRe =
-        /view more comments|view previous comments|see more comments|show more comments|view.*repl|показать.*коммент|посмотреть.*коммент|показати.*коментар|zobacz.*komentar|ver.*coment|voir.*comment|mehr.*kommentar|most relevant|all comments/i
+        /view more comments|view previous comments|see more comments|show more comments|view.*repl|show.*repl|\d+\s+(reply|replies)|показать.*коммент|посмотреть.*коммент|показати.*коментар|zobacz.*komentar|ver.*coment|voir.*comment|mehr.*kommentar|most relevant|all comments/i
       const visible = (el: Element) => {
         const box = (el as HTMLElement).getBoundingClientRect()
         const style = getComputedStyle(el)
@@ -3527,6 +3527,80 @@ async function clickVisibleCommentExpansion(page: Page) {
       picked.click()
       return true
     })
+    .catch(() => false)
+}
+
+async function clickCommentExpansionNearText(page: Page, parentText: string) {
+  const sample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
+  if (sample.length < 4) return false
+  return page
+    .evaluate(
+      ({ needle }) => {
+        const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
+        const wanted = normalize(needle)
+        const composer = document.querySelector('[data-farm-comment-composer="true"]')
+        const labelRe =
+          /view.*repl|show.*repl|\d+\s+(reply|replies)|ответ|відповід|respuest|réponse|antwort|rispost/i
+        const visible = (el: Element) => {
+          const box = (el as HTMLElement).getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 8 &&
+            box.height >= 8 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || "1") > 0
+          )
+        }
+        const labelOf = (node: Element) =>
+          [
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("title") || "",
+            (node as HTMLElement).innerText || node.textContent || "",
+          ]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+
+        const textNodes = [...document.body.querySelectorAll("div, span")]
+          .filter((node) => !composer?.contains(node) && !node.contains(composer))
+          .filter((node) => visible(node) && normalize((node as HTMLElement).innerText || "").includes(wanted))
+          .filter((node) => ![...node.children].some((child) => normalize((child as HTMLElement).innerText || "").includes(wanted)))
+
+        for (const textNode of textNodes) {
+          const textBox = (textNode as HTMLElement).getBoundingClientRect()
+          let root: HTMLElement | null = textNode as HTMLElement
+          for (let depth = 0; depth < 14 && root; depth += 1, root = root.parentElement) {
+            const controls = [...root.querySelectorAll('a, button, span, div, [role="button"], [tabindex="0"]')]
+              .filter((node) => visible(node))
+              .map((node) => ({
+                node: node as HTMLElement,
+                label: labelOf(node),
+                box: (node as HTMLElement).getBoundingClientRect(),
+              }))
+              .filter(({ label, box }) => {
+                if (!labelRe.test(label)) return false
+                return box.top >= textBox.bottom - 8 && box.top < textBox.bottom + 260
+              })
+              .sort((left, right) => {
+                const leftDistance = Math.abs(left.box.top - textBox.bottom)
+                const rightDistance = Math.abs(right.box.top - textBox.bottom)
+                return leftDistance - rightDistance || left.box.left - right.box.left
+              })
+            const target = controls[0]?.node
+            if (!target) continue
+            target.click()
+            return true
+          }
+        }
+        return false
+      },
+      { needle: sample },
+    )
     .catch(() => false)
 }
 
@@ -4011,8 +4085,8 @@ async function likePost(page: Page, log: (line: SwitchLog) => void) {
   throw new Error("Не удалось поставить лайк: поверх кнопки другой слой")
 }
 
-async function markCommentLikeButtonForText(page: Page, parentText: string) {
-  const sample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
+async function markCommentLikeButtonForText(page: Page, commentText: string) {
+  const sample = commentText.replace(/\s+/g, " ").trim().slice(0, 180)
   if (sample.length < 4) return "missing" as const
   return page
     .evaluate(
@@ -4029,6 +4103,10 @@ async function markCommentLikeButtonForText(page: Page, parentText: string) {
           /^(like|нравится|подобається|lubię to|mi piace|me gusta|curtir|j’aime|j'aime|gefällt mir)$/i
         const likedRe =
           /^(liked|unlike|remove like|remove reaction|больше не нравится|вподобано|nie lubię|ya no me gusta|não curtir|je n’aime plus|je n'aime plus)$/i
+        const replyRe =
+          /^(reply|ответить|відповісти|odpowiedz|responder|répondre|antworten|rispondi)$/i
+        const badFallbackRe =
+          /comment as|write a comment|reply|ответить|відповісти|dislike|не нравится|no me gusta|não gostei/i
         const visible = (el: Element) => {
           const box = (el as HTMLElement).getBoundingClientRect()
           const style = getComputedStyle(el)
@@ -4070,10 +4148,7 @@ async function markCommentLikeButtonForText(page: Page, parentText: string) {
                 label: labelOf(node),
                 box: (node as HTMLElement).getBoundingClientRect(),
               }))
-              .filter(({ label, box }) => {
-                if (!label || box.top < textBox.top - 24) return false
-                return likeRe.test(label) || likedRe.test(label)
-              })
+              .filter(({ box }) => box.top >= textBox.top - 24)
               .sort((left, right) => {
                 const leftLiked = likedRe.test(left.label) ? 0 : 1
                 const rightLiked = likedRe.test(right.label) ? 0 : 1
@@ -4081,7 +4156,21 @@ async function markCommentLikeButtonForText(page: Page, parentText: string) {
                 const rightDistance = Math.abs(right.box.top - textBox.bottom)
                 return leftLiked - rightLiked || leftDistance - rightDistance || left.box.left - right.box.left
               })
-            const target = controls[0]
+            let target = controls.find(({ label }) => likeRe.test(label) || likedRe.test(label))
+            if (!target) {
+              const reply = controls.find(({ label, box }) => replyRe.test(label) && box.top >= textBox.bottom - 12)
+              if (reply) {
+                target = controls
+                  .filter(({ label, box }) => {
+                    if (label && badFallbackRe.test(label)) return false
+                    if (box.top < textBox.bottom - 18) return false
+                    if (Math.abs(box.top - reply.box.top) > 24) return false
+                    if (box.left >= reply.box.left) return false
+                    return box.width >= 12 && box.width <= 70 && box.height >= 12 && box.height <= 42
+                  })
+                  .sort((left, right) => left.box.left - right.box.left)[0]
+              }
+            }
             if (!target) continue
             target.node.setAttribute("data-farm-comment-like-button", "true")
             if (likedRe.test(target.label)) {
@@ -4099,13 +4188,22 @@ async function markCommentLikeButtonForText(page: Page, parentText: string) {
     .catch(() => "missing" as const)
 }
 
-async function likeCommentByText(page: Page, parentText: string, log: (line: SwitchLog) => void) {
+async function likeCommentByText(
+  page: Page,
+  commentText: string,
+  log: (line: SwitchLog) => void,
+  parentText?: string,
+) {
   for (let attempt = 0; attempt < 22; attempt += 1) {
     if (attempt > 0 && attempt % 4 === 0) {
-      await findTextInFacebookPost(page, parentText)
+      await findTextInFacebookPost(page, parentText || commentText)
       await pause(700)
     }
-    const status = await markCommentLikeButtonForText(page, parentText)
+    if (parentText && attempt % 2 === 0) {
+      await clickCommentExpansionNearText(page, parentText)
+      await pause(600)
+    }
+    const status = await markCommentLikeButtonForText(page, commentText)
     if (status === "already") {
       log({ level: "ok", text: "Лайк к комментарию уже стоит" })
       return
@@ -4505,6 +4603,7 @@ export async function runFacebookComment(
     photoPath?: string
     fanName?: string
     likeCommentText?: string
+    likeCommentParentText?: string
     replyToText?: string
     likeOnly?: boolean
     likeWithComment?: boolean
@@ -4537,7 +4636,7 @@ export async function runFacebookComment(
     }
 
     if (input.likeCommentText) {
-      await likeCommentByText(page, input.likeCommentText, onLog)
+      await likeCommentByText(page, input.likeCommentText, onLog, input.likeCommentParentText)
     } else if (!input.likeOnly && input.replyToText) {
       await writeCommentReply(page, input.message, input.replyToText, onLog, input.photoPath)
     } else if (!input.likeOnly) {
