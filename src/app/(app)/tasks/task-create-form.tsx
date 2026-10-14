@@ -822,11 +822,6 @@ function GeoMultiSelect({
         </div>
       ) : null}
 
-      {value.length > 0 ? (
-        <span className="truncate text-xs text-muted-foreground" title={selectedLabel}>
-          {selectedLabel}
-        </span>
-      ) : null}
     </div>
   )
 }
