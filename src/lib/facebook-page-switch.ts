@@ -2998,19 +2998,6 @@ function commentBox(page: Page) {
     .first()
 }
 
-function lastCommentBox(page: Page) {
-  return page
-    .getByRole("textbox", {
-      name: COMMENT_RE,
-    })
-    .or(
-      page.locator(
-        '[contenteditable="true"][role="textbox"][aria-label*="comment" i], [contenteditable="true"][role="textbox"][aria-label*="reply" i], [contenteditable="true"][role="textbox"][aria-label*="ответ" i], [contenteditable="true"][role="textbox"][aria-label*="відпов" i], [contenteditable="true"][role="textbox"][aria-label*="коммент" i], [contenteditable="true"][role="textbox"][aria-label*="komentarz" i], [contenteditable="true"][role="textbox"][aria-label*="odpowiedz" i], [contenteditable="true"][role="textbox"][aria-label*="comentar" i], [contenteditable="true"][role="textbox"][aria-label*="responder" i], [contenteditable="true"][role="textbox"][aria-label*="commenta" i], [contenteditable="true"][role="textbox"][aria-label*="rispondi" i], [contenteditable="true"][role="textbox"][aria-label*="commenter" i], [contenteditable="true"][role="textbox"][aria-label*="répondre" i], [contenteditable="true"][aria-placeholder*="comment" i], [contenteditable="true"][aria-placeholder*="reply" i], [contenteditable="true"][aria-placeholder*="ответ" i], [contenteditable="true"][aria-placeholder*="коммент" i], [contenteditable="true"][aria-placeholder*="komentarz" i], [contenteditable="true"][aria-placeholder*="comentar" i]',
-      ),
-    )
-    .last()
-}
-
 async function visibleSubmittedCommentCount(page: Page, text: string) {
   const sample = text.replace(/\s+/g, " ").trim().slice(0, 160)
   if (sample.length < 4) return 0
@@ -3543,6 +3530,109 @@ async function clickVisibleCommentExpansion(page: Page) {
     .catch(() => false)
 }
 
+async function markReplyComposerNearButton(page: Page) {
+  return page
+    .evaluate(() => {
+      document.querySelectorAll("[data-farm-reply-composer]").forEach((node) => {
+        node.removeAttribute("data-farm-reply-composer")
+      })
+
+      const button = document.querySelector('[data-farm-reply-button="true"]') as HTMLElement | null
+      const parent = document.querySelector('[data-farm-reply-parent="true"]') as HTMLElement | null
+      const buttonBox = button?.getBoundingClientRect() || null
+      const replyLabelRe =
+        /reply|ответ|відпов|odpowiedz|responder|rispondi|répondre|antworten/i
+      const composerLabelRe =
+        /comment|reply|ответ|відпов|коммент|komentarz|odpowiedz|comentar|responder|commenta|rispondi|commenter|répondre/i
+      const visible = (el: Element) => {
+        const box = (el as HTMLElement).getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return (
+          box.width >= 24 &&
+          box.height >= 12 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0
+        )
+      }
+      const labelOf = (node: Element) =>
+        [
+          node.getAttribute("aria-label") || "",
+          node.getAttribute("aria-placeholder") || "",
+          node.getAttribute("placeholder") || "",
+          node.getAttribute("title") || "",
+          (node as HTMLElement).innerText || node.textContent || "",
+        ]
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+      const roots: HTMLElement[] = []
+      if (parent) {
+        roots.push(parent)
+        let node = parent.parentElement
+        for (let depth = 0; depth < 4 && node; depth += 1, node = node.parentElement) {
+          roots.push(node)
+        }
+      }
+      roots.push(document.body)
+
+      const boxes = [
+        ...new Set(
+          roots.flatMap((root) =>
+            [...root.querySelectorAll('[contenteditable="true"][role="textbox"], [contenteditable="true"]')] as HTMLElement[],
+          ),
+        ),
+      ]
+        .filter((box) => visible(box))
+        .map((box) => ({
+          box,
+          label: labelOf(box),
+          rect: box.getBoundingClientRect(),
+        }))
+        .filter(({ box, label, rect }) => {
+          if (button && box.contains(button)) return false
+          if (buttonBox && rect.top < buttonBox.top - 24) return false
+          if (buttonBox && rect.top > buttonBox.top + 760) return false
+          return !label || composerLabelRe.test(label)
+        })
+        .sort((left, right) => {
+          const leftInParent = parent?.contains(left.box) ? 0 : 1
+          const rightInParent = parent?.contains(right.box) ? 0 : 1
+          const leftReply = replyLabelRe.test(left.label) ? 0 : 1
+          const rightReply = replyLabelRe.test(right.label) ? 0 : 1
+          const leftDistance = buttonBox ? Math.abs(left.rect.top - buttonBox.bottom) : left.rect.top
+          const rightDistance = buttonBox ? Math.abs(right.rect.top - buttonBox.bottom) : right.rect.top
+          return leftInParent - rightInParent || leftReply - rightReply || leftDistance - rightDistance
+        })
+
+      const target = boxes[0]?.box
+      if (!target) return false
+      target.setAttribute("data-farm-reply-composer", "true")
+      target.setAttribute("data-farm-comment-composer", "true")
+      return true
+    })
+    .catch(() => false)
+}
+
+async function waitForReplyComposer(page: Page, log: (line: SwitchLog) => void) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (await markReplyComposerNearButton(page)) {
+      const box = page.locator('[data-farm-reply-composer="true"]').last()
+      if (await visible(box)) return box
+    }
+    if (attempt === 3) {
+      await clickVisibleCommentExpansion(page)
+    }
+    await pause(600)
+  }
+  log({ level: "error", text: "Reply нажали, но поле ответа рядом с комментарием не появилось" })
+  throw new Error("Не открылось поле ответа под родительским комментарием")
+}
+
 async function openReplyComposer(page: Page, parentText: string, log: (line: SwitchLog) => void) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     if (await markReplyButtonForComment(page, parentText)) {
@@ -3552,9 +3642,7 @@ async function openReplyComposer(page: Page, parentText: string, log: (line: Swi
       if ((await forceClick(button, 5000)) || (await clickAtBox(page, button))) {
         log({ level: "info", text: "Нажали Reply под родительским комментарием" })
         await pause(1200)
-        const box = lastCommentBox(page)
-        await box.waitFor({ state: "visible", timeout: 10_000 })
-        return box
+        return waitForReplyComposer(page, log)
       }
     }
 
@@ -3567,6 +3655,68 @@ async function openReplyComposer(page: Page, parentText: string, log: (line: Swi
   }
 
   throw new Error("Не нашли родительский комментарий или кнопку Reply")
+}
+
+async function replyAppearsUnderParent(page: Page, parentText: string, replyText: string) {
+  const parentSample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
+  const replySample = replyText.replace(/\s+/g, " ").trim().slice(0, 180)
+  if (parentSample.length < 4 || replySample.length < 4) return false
+  return page
+    .evaluate(
+      ({ parentNeedle, replyNeedle }) => {
+        const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
+        const wantedParent = normalize(parentNeedle)
+        const wantedReply = normalize(replyNeedle)
+        const composer = document.querySelector('[data-farm-comment-composer="true"]')
+        const visible = (el: Element) => {
+          const box = (el as HTMLElement).getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 12 &&
+            box.height >= 8 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || "1") > 0
+          )
+        }
+        const leafTextNodes = (root: ParentNode, wanted: string) =>
+          [...root.querySelectorAll("div, span")]
+            .filter((node) => !composer?.contains(node) && !node.contains(composer))
+            .filter((node) => visible(node) && normalize((node as HTMLElement).innerText || "").includes(wanted))
+            .filter((node) => ![...node.children].some((child) => normalize((child as HTMLElement).innerText || "").includes(wanted)))
+
+        const parentNodes = leafTextNodes(document.body, wantedParent)
+        for (const parentNode of parentNodes) {
+          const parentBox = (parentNode as HTMLElement).getBoundingClientRect()
+          let root: HTMLElement | null = parentNode as HTMLElement
+          for (let depth = 0; depth < 14 && root; depth += 1, root = root.parentElement) {
+            const replies = leafTextNodes(root, wantedReply).filter((replyNode) => {
+              if (replyNode === parentNode) return false
+              const replyBox = (replyNode as HTMLElement).getBoundingClientRect()
+              return replyBox.top > parentBox.bottom - 6 && replyBox.left > parentBox.left + 16
+            })
+            if (replies.length > 0) return true
+          }
+        }
+        return false
+      },
+      { parentNeedle: parentSample, replyNeedle: replySample },
+    )
+    .catch(() => false)
+}
+
+async function waitForSubmittedReply(page: Page, parentText: string, replyText: string) {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    if (await replyAppearsUnderParent(page, parentText, replyText)) return true
+    await clickVisibleCommentExpansion(page)
+    await pause(1000)
+  }
+  return false
 }
 
 async function writeCommentReply(
@@ -3585,6 +3735,9 @@ async function writeCommentReply(
   const sent = await sendPostComment(page, box, text, log)
   if (!sent) {
     throw new Error("Нажали отправку, но новый ответ не появился на Facebook")
+  }
+  if (!(await waitForSubmittedReply(page, parentText, text))) {
+    throw new Error("Ответ не появился вложенным под родительским комментарием")
   }
   log({ level: "ok", text: "Ответ отправлен и появился на Facebook" })
 }
