@@ -266,6 +266,16 @@ async function dismissOverlays(page: Page) {
     if (!(await visible(open.first()))) break
     await page.keyboard.press("Escape").catch(() => undefined)
     await pause(250)
+    if (await visible(open.first())) {
+      const close = open
+        .getByRole("button", { name: /^(Close|Закрыть|Fermer|Cerrar|Chiudi|Zamknij|Schließen)$/i })
+        .or(open.locator('[aria-label="Close"], [aria-label="Закрыть"]'))
+        .last()
+      if (await visible(close)) {
+        await forceClick(close, 1500).catch(() => false)
+        await pause(250)
+      }
+    }
   }
   await page.keyboard.press("Escape").catch(() => undefined)
 }
@@ -2930,6 +2940,11 @@ async function switchToFan(page: Page, name: string, log: (line: SwitchLog) => v
     await page.keyboard.press("Enter").catch(() => undefined)
     await profilesDialog(page).first().waitFor({ state: "hidden", timeout: 12_000 }).catch(() => undefined)
   }
+  if (await visible(profilesDialog(page).first())) {
+    log({ level: "info", text: "Список профилей всё ещё открыт — закрываем крестиком" })
+    await dismissOverlays(page)
+    await profilesDialog(page).first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined)
+  }
   await switcherRoot(page).waitFor({ state: "hidden", timeout: 8_000 }).catch(() => undefined)
   await page.waitForLoadState("load", { timeout: 45_000 }).catch(() => undefined)
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
@@ -2977,6 +2992,8 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
     await pause(2000)
   }
+  await revealCommentBox(page, log)
+  await dismissOverlays(page)
   await revealCommentBox(page, log)
   who = await commentAsName(page)
   if (!sameFan(who, name)) {
