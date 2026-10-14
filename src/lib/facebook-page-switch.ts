@@ -546,7 +546,10 @@ async function afterPossibleNav(page: Page, postUrl: string | undefined, log: (l
   await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined)
   await pause(1500)
   if (postUrl && !/\/posts\/|story_fbid|permalink|photo\.php/i.test(page.url())) {
-    await openFacebookPostUrl(page, postUrl, log, "После клика Facebook ушёл со поста — открываем снова")
+    log({ level: "info", text: "После клика Facebook ушёл со поста — открываем снова" })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(1500)
   }
 }
 
@@ -3035,15 +3038,28 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
     }
   }
   if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
-    await openFacebookPostUrl(page, postUrl, log, `Снова открываем пост ${postUrl}`)
+    log({ level: "info", text: `Снова открываем пост ${postUrl}` })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2000)
   }
   await revealCommentBox(page, log)
   await dismissOverlays(page)
   if (await visible(profilesDialog(page).first())) {
-    await openFacebookPostUrl(page, postUrl, log, "Список профилей не закрылся — перезагружаем пост")
+    log({ level: "info", text: "Список профилей не закрылся — перезагружаем пост" })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+    await dismissCookies(page, log)
+    await dismissOverlays(page)
   }
   if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
-    await openFacebookPostUrl(page, postUrl, log, `Facebook открыл ленту после switch — открываем пост заново ${postUrl}`)
+    log({ level: "info", text: `Facebook открыл ленту после switch — открываем пост заново ${postUrl}` })
+    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+    await dismissCookies(page, log)
+    await dismissOverlays(page)
   }
   await revealCommentBox(page, log)
   who = await commentAsName(page)
@@ -3053,30 +3069,16 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
   log({ level: "ok", text: `Действуем как «${name}»` })
 }
 
-async function openFacebookPostUrl(
-  page: Page,
-  postUrl: string,
-  log: (line: SwitchLog) => void,
-  reason?: string,
-) {
-  if (reason) log({ level: "info", text: reason })
+async function ensurePostStillOpen(page: Page, postUrl: string, log: (line: SwitchLog) => void) {
+  if (/\/posts\/|story_fbid|permalink/i.test(page.url())) return
 
-  // Facebook sometimes keeps the home feed route after switching Pages even when
-  // page.goto(postUrl) is called. A blank hop forces a fresh document load.
-  await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => undefined)
-  await pause(350)
+  log({ level: "info", text: `Facebook увёл не на пост — открываем пост заново ${postUrl}` })
   await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
   await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
   await pause(2500)
   await dismissCookies(page, log)
   await assertFacebookContentAvailable(page, log)
   await dismissOverlays(page)
-}
-
-async function ensurePostStillOpen(page: Page, postUrl: string, log: (line: SwitchLog) => void) {
-  if (/\/posts\/|story_fbid|permalink/i.test(page.url())) return
-
-  await openFacebookPostUrl(page, postUrl, log, `Facebook увёл не на пост — открываем пост заново ${postUrl}`)
 }
 
 function commentBox(page: Page) {
@@ -4856,7 +4858,12 @@ export async function runFacebookComment(
     browser = opened.browser
     page = opened.page
 
-    await openFacebookPostUrl(page, input.url, onLog, `Открываем пост ${input.url}`)
+    onLog({ level: "info", text: `Открываем пост ${input.url}` })
+    await page.goto(input.url, { waitUntil: "load", timeout: 60_000 })
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+    await pause(2500)
+    await dismissCookies(page, onLog)
+    await assertFacebookContentAvailable(page, onLog)
     onLog({ level: "ok", text: `Страница: ${page.url()}` })
 
     if (input.fanName) {
