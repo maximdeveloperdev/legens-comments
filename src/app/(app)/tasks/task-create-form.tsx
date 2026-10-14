@@ -679,15 +679,16 @@ function SelectField({
   children: ReactNode
 }) {
   return (
-    <label className="grid gap-1.5">
+    <label className="relative grid gap-1.5">
       <span className="text-sm font-medium">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="h-10 appearance-none rounded-lg border bg-background px-3 pr-10 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         {children}
       </select>
+      <ChevronDown className="pointer-events-none absolute right-3 bottom-3 size-4 text-muted-foreground" />
     </label>
   )
 }
@@ -963,7 +964,7 @@ function CommentEditor({
           value={unit.geos}
           geos={geos}
           countries={countries}
-          emptyLabel="Как в задаче"
+          emptyLabel="Выберите гео"
           onChange={(value) => onChange({ geos: value })}
         />
       </div>
