@@ -107,7 +107,9 @@ const actionLabel: Record<string, string> = {
   comment: "Комментарий",
   like: "Комментарий + лайк",
   likeonly: "Лайк",
+  comment_like: "Лайк комментария",
   subscribe: "Комментарий + лайк + подписка",
+  mixed: "Смешанная задача",
 }
 
 const jobStatusLabel: Record<QueueJob["status"], string> = {
@@ -498,12 +500,9 @@ function buildOwnerStats(tasks: QueueTask[]) {
         error: 0,
         lastAt: task.createdAt,
       }
-    const jobsCount = task.jobs.length || task.total
     current.tasks += 1
-    if (task.action !== "likeonly") current.comments += jobsCount
-    if (task.action === "like" || task.action === "likeonly" || task.action === "subscribe") {
-      current.likes += jobsCount
-    }
+    current.comments += task.jobs.filter((job) => job.action === "comment" || job.action === "like" || job.action === "subscribe").length
+    current.likes += task.jobs.filter((job) => job.action === "like" || job.action === "likeonly" || job.action === "comment_like" || job.action === "subscribe").length
     current.photos += task.jobs.filter((job) => Boolean(job.photoPath)).length
     current.ai += task.jobs.filter((job) => job.aiComment).length
     current.pending += task.counts.pending

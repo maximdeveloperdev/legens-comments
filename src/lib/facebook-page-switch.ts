@@ -3764,6 +3764,123 @@ async function likePost(page: Page, log: (line: SwitchLog) => void) {
   throw new Error("Не удалось поставить лайк: поверх кнопки другой слой")
 }
 
+async function markCommentLikeButtonForText(page: Page, parentText: string) {
+  const sample = parentText.replace(/\s+/g, " ").trim().slice(0, 180)
+  if (sample.length < 4) return "missing" as const
+  return page
+    .evaluate(
+      ({ needle }) => {
+        document.querySelectorAll("[data-farm-comment-like-button]").forEach((node) => {
+          node.removeAttribute("data-farm-comment-like-button")
+          node.removeAttribute("data-farm-comment-liked")
+        })
+
+        const normalize = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase()
+        const wanted = normalize(needle)
+        const composer = document.querySelector('[data-farm-comment-composer="true"]')
+        const likeRe =
+          /^(like|нравится|подобається|lubię to|mi piace|me gusta|curtir|j’aime|j'aime|gefällt mir)$/i
+        const likedRe =
+          /^(liked|unlike|remove like|remove reaction|больше не нравится|вподобано|nie lubię|ya no me gusta|não curtir|je n’aime plus|je n'aime plus)$/i
+        const visible = (el: Element) => {
+          const box = (el as HTMLElement).getBoundingClientRect()
+          const style = getComputedStyle(el)
+          return (
+            box.width >= 8 &&
+            box.height >= 8 &&
+            box.bottom > 0 &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.left < innerWidth &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number(style.opacity || "1") > 0
+          )
+        }
+        const labelOf = (node: Element) =>
+          [
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("title") || "",
+            (node as HTMLElement).innerText || node.textContent || "",
+          ]
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+
+        const textNodes = [...document.body.querySelectorAll("div, span")]
+          .filter((node) => !composer?.contains(node) && !node.contains(composer))
+          .filter((node) => visible(node) && normalize((node as HTMLElement).innerText || "").includes(wanted))
+          .filter((node) => ![...node.children].some((child) => normalize((child as HTMLElement).innerText || "").includes(wanted)))
+
+        for (const textNode of textNodes) {
+          const textBox = (textNode as HTMLElement).getBoundingClientRect()
+          let root: HTMLElement | null = textNode as HTMLElement
+          for (let depth = 0; depth < 14 && root; depth += 1, root = root.parentElement) {
+            const controls = [...root.querySelectorAll('a, button, span, div, [role="button"], [tabindex="0"]')]
+              .filter((node) => visible(node))
+              .map((node) => ({
+                node: node as HTMLElement,
+                label: labelOf(node),
+                box: (node as HTMLElement).getBoundingClientRect(),
+              }))
+              .filter(({ label, box }) => {
+                if (!label || box.top < textBox.top - 24) return false
+                return likeRe.test(label) || likedRe.test(label)
+              })
+              .sort((left, right) => {
+                const leftLiked = likedRe.test(left.label) ? 0 : 1
+                const rightLiked = likedRe.test(right.label) ? 0 : 1
+                const leftDistance = Math.abs(left.box.top - textBox.bottom)
+                const rightDistance = Math.abs(right.box.top - textBox.bottom)
+                return leftLiked - rightLiked || leftDistance - rightDistance || left.box.left - right.box.left
+              })
+            const target = controls[0]
+            if (!target) continue
+            target.node.setAttribute("data-farm-comment-like-button", "true")
+            if (likedRe.test(target.label)) {
+              target.node.setAttribute("data-farm-comment-liked", "true")
+              return "already" as const
+            }
+            return "ready" as const
+          }
+        }
+
+        return "missing" as const
+      },
+      { needle: sample },
+    )
+    .catch(() => "missing" as const)
+}
+
+async function likeCommentByText(page: Page, parentText: string, log: (line: SwitchLog) => void) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const status = await markCommentLikeButtonForText(page, parentText)
+    if (status === "already") {
+      log({ level: "ok", text: "Лайк к комментарию уже стоит" })
+      return
+    }
+    if (status === "ready") {
+      const button = page.locator('[data-farm-comment-like-button="true"]').last()
+      await button.scrollIntoViewIfNeeded().catch(() => undefined)
+      await pause(300)
+      if ((await forceClick(button, 5000)) || (await clickAtBox(page, button))) {
+        log({ level: "ok", text: "Поставили лайк к комментарию" })
+        await pause(700)
+        return
+      }
+    }
+
+    if (attempt % 2 === 0) {
+      await clickVisibleCommentExpansion(page)
+      await pause(900)
+    }
+    await page.mouse.wheel(0, 700).catch(() => undefined)
+    await pause(700)
+  }
+
+  throw new Error("Не нашли комментарий или кнопку Like под ним")
+}
+
 const FOLLOW_RE =
   /^(Follow(\s+Page)?|Obserwuj|Segui|Seguir|Suivre|Folgen|Подписаться|Підписатися|Sundan)(\s|$)/i
 const FOLLOWING_RE =
@@ -4136,6 +4253,7 @@ export async function runFacebookComment(
     message: string
     photoPath?: string
     fanName?: string
+    likeCommentText?: string
     replyToText?: string
     likeOnly?: boolean
     likeWithComment?: boolean
@@ -4167,13 +4285,15 @@ export async function runFacebookComment(
       await ensureActingAs(page, input.fanName, input.url, onLog)
     }
 
-    if (!input.likeOnly && input.replyToText) {
+    if (input.likeCommentText) {
+      await likeCommentByText(page, input.likeCommentText, onLog)
+    } else if (!input.likeOnly && input.replyToText) {
       await writeCommentReply(page, input.message, input.replyToText, onLog, input.photoPath)
     } else if (!input.likeOnly) {
       await writePostComment(page, input.message, onLog, input.photoPath)
     }
 
-    if (input.likeOnly || input.likeWithComment) {
+    if (!input.likeCommentText && (input.likeOnly || input.likeWithComment)) {
       try {
         await likePost(page, onLog)
       } catch (error) {
@@ -4194,7 +4314,13 @@ export async function runFacebookComment(
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : input.likeOnly ? "Лайк не поставился" : "Комментарий не отправился"
+    const message = error instanceof Error
+      ? error.message
+      : input.likeCommentText
+        ? "Лайк к комментарию не поставился"
+        : input.likeOnly
+          ? "Лайк не поставился"
+          : "Комментарий не отправился"
     onLog({ level: "error", text: message })
     await saveFailureArtifact(page, { profileId: id, phase: "job", message }, onLog)
     disconnectBrowser(browser)
@@ -4222,5 +4348,12 @@ export async function runFacebookComment(
   }
 
   onLog({ level: "ok", text: "Готово. Профиль закрыт" })
-  return { ok: true, message: input.likeOnly ? "Лайк поставлен. Профиль закрыт." : "Комментарий отправлен. Профиль закрыт." }
+  return {
+    ok: true,
+    message: input.likeCommentText
+      ? "Лайк к комментарию поставлен. Профиль закрыт."
+      : input.likeOnly
+        ? "Лайк поставлен. Профиль закрыт."
+        : "Комментарий отправлен. Профиль закрыт.",
+  }
 }

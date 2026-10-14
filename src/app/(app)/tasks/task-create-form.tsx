@@ -44,6 +44,7 @@ type CommentDraft = DraftUnit & {
 const UNKNOWN_GEO = "ZZ"
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const MAX_POST_REACTIONS = 20
+const MAX_COMMENT_REACTIONS = 20
 
 function newId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -239,7 +240,7 @@ export function TaskCreateForm({
     const url = normalizeFacebookUrl(postUrl)
     const used = new Set<string>()
     const jobs: Array<{
-      action?: "comment" | "like" | "likeonly" | "subscribe"
+      action?: "comment" | "like" | "likeonly" | "subscribe" | "comment_like"
       clientKey?: string
       replyToKey?: string
       profileId: string
@@ -288,16 +289,24 @@ export function TaskCreateForm({
         }
       }
 
-      for (let index = 0; index < comment.reactionCount; index += 1) {
-        const fan = pickFan(fans, used, commentGender, commentGeo)
-        if (!fan) break
-        jobs.push({
-          action: "likeonly",
-          profileId: fan.profileId,
-          fanName: fan.name,
-          url,
-          message: "",
-        })
+      if (comment.reactionCount > 0 && !parentKey) {
+        skipped.push(`Лайки к комментарию ${commentIndex + 1}: нет текста родителя`)
+      } else {
+        for (let index = 0; index < comment.reactionCount; index += 1) {
+          const fan = pickFan(fans, used, commentGender, commentGeo)
+          if (!fan) {
+            skipped.push(`Лайк ${index + 1} к комментарию ${commentIndex + 1}`)
+            break
+          }
+          jobs.push({
+            action: "comment_like",
+            replyToKey: parentKey,
+            profileId: fan.profileId,
+            fanName: fan.name,
+            url,
+            message: "",
+          })
+        }
       }
 
       for (const [replyIndex, replyItem] of comment.replies.entries()) {
@@ -329,9 +338,13 @@ export function TaskCreateForm({
 
         for (let index = 0; index < replyItem.reactionCount; index += 1) {
           const reactionFan = pickFan(fans, used, replyGender, replyGeo)
-          if (!reactionFan) break
+          if (!reactionFan) {
+            skipped.push(`Лайк ${index + 1} к ответу ${replyIndex + 1}`)
+            break
+          }
           jobs.push({
-            action: "likeonly",
+            action: "comment_like",
+            replyToKey: replyKey,
             profileId: reactionFan.profileId,
             fanName: reactionFan.name,
             url,
@@ -703,7 +716,13 @@ function CommentEditor({
             />
           ) : null}
         </div>
-        <RangeField label="Реакции на пост" value={unit.reactionCount} min={0} max={50} onChange={(value) => onChange({ reactionCount: value })} />
+        <RangeField
+          label={reply ? "Лайки к ответу" : "Лайки к комментарию"}
+          value={unit.reactionCount}
+          min={0}
+          max={MAX_COMMENT_REACTIONS}
+          onChange={(value) => onChange({ reactionCount: Math.min(value, MAX_COMMENT_REACTIONS) })}
+        />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <SelectField label="Пол" value={unit.gender} onChange={(value) => onChange({ gender: value as GenderFilter })}>

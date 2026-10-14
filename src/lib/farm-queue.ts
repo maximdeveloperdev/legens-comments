@@ -168,6 +168,7 @@ async function claimNextJob(maxParallel: number) {
 
 async function runFarmJob(job: FarmJob) {
   const likeOnly = job.action === "likeonly"
+  const commentLikeOnly = job.action === "comment_like"
   const likeWithComment = job.action === "like" || job.action === "subscribe"
   const subscribePage = job.action === "subscribe"
   const log = (line: { level: "info" | "ok" | "error"; text: string }) => {
@@ -182,23 +183,28 @@ async function runFarmJob(job: FarmJob) {
   }
 
   try {
-    let message = likeOnly ? "" : await resolveJobMessage(job, log)
+    let message = likeOnly || commentLikeOnly ? "" : await resolveJobMessage(job, log)
     const parentJob = job.replyToJobId
       ? await prisma.farmJob.findUnique({
           where: { id: job.replyToJobId },
           select: { status: true, message: true, fanName: true },
         })
       : null
+    if (commentLikeOnly && !job.replyToJobId) {
+      throw new Error("Лайк комментария не привязан к родительскому комментарию")
+    }
     if (job.replyToJobId) {
       if (!parentJob || parentJob.status !== FarmJobStatus.DONE || !parentJob.message.trim()) {
         throw new Error("Reply ждёт родительский комментарий")
       }
       log({
         level: "info",
-        text: `Отвечаем на комментарий${parentJob.fanName ? ` «${parentJob.fanName}»` : ""}`,
+        text: commentLikeOnly
+          ? `Лайкаем комментарий${parentJob.fanName ? ` «${parentJob.fanName}»` : ""}`
+          : `Отвечаем на комментарий${parentJob.fanName ? ` «${parentJob.fanName}»` : ""}`,
       })
     }
-    if (!likeOnly) {
+    if (!likeOnly && !commentLikeOnly) {
       const antiSpam = await rewriteFarmJobsForAntiSpam({
         jobs: [
           {
@@ -234,7 +240,8 @@ async function runFarmJob(job: FarmJob) {
         message,
         photoPath: job.photoPath || undefined,
         fanName: job.fanName || undefined,
-        replyToText: parentJob?.message || undefined,
+        likeCommentText: commentLikeOnly ? parentJob?.message || undefined : undefined,
+        replyToText: !commentLikeOnly ? parentJob?.message || undefined : undefined,
         likeOnly,
         likeWithComment,
         subscribePage,

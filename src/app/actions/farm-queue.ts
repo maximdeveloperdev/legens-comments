@@ -23,9 +23,9 @@ export type EnqueueFarmResult = {
 
 type EnqueueFarmInput = {
   name?: string
-  action: "comment" | "like" | "likeonly" | "subscribe" | "mixed"
+  action: "comment" | "like" | "likeonly" | "subscribe" | "mixed" | "comment_like"
   jobs: Array<{
-    action?: "comment" | "like" | "likeonly" | "subscribe"
+    action?: "comment" | "like" | "likeonly" | "subscribe" | "comment_like"
     clientKey?: string
     replyToKey?: string
     profileId: string
@@ -39,7 +39,8 @@ type EnqueueFarmInput = {
 
 const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
-const FARM_ACTIONS = new Set(["comment", "like", "likeonly", "subscribe"])
+const FARM_ACTIONS = new Set(["comment", "like", "likeonly", "subscribe", "comment_like"])
+const MESSAGELESS_ACTIONS = new Set(["likeonly", "comment_like"])
 
 type FarmJobCreateRow = {
   id: string
@@ -146,22 +147,23 @@ async function createFarmTask(
   const jobs = input.jobs
     .map((job) => {
       const jobAction = job.action && FARM_ACTIONS.has(job.action) ? job.action : action === "mixed" ? "comment" : action
+      const needsMessage = !MESSAGELESS_ACTIONS.has(jobAction)
       return {
         action: jobAction,
         profileId: job.profileId.trim(),
         fanName: (job.fanName || "").trim(),
         url: normalizeFacebookUrl(job.url),
         message: job.message.trim(),
-        aiComment: jobAction !== "likeonly" && job.aiComment === true,
+        aiComment: needsMessage && job.aiComment === true,
         clientKey: (job.clientKey || "").trim(),
         replyToKey: (job.replyToKey || "").trim(),
         photoPath:
-          jobAction !== "likeonly"
+          needsMessage
             ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
             : "",
       }
     })
-    .filter((job) => job.profileId && isFacebookUrl(job.url) && (job.action === "likeonly" || job.aiComment || job.message))
+    .filter((job) => job.profileId && isFacebookUrl(job.url) && (MESSAGELESS_ACTIONS.has(job.action) || job.aiComment || job.message))
 
   if (jobs.length === 0) {
     return { error: "Нет заданий для очереди" }
@@ -174,7 +176,7 @@ async function createFarmTask(
   }
   let finalJobs = jobs
   let rewritten = 0
-  const commentJobs = jobs.filter((job) => job.action !== "likeonly")
+  const commentJobs = jobs.filter((job) => !MESSAGELESS_ACTIONS.has(job.action))
   if (commentJobs.length > 0) {
     const antiSpam = await rewriteFarmJobsForAntiSpam({ jobs: commentJobs }).catch((error) => ({
       ok: false,
@@ -187,7 +189,7 @@ async function createFarmTask(
     }
     let commentIndex = 0
     finalJobs = jobs.map((job) => {
-      if (job.action === "likeonly") return job
+      if (MESSAGELESS_ACTIONS.has(job.action)) return job
       const rewrittenJob = antiSpam.jobs[commentIndex]
       commentIndex += 1
       return rewrittenJob || job
@@ -236,8 +238,10 @@ async function createFarmTask(
         ? "Комментарий + лайк"
         : action === "likeonly"
           ? "Лайк"
+          : action === "comment_like"
+            ? "Лайк комментария"
           : action === "mixed"
-            ? "Task"
+            ? "Смешанная задача"
           : "Комментарий"
 
   const taskName = (input.name || "").trim()
@@ -477,11 +481,11 @@ export async function duplicateFarmTask(input: {
   if (nextJobs.some(({ message }) => message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
   }
-  if (nextJobs.some(({ job, message }) => job.action !== "likeonly" && !message && !job.aiComment)) {
+  if (nextJobs.some(({ job, message }) => !MESSAGELESS_ACTIONS.has(job.action) && !message && !job.aiComment)) {
     return { error: "Заполните комментарии или оставьте AI-комментарий для генерации" }
   }
 
-  const commentNextJobs = nextJobs.filter(({ job }) => job.action !== "likeonly")
+  const commentNextJobs = nextJobs.filter(({ job }) => !MESSAGELESS_ACTIONS.has(job.action))
   const antiSpam = await rewriteFarmJobsForAntiSpam({
     jobs: commentNextJobs.map(({ job, message }) => ({
       id: job.id,
