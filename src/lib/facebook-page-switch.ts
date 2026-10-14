@@ -3041,6 +3041,18 @@ async function ensureActingAs(page: Page, name: string, postUrl: string, log: (l
   log({ level: "ok", text: `Действуем как «${name}»` })
 }
 
+async function ensurePostStillOpen(page: Page, postUrl: string, log: (line: SwitchLog) => void) {
+  if (/\/posts\/|story_fbid|permalink/i.test(page.url())) return
+
+  log({ level: "info", text: `Facebook увёл не на пост — открываем пост заново ${postUrl}` })
+  await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+  await pause(2500)
+  await dismissCookies(page, log)
+  await assertFacebookContentAvailable(page, log)
+  await dismissOverlays(page)
+}
+
 function commentBox(page: Page) {
   return page
     .getByRole("textbox", {
@@ -4729,6 +4741,7 @@ export async function runFacebookComment(
 
     if (input.fanName) {
       await ensureActingAs(page, input.fanName, input.url, onLog)
+      await ensurePostStillOpen(page, input.url, onLog)
     }
 
     if (input.likeCommentText) {
