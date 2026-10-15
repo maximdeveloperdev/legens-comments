@@ -1,6 +1,7 @@
 "use client"
 
-import Image from "next/image"
+import { CommentMediaPreview } from "@/components/comment-media-preview"
+import { commentMediaLabel } from "@/lib/comment-media"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
@@ -306,7 +307,7 @@ function TaskDetailsDialog({
                       <TableHead>Фанка</TableHead>
                       <TableHead>Пост</TableHead>
                       <TableHead>Комментарий</TableHead>
-                      <TableHead>Фото</TableHead>
+                      <TableHead>Вложения</TableHead>
                       <TableHead>Статус</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -332,15 +333,13 @@ function TaskDetailsDialog({
                               rel="noreferrer"
                               className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                             >
-                              <Image
+                              <CommentMediaPreview
                                 src={job.photoPath}
-                                alt=""
                                 width={40}
                                 height={40}
                                 className="size-10 rounded-md border object-cover"
-                                loading="lazy"
                               />
-                              <span>Фото</span>
+                              <span>{commentMediaLabel(job.photoPath)}</span>
                             </a>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -537,7 +536,7 @@ function OwnerStatsTable({ stats }: { stats: OwnerStats[] }) {
               <TableHead>Задач</TableHead>
               <TableHead>Комментов</TableHead>
               <TableHead>Лайков</TableHead>
-              <TableHead>Фото</TableHead>
+              <TableHead>Вложения</TableHead>
               <TableHead>ChatGPT</TableHead>
               <TableHead>Готово</TableHead>
               <TableHead>Ошибки</TableHead>
@@ -1128,13 +1127,11 @@ function TasksCardList({
                       rel="noreferrer"
                       className="block w-fit overflow-hidden rounded-lg border bg-muted/30"
                     >
-                      <Image
+                      <CommentMediaPreview
                         src={firstPhoto}
-                        alt=""
                         width={180}
                         height={96}
                         className="h-24 w-44 object-cover"
-                        loading="lazy"
                       />
                     </a>
                   ) : null}
@@ -1414,7 +1411,7 @@ export function FarmQueue({
             job.profileId,
             job.url,
             job.aiComment ? "ChatGPT" : job.message,
-            job.photoPath ? "фото" : "",
+            job.photoPath ? commentMediaLabel(job.photoPath) : "",
             job.error || "",
             jobStatusLabel[job.status],
           ]),

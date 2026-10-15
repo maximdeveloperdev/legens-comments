@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "cn"
+import { CommentMediaPreview } from "@/components/comment-media-preview"
+import { COMMENT_MEDIA_ACCEPT, COMMENT_MEDIA_HINT, MAX_COMMENT_MEDIA_TOTAL_SIZE, commentMediaError, isCommentVideo } from "@/lib/comment-media"
 
 export type CountryInfo = {
   name: string
@@ -44,7 +46,6 @@ type ContentMode = "same" | "split" | "ai"
 type GenderFilter = "ALL" | "MALE" | "FEMALE" | "UNKNOWN"
 
 const UNKNOWN_GEO = "ZZ"
-const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const AVATAR_TONES = [
   "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200",
   "bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200",
@@ -429,12 +430,8 @@ export function FarmComments({
 
   function validatePhoto(file: File | undefined) {
     if (!file) return { file: null }
-    if (!file.type.startsWith("image/")) {
-      return { file: null, error: "Можно прикрепить только фото" }
-    }
-    if (file.size > MAX_COMMENT_PHOTO_SIZE) {
-      return { file: null, error: "Фото должно быть до 10 МБ" }
-    }
+    const error = commentMediaError(file)
+    if (error) return { file: null, error }
     return { file }
   }
 
@@ -549,7 +546,13 @@ export function FarmComments({
     try {
       const payload = { action, jobs }
       const formData = new FormData()
-      formData.set("payload", JSON.stringify(payload))
+      const payloadText = JSON.stringify(payload)
+      const attachmentFiles = splitPerPage ? Object.values(splitPhotos) : commentPhoto ? [commentPhoto] : []
+      if (attachmentFiles.reduce((sum, file) => sum + file.size, new Blob([payloadText]).size) > MAX_COMMENT_MEDIA_TOTAL_SIZE) {
+        pushAppNotification("Вложения", "Общий размер вложений и задачи должен быть до 70 МБ", { tone: "error" })
+        return
+      }
+      formData.set("payload", payloadText)
       if (splitPerPage) {
         for (const [key, file] of Object.entries(splitPhotos)) {
           formData.set(`photo:${key}`, file)
@@ -916,12 +919,12 @@ export function FarmComments({
             <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">Фото к комментарию</p>
-                  <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
+                  <p className="text-sm font-medium">Вложение к комментарию</p>
+                  <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {commentPhoto ? (
-                    <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={removePhoto}>
+                    <Button type="button" variant="ghost" size="icon" aria-label="Убрать вложение" onClick={removePhoto}>
                       <Trash2 />
                     </Button>
                   ) : null}
@@ -939,18 +942,19 @@ export function FarmComments({
             <input
               ref={photoInputRef}
               type="file"
-              accept="image/*"
+              accept={COMMENT_MEDIA_ACCEPT}
               className="hidden"
               onChange={(event) => onPhotoSelected(event.target.files?.[0])}
             />
             {commentPhoto ? (
               <div className="flex items-center gap-3 rounded-lg border bg-background p-2">
                 {commentPhotoPreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <CommentMediaPreview
                     src={commentPhotoPreview}
-                    alt=""
-                    className="size-12 rounded-md object-cover"
+                    name={commentPhoto.name}
+                    mime={commentPhoto.type}
+                    controls
+                    className={isCommentVideo(commentPhoto.name, commentPhoto.type) ? "h-32 w-48 shrink-0 rounded-md bg-black object-contain" : "size-12 rounded-md object-cover"}
                   />
                 ) : null}
                 <div className="min-w-0 text-sm">
@@ -1285,12 +1289,12 @@ export function FarmComments({
                   />
                   {splitPerPage && splitPhotoCount > 0 ? (
                     <ConfirmRow
-                      label="Фото"
+                      label="Вложение"
                       value={`${splitPhotoCount} персонал.`}
                     />
                   ) : commentPhoto ? (
                     <ConfirmRow
-                      label="Фото"
+                      label="Вложение"
                       value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
                     />
                   ) : null}
@@ -1362,12 +1366,12 @@ function CommentPhotoPicker({
     <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium">Фото к комментарию</p>
-          <p className="text-xs text-muted-foreground">1 фото, максимум 10 МБ</p>
+          <p className="text-sm font-medium">Вложение к комментарию</p>
+          <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
         </div>
         <div className="flex items-center gap-2">
           {file ? (
-            <Button type="button" variant="ghost" size="icon" aria-label="Убрать фото" onClick={onRemove}>
+            <Button type="button" variant="ghost" size="icon" aria-label="Убрать вложение" onClick={onRemove}>
               <Trash2 />
             </Button>
           ) : null}
@@ -1376,7 +1380,7 @@ function CommentPhotoPicker({
             Прикрепить
             <input
               type="file"
-              accept="image/*"
+              accept={COMMENT_MEDIA_ACCEPT}
               className="hidden"
               onChange={(event) => {
                 onSelect(event.target.files?.[0])
@@ -1389,8 +1393,7 @@ function CommentPhotoPicker({
       {file ? (
         <div className="flex items-center gap-3 rounded-lg border bg-background p-2">
           {preview ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={preview} alt="" className="size-12 rounded-md object-cover" />
+            <CommentMediaPreview src={preview} name={file.name} mime={file.type} controls className={isCommentVideo(file.name, file.type) ? "h-32 w-48 shrink-0 rounded-md bg-black object-contain" : "size-20 rounded-md object-cover"} />
           ) : null}
           <div className="min-w-0 text-sm">
             <p className="truncate font-medium">{file.name}</p>

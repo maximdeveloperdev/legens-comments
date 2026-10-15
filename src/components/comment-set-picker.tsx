@@ -53,7 +53,7 @@ export function CommentSetPicker({ getDraft, onApply, disabled = false }: {
     <div className="grid gap-3 rounded-xl border bg-muted/15 p-3">
       <div className="grid gap-1">
         <span className="text-sm font-medium">Мои наборы комментариев</span>
-        <p className="text-xs text-muted-foreground">Сохраняются тексты, ответы, лайки, гео и пол. Фото остаются в исходной задаче. Наборы доступны только вам.</p>
+        <p className="text-xs text-muted-foreground">Сохраняются тексты, ответы, лайки, гео и пол. Вложения остаются в исходной задаче. Наборы доступны только вам.</p>
       </div>
       <fieldset disabled={disabled || busy} className="grid min-w-0 gap-3 disabled:opacity-60">
         <div className="flex flex-wrap gap-2">

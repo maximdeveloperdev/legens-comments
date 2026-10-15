@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto"
 import { FarmJobStatus, Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { after } from "next/server"
+import { commentMediaError, commentMediaExtension, hasCommentMediaSignature, MAX_COMMENT_MEDIA_TOTAL_SIZE } from "@/lib/comment-media"
 import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
 import { getFarmProfileAccessError } from "@/lib/adspower-profile-access"
@@ -40,7 +41,6 @@ type EnqueueFarmInput = {
   }>
 }
 
-const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
 const FARM_ACTIONS = new Set(["comment", "like", "likeonly", "subscribe", "comment_like"])
 const MESSAGELESS_ACTIONS = new Set(["likeonly", "comment_like"])
@@ -83,33 +83,13 @@ async function createFarmJobsInReplyOrder(
   }
 }
 
-function commentPhotoExt(file: File) {
-  const mimeExt: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-  }
-  if (mimeExt[file.type]) return mimeExt[file.type]
-  const ext = path.extname(file.name || "").replace(/^\./, "").toLowerCase()
-  if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return ext === "jpeg" ? "jpg" : ext
-  return "jpg"
-}
-
-async function saveCommentPhoto(file: File | null) {
-  if (!file || file.size === 0) return { photoPath: "" }
-  if (!file.type.startsWith("image/")) {
-    return { error: "Можно прикрепить только фото" }
-  }
-  if (file.size > MAX_COMMENT_PHOTO_SIZE) {
-    return { error: "Фото должно быть до 10 МБ" }
-  }
-
-  await mkdir(COMMENT_PHOTO_DIR, { recursive: true })
-  const fileName = `${Date.now()}-${randomUUID()}.${commentPhotoExt(file)}`
-  const diskPath = path.join(COMMENT_PHOTO_DIR, fileName)
-  await writeFile(diskPath, Buffer.from(await file.arrayBuffer()))
-  return { photoPath: `/uploads/farm-comments/${fileName}` }
+async function readCommentMedia(file: File): Promise<{ error: string } | { bytes: Buffer; ext: string }> {
+  const error = commentMediaError(file)
+  if (error) return { error }
+  const bytes = Buffer.from(await file.arrayBuffer())
+  const ext = commentMediaExtension(file)
+  if (!hasCommentMediaSignature(bytes, ext)) return { error: "Содержимое файла не соответствует формату фото, GIF или MP4" }
+  return { bytes, ext }
 }
 
 function normalizeFacebookUrl(value: string) {
@@ -180,15 +160,26 @@ async function createFarmTask(
 
   if (formData) {
     const photoPaths = new Map<string, string>()
-    const photo = formData.get("photo")
-    const saved = await saveCommentPhoto(photo instanceof File ? photo : null)
-    if (saved.error) return { error: saved.error }
-    if (saved.photoPath) photoPaths.set("__global__", saved.photoPath)
+    const files = new Map<string, File>()
+    const globalFile = formData.get("photo")
+    if (globalFile instanceof File) files.set("__global__", globalFile)
     for (const key of new Set(jobs.map((job) => job.photoKey).filter(Boolean))) {
       const file = formData.get(`photo:${key}`)
-      const savedForJob = await saveCommentPhoto(file instanceof File ? file : null)
-      if (savedForJob.error) return { error: savedForJob.error }
-      if (savedForJob.photoPath) photoPaths.set(key, savedForJob.photoPath)
+      if (file instanceof File) files.set(key, file)
+    }
+    const totalBytes = [...files.values()].reduce((sum, file) => sum + file.size, Buffer.byteLength(JSON.stringify(input)))
+    if (totalBytes > MAX_COMMENT_MEDIA_TOTAL_SIZE) return { error: "Общий размер вложений и задачи должен быть до 70 МБ" }
+    const prepared = new Map<string, { bytes: Buffer; ext: string }>()
+    for (const [key, file] of files) {
+      const media = await readCommentMedia(file)
+      if ("error" in media) return { error: media.error }
+      prepared.set(key, media)
+    }
+    if (prepared.size) await mkdir(COMMENT_PHOTO_DIR, { recursive: true })
+    for (const [key, media] of prepared) {
+      const fileName = `${Date.now()}-${randomUUID()}.${media.ext}`
+      await writeFile(path.join(COMMENT_PHOTO_DIR, fileName), media.bytes)
+      photoPaths.set(key, `/uploads/farm-comments/${fileName}`)
     }
     jobs = jobs.map((job) => ({
       ...job,

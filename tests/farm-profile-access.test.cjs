@@ -9,7 +9,7 @@ const ts = require("typescript")
 // Load the actual server actions with isolated DB, AdsPower and queue adapters.
 // Tests never create production tasks or start Facebook/AdsPower browsers.
 function fixture(options = {}) {
-  const calls = { tasks: 0, jobs: [], scheduled: 0, rewrites: 0, files: 0, profiles: 0, teams: [] }
+  const calls = { tasks: 0, jobs: [], scheduled: 0, rewrites: 0, files: 0, writes: [], profiles: 0, teams: [] }
   const user = { id: "actor", role: options.role || "USER", name: "Actor" }
   const profiles = options.profiles || [
     { id: "own", name: "[RED][GB] Team profile" },
@@ -52,7 +52,7 @@ function fixture(options = {}) {
     } },
     "next/cache": { revalidatePath: () => {} },
     "next/server": { after: () => { calls.scheduled++ } },
-    "node:fs/promises": { mkdir: async () => {}, writeFile: async () => { calls.files++ } },
+    "node:fs/promises": { mkdir: async () => {}, writeFile: async (filename, bytes) => { calls.files++; calls.writes.push({ filename, bytes }) } },
   }
   const cache = new Map()
   function load(relative) {
@@ -157,7 +157,7 @@ test("multipart requests authorize profiles before uploading any photos", async 
   const { actions, calls } = fixture()
   const form = new FormData()
   form.set("payload", JSON.stringify(input(["other"])))
-  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  form.set("photo", new File([Buffer.from("89504e470d0a1a0a", "hex")], "test.png", { type: "image/png" }))
   assert.match((await actions.enqueueFarmTaskForm(form)).error, /Нет доступа/)
   noSideEffects(calls)
 })
@@ -166,7 +166,7 @@ test("authorized multipart requests retain the global photo on comments", async 
   const { actions, calls } = fixture()
   const form = new FormData()
   form.set("payload", JSON.stringify(input(["own", "common"])))
-  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  form.set("photo", new File([Buffer.from("89504e470d0a1a0a", "hex")], "test.png", { type: "image/png" }))
   assert.equal((await actions.enqueueFarmTaskForm(form)).total, 2)
   assert.equal(calls.files, 1)
   assert.match(calls.jobs[0].photoPath, /^\/uploads\/farm-comments\//)
@@ -192,7 +192,7 @@ test("anonymous multipart submissions cannot write files or create tasks", async
   const { actions, calls } = fixture({ anonymous: true })
   const form = new FormData()
   form.set("payload", JSON.stringify(input(["own"])))
-  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  form.set("photo", new File([Buffer.from("89504e470d0a1a0a", "hex")], "test.png", { type: "image/png" }))
   assert.match((await actions.enqueueFarmTaskForm(form)).error, /войти/)
   noSideEffects(calls)
 })
@@ -236,4 +236,66 @@ test("configured copy supports shared ALL fans", async () => {
   } })
   assert.equal(result.total, 1)
   assert.equal(calls.jobs[0].profileId, "common")
+})
+
+for (const format of ["mp4", "gif"]) {
+  test(`multipart supports ${format} attachments and retains them when copying`, async () => {
+    const { actions, calls } = fixture()
+    const form = new FormData()
+    form.set("payload", JSON.stringify(input(["own"])))
+    const bytes = format === "mp4" ? Buffer.from("000000186674797069736f6d0000000069736f6d", "hex") : Buffer.from("GIF89a-test")
+    form.set("photo", new File([bytes], `comment.${format}`, { type: format === "mp4" ? "video/mp4" : "image/gif" }))
+    const result = await actions.enqueueFarmTaskForm(form)
+    assert.equal(result.total, 1); assert.equal(calls.files, 1)
+    assert.ok(calls.jobs[0].photoPath.endsWith(`.${format}`))
+    assert.deepEqual(calls.writes[0].bytes, bytes)
+    const copied = fixture({ sourceJobs: [{ id: "old", profileId: "own", action: "comment", fanName: "Fan", message: "Comment", aiComment: false, photoPath: calls.jobs[0].photoPath, url: "https://www.facebook.com/1/posts/2/", replyToJobId: null }] })
+    assert.equal((await copied.actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"] })).total, 1)
+    assert.equal(copied.calls.jobs[0].photoPath, calls.jobs[0].photoPath)
+  })
+}
+
+test("a reply can have its own MP4 independently from the parent's GIF", async () => {
+  const { actions, calls } = fixture()
+  const payload = input(["own", "common"])
+  Object.assign(payload.jobs[0], { photoKey: "parent" })
+  Object.assign(payload.jobs[1], { action: "comment", message: "Reply", photoKey: "reply" })
+  const form = new FormData(); form.set("payload", JSON.stringify(payload))
+  form.set("photo:parent", new File(["GIF89a-test"], "parent.gif", { type: "image/gif" }))
+  form.set("photo:reply", new File([Buffer.from("000000186674797069736f6d", "hex")], "reply.mp4", { type: "video/mp4" }))
+  assert.equal((await actions.enqueueFarmTaskForm(form)).total, 2)
+  assert.ok(calls.jobs[0].photoPath.endsWith(".gif")); assert.ok(calls.jobs[1].photoPath.endsWith(".mp4"))
+  assert.equal(calls.jobs[1].replyToJobId, calls.jobs[0].id)
+})
+
+test("a renamed or corrupt media file fails before any uploads or task creation", async () => {
+  const { actions, calls } = fixture()
+  const payload = input(["own", "common"]); payload.jobs[0].photoKey = "valid"; payload.jobs[1].photoKey = "bad"
+  const form = new FormData(); form.set("payload", JSON.stringify(payload))
+  form.set("photo:valid", new File(["GIF89a-test"], "valid.gif", { type: "image/gif" }))
+  form.set("photo:bad", new File(["not a video"], "fake.mp4", { type: "video/mp4" }))
+  assert.match((await actions.enqueueFarmTaskForm(form)).error, /Содержимое/)
+  noSideEffects(calls)
+})
+
+test("oversized media batches fail before reading file contents", async () => {
+  const { actions, calls } = fixture()
+  const payload = input(["own", "common"]); payload.jobs[0].photoKey = "a"; payload.jobs[1].photoKey = "b"
+  const form = new FormData(); form.set("payload", JSON.stringify(payload))
+  for (const key of ["a", "b"]) {
+    const file = new File(["test"], `${key}.mp4`, { type: "video/mp4" })
+    Object.defineProperty(file, "size", { value: 36 * 1024 * 1024 })
+    file.arrayBuffer = async () => { throw new Error("Must not read an oversized batch") }
+    form.set(`photo:${key}`, file)
+  }
+  assert.match((await actions.enqueueFarmTaskForm(form)).error, /70 МБ/)
+  noSideEffects(calls)
+})
+
+test("foreign profiles cannot upload a video before authorization", async () => {
+  const { actions, calls } = fixture()
+  const form = new FormData(); form.set("payload", JSON.stringify(input(["other"])))
+  form.set("photo", new File([Buffer.from("000000186674797069736f6d", "hex")], "reply.mp4", { type: "video/mp4" }))
+  assert.match((await actions.enqueueFarmTaskForm(form)).error, /Нет доступа/)
+  noSideEffects(calls)
 })

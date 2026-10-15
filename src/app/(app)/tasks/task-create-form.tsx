@@ -1,9 +1,8 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import Image from "next/image"
-import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
+import { Paperclip, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -15,6 +14,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "cn"
 import { GeoMultiSelect, RangeField, SelectField } from "@/components/task-targeting-fields"
+import { CommentMediaPreview } from "@/components/comment-media-preview"
+import { COMMENT_MEDIA_ACCEPT, COMMENT_MEDIA_HINT, MAX_COMMENT_MEDIA_TOTAL_SIZE, commentMediaError, isCommentVideo } from "@/lib/comment-media"
 import { CommentSetPicker } from "@/components/comment-set-picker"
 import type { CommentSetDraft } from "@/lib/comment-set"
 
@@ -48,7 +49,6 @@ type CommentDraft = DraftUnit & {
 type GenerateMode = "text" | "library"
 
 const UNKNOWN_GEO = "ZZ"
-const MAX_COMMENT_PHOTO_SIZE = 10 * 1024 * 1024
 const MAX_POST_REACTIONS = 20
 const MAX_COMMENT_REACTIONS = 20
 
@@ -193,6 +193,11 @@ export function TaskCreateForm({
   const [bulkCommentsText, setBulkCommentsText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
+  const attachmentPreviews = useRef(new Set<string>())
+  useEffect(() => {
+    const previews = attachmentPreviews.current
+    return () => { for (const url of previews) URL.revokeObjectURL(url) }
+  }, [])
   const countryCodes = useMemo(() => Object.keys(countries), [countries])
 
   const fans = useMemo(
@@ -239,16 +244,15 @@ export function TaskCreateForm({
       apply({ photo: null, preview: "" })
       return
     }
-    if (!file.type.startsWith("image/")) {
-      pushAppNotification("Фото", "Можно прикрепить только фото", { tone: "error" })
-      return
-    }
-    if (file.size > MAX_COMMENT_PHOTO_SIZE) {
-      pushAppNotification("Фото", "Фото должно быть до 10 МБ", { tone: "error" })
+    const error = commentMediaError(file)
+    if (error) {
+      pushAppNotification("Вложение", error, { tone: "error" })
       return
     }
     if (unit.preview) URL.revokeObjectURL(unit.preview)
-    apply({ photo: file, preview: URL.createObjectURL(file) })
+    const preview = URL.createObjectURL(file)
+    attachmentPreviews.current.add(preview)
+    apply({ photo: file, preview })
   }
 
   function clearForm() {
@@ -459,7 +463,12 @@ export function TaskCreateForm({
     setSubmitting(true)
     try {
       const formData = new FormData()
-      formData.set("payload", JSON.stringify({ name, action: "mixed", jobs }))
+      const payload = JSON.stringify({ name, action: "mixed", jobs })
+      if ([...photos.values()].reduce((sum, file) => sum + file.size, new Blob([payload]).size) > MAX_COMMENT_MEDIA_TOTAL_SIZE) {
+        pushAppNotification("Вложения", "Общий размер вложений и задачи должен быть до 70 МБ", { tone: "error" })
+        return
+      }
+      formData.set("payload", payload)
       for (const [key, file] of photos.entries()) {
         formData.set(`photo:${key}`, file)
       }
@@ -634,7 +643,10 @@ export function TaskCreateForm({
               countries={countries}
               geos={geos}
               onChange={(patch) => updateComment(comment.id, patch as Partial<CommentDraft>)}
-              onDelete={comments.length > 1 ? () => setComments((current) => current.filter((item) => item.id !== comment.id)) : undefined}
+              onDelete={comments.length > 1 ? () => {
+                revokeCommentPreviews([comment])
+                setComments((current) => current.filter((item) => item.id !== comment.id))
+              } : undefined}
               onPhoto={(file) => setUnitPhoto(comment, file, (patch) => updateComment(comment.id, patch as Partial<CommentDraft>))}
               fileInput={(node) => {
                 fileInputs.current[comment.id] = node
@@ -651,7 +663,8 @@ export function TaskCreateForm({
                     countries={countries}
                     geos={geos}
                     onChange={(patch) => updateReply(comment.id, replyItem.id, patch)}
-                    onDelete={() =>
+                    onDelete={() => {
+                      if (replyItem.preview) URL.revokeObjectURL(replyItem.preview)
                       setComments((current) =>
                         current.map((item) =>
                           item.id === comment.id
@@ -659,7 +672,7 @@ export function TaskCreateForm({
                             : item,
                         ),
                       )
-                    }
+                    }}
                     onPhoto={(file) => setUnitPhoto(replyItem, file, (patch) => updateReply(comment.id, replyItem.id, patch))}
                     fileInput={(node) => {
                       fileInputs.current[replyItem.id] = node
@@ -738,17 +751,22 @@ function CommentEditor({
       </label>
       <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="grid gap-2">
-          <span className="text-sm font-medium">Картинка</span>
+          <span className="text-sm font-medium">Фото, GIF или MP4</span>
+          <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
           <input
             ref={fileInput}
             type="file"
-            accept="image/*"
+            aria-label={reply ? "Вложение ответа" : "Вложение комментария"}
+            accept={COMMENT_MEDIA_ACCEPT}
             className="hidden"
-            onChange={(event) => onPhoto(event.target.files?.[0])}
+            onChange={(event) => {
+              onPhoto(event.target.files?.[0])
+              event.currentTarget.value = ""
+            }}
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={onPickFile}>
-              <ImagePlus />
+              <Paperclip />
               Загрузить
             </Button>
             {unit.photo ? (
@@ -764,13 +782,14 @@ function CommentEditor({
             ) : null}
           </div>
           {unit.preview ? (
-            <Image
+            <CommentMediaPreview
               src={unit.preview}
-              alt=""
+              name={unit.photo?.name}
+              mime={unit.photo?.type}
+              controls
               width={96}
               height={96}
-              className="size-24 rounded-lg object-cover"
-              unoptimized
+              className={isCommentVideo(unit.photo?.name ?? "", unit.photo?.type) ? "h-40 w-64 max-w-full rounded-lg bg-black object-contain" : "size-24 rounded-lg object-cover"}
             />
           ) : null}
         </div>

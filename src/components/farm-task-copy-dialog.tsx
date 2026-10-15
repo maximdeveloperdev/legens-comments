@@ -1,6 +1,7 @@
 "use client"
 
-import Image from "next/image"
+import { CommentMediaPreview } from "@/components/comment-media-preview"
+import { commentMediaLabel } from "@/lib/comment-media"
 import { useEffect, useMemo, useState } from "react"
 import { Copy, Loader2, Plus, Reply, Trash2 } from "lucide-react"
 import { duplicateFarmTask, getFarmTaskCopyOptions } from "@/app/actions/farm-queue"
@@ -85,7 +86,7 @@ export function FarmTaskCopyDialog({ task, onClose, onCreated }: {
           <Button type="button" variant="ghost" size="icon" aria-label={unit.parentId ? "Удалить ответ" : "Удалить комментарий"} onClick={() => remove(unit.id)}><Trash2 /></Button>
         </div>
         <Textarea aria-label={unit.parentId ? `Текст ответа ${index + 1}` : `Текст комментария ${index + 1}`} value={unit.text} maxLength={8000} onChange={(event) => update(unit.id, { text: event.target.value })} rows={3} placeholder={unit.aiComment ? "AI-комментарий" : "Текст комментария"} />
-        {original?.photoPath ? <a href={original.photoPath} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-2 text-xs text-muted-foreground"><Image src={original.photoPath} alt="Фото комментария" width={48} height={48} className="size-12 rounded-md object-cover" />Фото сохранится в копии</a> : null}
+        {original?.photoPath ? <a href={original.photoPath} target="_blank" rel="noreferrer" className="flex w-fit items-center gap-2 text-xs text-muted-foreground"><CommentMediaPreview src={original.photoPath} width={48} height={48} className="size-12 rounded-md object-cover" />{commentMediaLabel(original.photoPath)} сохранится в копии</a> : null}
         <RangeField label={unit.parentId ? "Лайки к ответу" : "Лайки к комментарию"} value={unit.likes} min={0} max={Math.max(20, unit.likes)} onChange={(likes) => update(unit.id, { likes })} />
         <div className="grid gap-3 sm:grid-cols-2">
           <SelectField label="Пол комментатора и лайков" value={unit.gender} onChange={(gender) => update(unit.id, { gender: gender as TargetGender })}>
@@ -103,7 +104,7 @@ export function FarmTaskCopyDialog({ task, onClose, onCreated }: {
       <DialogContent className="max-h-[90svh] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Скопировать задачу</DialogTitle>
-          <DialogDescription>Тексты, ответы и фото исходной задачи сохранены в форме. Можно изменить лайки, гео и пол или загрузить свой набор.</DialogDescription>
+          <DialogDescription>Тексты, ответы и вложения исходной задачи сохранены в форме. Можно изменить лайки, гео и пол или загрузить свой набор.</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto px-1">
           <fieldset disabled={busy} className="grid min-w-0 gap-4 pb-4 disabled:opacity-60">

@@ -1,3 +1,4 @@
+import { acceptsCommentMedia, commentMediaLabel, isCommentVideo } from "@/lib/comment-media"
 import { access, mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
@@ -55,6 +56,7 @@ function pause(ms: number) {
 }
 
 const FACEBOOK_DEBUG_DIR = path.join(process.cwd(), ".debug", "facebook-errors")
+const COMMENT_ATTACHMENT_TIMEOUT_MS = 120_000
 const COMMENT_PHOTO_DIR = path.join(process.cwd(), "public", "uploads", "farm-comments")
 
 const PROFILE_LAYER_RE =
@@ -75,7 +77,7 @@ const COMMENT_SORT_RE =
 const COMMENT_SORT_NEWEST_RE =
   /^(Newest|Сначала новые|Новые|Найновіші|Najnowsze|Más recientes|Mais recentes|Più recenti|Plus récents|Neueste)$/i
 const COMMENT_PHOTO_RE =
-  /photo|фото|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|add|camera|камера/i
+  /photo|video|gif|фото|видео|відео|зображ|прикреп|прикріп|zdj[eę]cie|imagen|imagem|foto|media|attach|camera|камера/i
 const SUSPENDED_PAGE_RE =
   /we suspended your page|page has been suspended|мы приостановили.*страниц|сторінк.*призупин|страниц.*заблок|page.*suspended/i
 const CONTENT_UNAVAILABLE_RE =
@@ -3226,23 +3228,18 @@ function resolveCommentPhotoPath(photoPath: string) {
 
 async function markCommentComposer(page: Page, box: Locator) {
   await box.first().evaluate((el) => {
-    document.querySelectorAll("[data-farm-comment-composer]").forEach((node) => {
-      node.removeAttribute("data-farm-comment-composer")
-    })
-
+    document.querySelectorAll("[data-farm-comment-composer]").forEach((node) => node.removeAttribute("data-farm-comment-composer"))
     let node: HTMLElement | null = el as HTMLElement
-    for (let depth = 0; depth < 10 && node; depth += 1, node = node.parentElement) {
-      const text = (node.innerText || "").trim()
+    for (let depth = 0; depth < 10 && node && node !== document.body; depth += 1, node = node.parentElement) {
       const hasFileInput = Boolean(node.querySelector('input[type="file"]'))
-      const hasComposerControls = /photo|фото|зображ|zdj[eę]cie|imagen|imagem|foto|media/i.test(
-        `${text} ${node.getAttribute("aria-label") || ""}`,
-      )
-      if (hasFileInput || hasComposerControls || node.getAttribute("role") === "form") {
+      const controls = [...node.querySelectorAll('[role="button"], button')].map((button) =>
+        `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""} ${(button as HTMLElement).innerText || ""}`,
+      ).join(" ")
+      if (hasFileInput || /photo|video|gif|фото|видео|відео|зображ|zdj[eę]cie|imagen|imagem|foto|media|attach|прикреп|прикріп/i.test(controls) || node.getAttribute("role") === "form") {
         node.setAttribute("data-farm-comment-composer", "true")
         return
       }
     }
-
     ;(el.parentElement || el).setAttribute("data-farm-comment-composer", "true")
   })
 }
@@ -3255,78 +3252,81 @@ async function attachCommentPhoto(
 ) {
   if (!photoPath) return
   const diskPath = resolveCommentPhotoPath(photoPath)
-  if (!diskPath) {
-    throw new Error(`Фото не найдено: ${photoPath}`)
-  }
-  try {
-    await access(diskPath)
-  } catch {
-    throw new Error(`Фото не найдено: ${photoPath}`)
-  }
-
+  try { await access(diskPath) } catch { throw new Error(`Вложение не найдено: ${photoPath}`) }
   await markCommentComposer(page, box)
   const composer = page.locator('[data-farm-comment-composer="true"]').last()
-
-  const uploadViaInput = async (scope: Locator) => {
-    const input = scope
-      .locator('input[type="file"][accept*="image" i], input[type="file"][accept*="video" i], input[type="file"]')
-      .last()
-    if ((await input.count()) === 0) return false
-    await input.setInputFiles(diskPath)
-    return true
+  const baseline = await composer.locator('img, video, canvas').evaluateAll((nodes) => nodes.map((node, index) =>
+    node.getAttribute("src") || node.getAttribute("poster") || `${node.tagName}:${index}`,
+  ))
+  const uploadViaInput = async () => {
+    const inputs = composer.locator('input[type="file"]')
+    for (let index = (await inputs.count()) - 1; index >= 0; index--) {
+      const input = inputs.nth(index)
+      if (!acceptsCommentMedia(await input.getAttribute("accept") || "", diskPath)) continue
+      await input.setInputFiles(diskPath)
+      return true
+    }
+    return false
   }
-
   const uploadViaFileChooser = async () => {
-    const buttons = composer
-      .getByRole("button", { name: COMMENT_PHOTO_RE })
-      .or(page.locator('[role="button"][aria-label]').filter({ hasText: COMMENT_PHOTO_RE }))
-    const count = await buttons.count()
-    for (let index = Math.min(count, 8) - 1; index >= 0; index -= 1) {
+    const buttons = composer.getByRole("button", { name: COMMENT_PHOTO_RE })
+    for (let index = Math.min(await buttons.count(), 8) - 1; index >= 0; index--) {
       const button = buttons.nth(index)
       if (!(await visible(button))) continue
       const chooserPromise = page.waitForEvent("filechooser", { timeout: 2500 }).catch(() => null)
       await forceClick(button, 4000)
       const chooser = await chooserPromise
       if (!chooser) continue
+      if (!acceptsCommentMedia(await chooser.element().getAttribute("accept") || "", diskPath)) continue
       await chooser.setFiles(diskPath)
       return true
     }
     return false
   }
-
-  const uploaded =
-    (await uploadViaInput(composer)) ||
-    (await uploadViaFileChooser()) ||
-    (await uploadViaInput(page.locator('[role="dialog"]').last())) ||
-    (await uploadViaInput(page.locator("body")))
-
-  if (!uploaded) {
-    throw new Error("Не нашли кнопку прикрепления фото в комментарии")
+  if (!(await uploadViaInput()) && !(await uploadViaFileChooser())) {
+    throw new Error(`Facebook не предлагает подходящую загрузку для вложения «${commentMediaLabel(photoPath)}» в этом комментарии`)
   }
-
-  log({ level: "ok", text: "Фото прикреплено" })
-  await waitForCommentAttachment(page)
-  await pause(800)
+  await waitForCommentAttachment(page, {
+    baseline, requirePreview: true,
+    timeoutMs: isCommentVideo(photoPath) ? COMMENT_ATTACHMENT_TIMEOUT_MS : 60_000,
+  })
+  log({ level: "ok", text: `${commentMediaLabel(photoPath)}: вложение загружено и готово к отправке` })
 }
 
-async function waitForCommentAttachment(page: Page) {
-  const deadline = Date.now() + 12_000
+async function waitForCommentAttachment(page: Page, options: { timeoutMs?: number; baseline?: string[]; requirePreview?: boolean } = {}) {
+  const deadline = Date.now() + (options.timeoutMs ?? COMMENT_ATTACHMENT_TIMEOUT_MS)
   while (Date.now() < deadline) {
-    const ready = await page
-      .evaluate(() => {
-        const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
-        if (!composer) return true
-        const text = (composer.innerText || "").toLowerCase()
-        const uploading = /uploading|загрузка|завантаж|cargando|carregando|chargement|hochladen|caricamento/i.test(text)
-        const busy = Boolean(
-          composer.querySelector('[role="progressbar"], [aria-busy="true"], [data-visualcompletion="loading-state"]'),
-        )
-        return !uploading && !busy
-      })
-      .catch(() => true)
-    if (ready) return
+    const state = await page.evaluate(({ baseline, requirePreview }) => {
+      const composer = document.querySelector('[data-farm-comment-composer="true"]') as HTMLElement | null
+      if (!composer) return { ready: !requirePreview, error: requirePreview ? "Поле комментария с вложением исчезло" : "" }
+      const visible = (node: Element) => {
+        const rect = node.getBoundingClientRect()
+        const style = getComputedStyle(node)
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+      }
+      const texts: string[] = []
+      const walker = document.createTreeWalker(composer, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const parent = walker.currentNode.parentElement
+        if (parent && !parent.closest('[contenteditable], textarea, input') && visible(parent)) texts.push(walker.currentNode.textContent || "")
+      }
+      const text = texts.join(" ").toLowerCase()
+      const failed = /upload failed|couldn.t upload|could not upload|file.*not supported|unsupported file|не удалось загрузить|ошибка загрузки|неподдерживаемый формат|не вдалося завантажити|помилка завантаження/i.test(text)
+      if (failed) return { ready: false, error: "Facebook отклонил загрузку вложения" }
+      const uploading = /uploading|preparing|processing|загрузка|завантаж|подготовк|обработк|підготовк|обробк|cargando|carregando|chargement|hochladen|caricamento/i.test(text)
+      const busy = composer.getAttribute("aria-busy") === "true" || [...composer.querySelectorAll('[role="progressbar"], [aria-busy="true"], [data-visualcompletion="loading-state"]')].some(visible)
+      const preview = [...composer.querySelectorAll('img, video, canvas')].some((node, index) =>
+        visible(node) && !baseline.includes(node.getAttribute("src") || node.getAttribute("poster") || `${node.tagName}:${index}`),
+      )
+      const removeButton = [...composer.querySelectorAll('[role="button"], button')].some((node) => visible(node)
+        && /remove (photo|video|attachment)|delete (photo|video|attachment)|удалить (фото|видео|вложение)|убрать (фото|видео|вложение)|видалити (фото|відео|вкладення)/i.test(node.getAttribute("aria-label") || node.textContent || ""))
+      return { ready: !uploading && !busy && (!requirePreview || preview || removeButton), error: "" }
+    }, { baseline: options.baseline ?? [], requirePreview: options.requirePreview ?? false })
+    if (state.error) throw new Error(state.error)
+    if (state.ready) return
     await pause(500)
   }
+  throw new Error("Вложение не загрузилось вовремя. Комментарий не отправлен без вложения")
 }
 
 async function markCommentSubmitButton(page: Page) {
