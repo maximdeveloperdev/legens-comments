@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:media": "node --test tests/comment-media.test.cjs tests/comment-media-browser.test.cjs",
+    "test:media": "node --test tests/comment-media.test.cjs tests/comment-media-browser.test.cjs tests/comment-media-serving.test.cjs",
     "test:copy": "node --test tests/farm-task-copy.test.cjs tests/comment-sets.test.cjs",
     "test:facebook": "node --test tests/facebook-page-switch.test.cjs",
     "test:access": "node --test tests/farm-profile-access.test.cjs",
