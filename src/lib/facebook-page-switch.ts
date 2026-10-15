@@ -772,72 +772,45 @@ async function findComposerCaret(page: Page) {
   })
 }
 
-async function findNamePoint(page: Page, name: string) {
-  try {
-    return await page.evaluate((target) => {
-      const want = target.toLowerCase().replace(/\s+/g, " ").trim()
-      const vis = (el: Element) => {
-        const r = (el as HTMLElement).getBoundingClientRect()
-        const style = getComputedStyle(el)
-        return r.width > 8 && r.height > 8 && style.visibility !== "hidden" && style.display !== "none" && r.bottom > 0 && r.top < innerHeight
+async function markNamedFanRow(page: Page, name: string) {
+  return page.evaluate(({ name, layerPattern }) => {
+    document.querySelectorAll("[data-farm-fan-row]").forEach((node) => node.removeAttribute("data-farm-fan-row"))
+    const normalize = (value: string) => value.normalize("NFC").toLowerCase().replace(/\s+/g, " ").trim()
+    const wanted = normalize(name)
+    const layerRe = new RegExp(layerPattern, "i")
+    const visible = (node: Element) => {
+      const box = node.getBoundingClientRect()
+      const style = getComputedStyle(node)
+      return box.width > 0 && box.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+    }
+    const layers = [...document.querySelectorAll(
+      '[role="dialog"], [role="menu"], [role="listbox"], [role="radiogroup"], [aria-modal="true"]',
+    )].filter((node) => visible(node) && (
+      layerRe.test(`${node.getAttribute("aria-label") || ""} ${(node as HTMLElement).innerText || ""}`) ||
+      node.querySelector('[role="radio"], [role="menuitemradio"]')
+    )).reverse()
+
+    for (const layer of layers) {
+      const labels = [...layer.querySelectorAll('span, div, button, a, [role="radio"], [role="menuitemradio"], [role="menuitem"]')]
+      for (const node of labels) {
+        const text = normalize((node as HTMLElement).innerText || node.textContent || "")
+        const label = normalize(node.getAttribute("aria-label") || "")
+        if (text !== wanted && label !== wanted) continue
+        // Never reuse a coordinate after React replaces the menu. Playwright will
+        // resolve this marker again and require the row to receive pointer events.
+        const clickable = node.closest('button, a, [role="button"], [role="radio"], [role="menuitemradio"], [role="menuitem"], [tabindex="0"]')
+        const target = clickable && layer.contains(clickable) ? clickable : node
+        const box = target.getBoundingClientRect()
+        if (!visible(target) || target === layer || box.height > 120) continue
+        target.setAttribute("data-farm-fan-row", "true")
+        return true
       }
-      const sampleOf = (el: Element) =>
-        `${el.getAttribute("aria-label") || ""} ${(el as HTMLElement).innerText || ""}`.slice(0, 600)
-      const profileLayerRe =
-        /your profiles|switch to interact|search profiles|see more profiles|see all profiles|профил|страниц|tw[oó]j profil|profile|przełącz|perfiles|p[aá]ginas|perfis|profili|profilo|profils|seiten/i
-      const isIdentity = (el: Element) =>
-        profileLayerRe.test(sampleOf(el)) ||
-        Boolean(el.querySelector('[role="radio"], [role="menuitemradio"]'))
-      const isPostChrome = (el: Element) => {
-        if (isIdentity(el)) return false
-        const sample = sampleOf(el)
-        const r = (el as HTMLElement).getBoundingClientRect()
-        return (/'s Post|Most relevant|See details/i.test(sample) && r.height > 240) || (r.width > innerWidth * 0.72 && r.height > innerHeight * 0.45)
-      }
-      const all = [...document.querySelectorAll('[role="dialog"], [role="menu"], [role="listbox"], [role="radiogroup"], [role="grid"], [aria-modal="true"]')].filter(vis)
-      const roots: HTMLElement[] = []
-      for (const el of all) {
-        const role = el.getAttribute("role")
-        if (role === "menu" || role === "listbox" || role === "radiogroup" || isIdentity(el)) roots.push(el as HTMLElement)
-        else if (!isPostChrome(el)) roots.push(el as HTMLElement)
-        else roots.push(...([...el.querySelectorAll('[role="menu"], [role="listbox"], [role="radiogroup"]')].filter(vis) as HTMLElement[]))
-      }
-      const lineMatches = (text: string) => {
-        const value = text.toLowerCase().replace(/\s+/g, " ").trim()
-        return value === want || value.startsWith(`${want} `)
-      }
-      for (const root of [...new Set(roots)]) {
-        const labels = [...root.querySelectorAll("span, div, [role='radio'], [role='menuitemradio'], [role='menuitem']")] as HTMLElement[]
-        for (const node of labels) {
-          const text = (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim()
-          if (!lineMatches(text) && !lineMatches((node.getAttribute("aria-label") || "").trim())) continue
-          const rect = node.getBoundingClientRect()
-          if (rect.width < 20 || rect.height < 12 || rect.top < 0 || rect.top > innerHeight) continue
-          return { x: rect.x + Math.min(28, rect.width / 2), y: rect.y + rect.height / 2 }
-        }
-        for (const img of root.querySelectorAll("img, image")) {
-          const photo = img.getBoundingClientRect()
-          if (photo.width < 16 || photo.height < 16) continue
-          let node: HTMLElement | null = img.parentElement
-          for (let depth = 0; depth < 12 && node && node !== root; depth += 1, node = node.parentElement) {
-            const lines = (node.innerText || "")
-              .split("\n")
-              .map((line) => line.trim())
-              .filter(Boolean)
-            if (lines.length === 0 || lines.length > 8) continue
-            if (!lines.some((line) => lineMatches(line))) continue
-            const rect = node.getBoundingClientRect()
-            if (rect.width < 20 || rect.height < 12 || rect.top < 0 || rect.top > innerHeight) continue
-            return { x: rect.x + Math.min(36, rect.width / 2), y: rect.y + rect.height / 2 }
-          }
-        }
-      }
-      return null
-    }, name)
-  } catch (error) {
-    if (isDestroyed(error) || isEvaluateRuntimeHelperError(error)) return null
+    }
+    return false
+  }, { name, layerPattern: PROFILE_LAYER_RE_SOURCE }).catch((error) => {
+    if (isDestroyed(error) || isEvaluateRuntimeHelperError(error)) return false
     throw error
-  }
+  })
 }
 
 async function findSearchPoint(page: Page) {
@@ -963,27 +936,10 @@ function sameFan(left: string, right: string) {
 }
 
 async function clickFanRow(page: Page, name: string) {
-  const point = await findNamePoint(page, name)
-  if (point && (await clickAt(page, point))) return true
-
-  const exact = new RegExp(`^${escapeRegex(name)}$`, "i")
-  const overlay = identityOverlay(page).last()
-  const fallbacks = [
-    overlay.getByRole("radio", { name: exact }),
-    overlay.getByRole("menuitemradio", { name: exact }),
-    overlay.getByRole("menuitem", { name: exact }),
-    overlay.getByText(name, { exact: true }),
-  ]
-  for (const locator of fallbacks) {
-    const target = locator.first()
-    if (!(await visible(target))) continue
-    const box = await target.boundingBox()
-    if (!onScreenBox(box) || !box) continue
-    if (await clickAt(page, { x: box.x + Math.min(28, box.width / 2), y: box.y + box.height / 2 })) {
-      return true
-    }
-  }
-  return false
+  if (!(await markNamedFanRow(page, name))) return false
+  return page.locator('[data-farm-fan-row="true"]').click({ timeout: 2500 })
+    .then(() => true)
+    .catch(() => false)
 }
 
 async function visibleProfileFans(page: Page): Promise<DomFan[]> {
@@ -2824,6 +2780,9 @@ async function commentAsName(page: Page) {
         return match ? match[1].replace(/\s+/g, " ").trim() : ""
       }
       for (const el of document.querySelectorAll("[aria-label], [aria-placeholder], [placeholder]")) {
+        const box = el.getBoundingClientRect()
+        const style = getComputedStyle(el)
+        if (box.width <= 0 || box.height <= 0 || style.display === "none" || style.visibility === "hidden") continue
         for (const attr of ["aria-label", "aria-placeholder", "placeholder"] as const) {
           const name = parse(el.getAttribute(attr) || "")
           if (name) return name
@@ -2947,13 +2906,17 @@ async function pickFanFromComposer(page: Page, name: string, postUrl: string, lo
   try {
     await typeFanSearch(page, name, log)
     if (await clickFanRow(page, name)) {
-      await pause(1500)
+      await afterPossibleNav(page, postUrl, log)
+      await ensurePostStillOpen(page, postUrl, log)
+      await revealCommentBox(page, log)
       return sameFan(await commentAsName(page), name)
     }
 
     for (let step = 0; step < 25; step += 1) {
       if (await clickFanRow(page, name)) {
-        await pause(1500)
+        await afterPossibleNav(page, postUrl, log)
+        await ensurePostStillOpen(page, postUrl, log)
+        await revealCommentBox(page, log)
         return sameFan(await commentAsName(page), name)
       }
       await clickSeeMoreProfiles(page)
@@ -3009,116 +2972,117 @@ async function switchToFan(page: Page, name: string, log: (line: SwitchLog) => v
 }
 
 async function ensureActingAs(page: Page, name: string, postUrl: string, log: (line: SwitchLog) => void) {
+  await ensurePostStillOpen(page, postUrl, log)
   await revealCommentBox(page, log)
-  let who = await commentAsName(page)
-  if (sameFan(who, name)) {
+  if (sameFan(await commentAsName(page), name)) {
     log({ level: "ok", text: `Действуем как «${name}»` })
     return
   }
-  log({
-    level: "info",
-    text: `Сейчас «${who || "неизвестно"}», нужно «${name}»`,
-  })
+  log({ level: "info", text: `Сейчас «${await commentAsName(page) || "неизвестно"}», нужно «${name}»` })
 
-  if (await pickFanFromComposer(page, name, postUrl, log)) {
-    who = await commentAsName(page)
-    if (sameFan(who, name)) {
+  try {
+    if (await pickFanFromComposer(page, name, postUrl, log)) {
       log({ level: "ok", text: `Переключили на «${name}»` })
       return
     }
+  } catch (error) {
+    log({ level: "info", text: `Проверяем результат переключения в меню комментария: ${error instanceof Error ? error.message : String(error)}` })
   }
 
-  try {
-    await switchToFan(page, name, log)
-  } catch (error) {
-    await page.keyboard.press("Escape").catch(() => undefined)
-    await pause(1000)
-    await revealCommentBox(page, log).catch(() => undefined)
-    who = await visibleActorName(page)
-    if (sameFan(who, name)) {
+  let switchError: unknown
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    // Check the actor on the original post before another click: the previous
+    // selection may have succeeded while Facebook navigated away from the post.
+    await ensurePostStillOpen(page, postUrl, log)
+    await dismissOverlays(page)
+    await revealCommentBox(page, log)
+    if (sameFan(await commentAsName(page), name)) {
       log({ level: "ok", text: `Facebook уже переключил на «${name}»` })
-    } else {
-      throw error
+      return
+    }
+    if (attempt > 0) log({ level: "info", text: `Повторяем переключение на «${name}» с исходного поста` })
+    try {
+      await switchToFan(page, name, log)
+    } catch (error) {
+      switchError = error
+      await page.keyboard.press("Escape").catch(() => undefined)
+    }
+    await ensurePostStillOpen(page, postUrl, log)
+    await dismissOverlays(page)
+    await revealCommentBox(page, log)
+    if (sameFan(await commentAsName(page), name)) {
+      log({ level: "ok", text: `Действуем как «${name}»` })
+      return
     }
   }
-  if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
-    log({ level: "info", text: `Снова открываем пост ${postUrl}` })
-    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
-    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
-    await pause(2000)
-  }
-  await revealCommentBox(page, log)
-  await dismissOverlays(page)
-  if (await visible(profilesDialog(page).first())) {
-    log({ level: "info", text: "Список профилей не закрылся — перезагружаем пост" })
-    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
-    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
-    await pause(2500)
-    await dismissCookies(page, log)
-    await dismissOverlays(page)
-  }
-  if (!/\/posts\/|story_fbid|permalink/i.test(page.url())) {
-    log({ level: "info", text: `Facebook открыл ленту после switch — открываем пост заново ${postUrl}` })
-    await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
-    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
-    await pause(2500)
-    await dismissCookies(page, log)
-    await dismissOverlays(page)
-  }
-  await revealCommentBox(page, log)
-  who = await commentAsName(page)
-  if (!sameFan(who, name)) {
-    throw new Error(`Фанка не переключилась: сейчас «${who || "?"}», нужно «${name}»`)
-  }
-  log({ level: "ok", text: `Действуем как «${name}»` })
+  const who = await commentAsName(page)
+  throw new Error(`Фанка не переключилась: сейчас «${who || "?"}», нужно «${name}»${switchError instanceof Error ? ` · ${switchError.message}` : ""}`)
+}
+
+async function postContextIsLost(page: Page, postUrl: string) {
+  return page.evaluate(({ expectedUrl, unavailablePattern, commentPattern }) => {
+    const visible = (node: Element) => {
+      const box = node.getBoundingClientRect()
+      const style = getComputedStyle(node)
+      return box.width > 0 && box.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+    }
+    const postId = (value: string) => {
+      const url = new URL(value)
+      return url.searchParams.get("story_fbid") || url.pathname.match(/\/posts\/([^/]+)/i)?.[1] || ""
+    }
+    const expectedId = postId(expectedUrl)
+    const currentId = postId(location.href)
+    if (expectedId ? currentId !== expectedId : !/\/posts\/|story_fbid|permalink/i.test(location.href)) return true
+
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(visible)
+    const postDialog = dialogs.reverse().find((node) => {
+      const heading = [...node.querySelectorAll('h1, h2, [role="heading"]')]
+        .filter(visible).map((heading) => (heading as HTMLElement).innerText).join(" ")
+      return /\bpost\b|публикац|пост|publicaci[oó]n|publication|beitrag/i.test(heading)
+    })
+    // The feed and media viewer may remain mounted underneath the post modal.
+    // Their "View post" / "What's on your mind" text is not the active screen.
+    const root = postDialog || document.querySelector('[role="main"]') || document.body
+    const text = ((root as HTMLElement).innerText || "").replace(/\s+/g, " ")
+    const unavailable = new RegExp(unavailablePattern, "i")
+    const headings = [...root.querySelectorAll('h1, h2, [role="heading"]')].filter(visible)
+    if (headings.some((heading) => unavailable.test((heading as HTMLElement).innerText || ""))) return true
+    if (postDialog) return false
+    if (/this (photo|video) is from a post|view post/i.test(text)) return true
+    const commentRe = new RegExp(commentPattern, "i")
+    const hasComposer = [...root.querySelectorAll('[role="textbox"], [contenteditable="true"]')]
+      .some((node) => visible(node) && commentRe.test(
+        `${node.getAttribute("aria-label") || ""} ${node.getAttribute("aria-placeholder") || ""}`,
+      ))
+    if (hasComposer) return false
+    return unavailable.test(text) || /what['’]?s on your mind|create story|follow more profiles/i.test(text)
+  }, { expectedUrl: postUrl, unavailablePattern: CONTENT_UNAVAILABLE_RE.source, commentPattern: COMMENT_RE.source }).catch(() => true)
 }
 
 async function ensurePostStillOpen(page: Page, postUrl: string, log: (line: SwitchLog) => void) {
-  const lost = await page
-    .evaluate(() => {
-      const text = (document.body.innerText || "").replace(/\s+/g, " ")
-      const urlLooksLikePost = /\/posts\/|story_fbid|permalink/i.test(location.href)
-      const mediaViewer = /this (photo|video) is from a post|view post/i.test(text)
-      const homeFeed = /what'?s on your mind|create story|follow more profiles/i.test(text)
-      const unavailable = /this page isn['’]?t available right now|reload page/i.test(text)
-      return !urlLooksLikePost || mediaViewer || homeFeed || unavailable
-    })
-    .catch(() => !/\/posts\/|story_fbid|permalink/i.test(page.url()))
-
-  if (!lost) return
+  if (!(await postContextIsLost(page, postUrl))) return false
 
   const viewPost = page
     .getByRole("link", { name: /^View post$/i })
     .or(page.getByRole("button", { name: /^View post$/i }))
-    .or(page.getByText(/^View post$/i))
     .last()
-  if (await clickIfVisible(viewPost, 2500)) {
+  if (await clickIfVisible(viewPost, 1500)) {
     log({ level: "info", text: "Facebook открыл фото/видео вместо ветки — нажали View post" })
     await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => undefined)
-    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined)
     await pause(1500)
+    if (!(await postContextIsLost(page, postUrl))) return true
   }
 
-  const stillLost = await page
-    .evaluate(() => {
-      const text = (document.body.innerText || "").replace(/\s+/g, " ")
-      const urlLooksLikePost = /\/posts\/|story_fbid|permalink/i.test(location.href)
-      const mediaViewer = /this (photo|video) is from a post|view post/i.test(text)
-      const homeFeed = /what'?s on your mind|create story|follow more profiles/i.test(text)
-      const unavailable = /this page isn['’]?t available right now|reload page/i.test(text)
-      return !urlLooksLikePost || mediaViewer || homeFeed || unavailable
-    })
-    .catch(() => true)
-
-  if (!stillLost) return
-
   log({ level: "info", text: `Facebook увёл не в ветку поста — открываем пост заново ${postUrl}` })
-  await page.goto(postUrl, { waitUntil: "load", timeout: 60_000 })
-  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined)
+  await page.goto(postUrl, { waitUntil: "domcontentloaded", timeout: 60_000 })
   await pause(2500)
   await dismissCookies(page, log)
-  await assertFacebookContentAvailable(page, log)
   await dismissOverlays(page)
+  await assertFacebookContentAvailable(page, log)
+  if (await postContextIsLost(page, postUrl)) {
+    throw new Error("Facebook не открыл исходный пост после восстановления")
+  }
+  return true
 }
 
 function commentBox(page: Page) {
@@ -3584,12 +3548,8 @@ async function markReplyButtonForComment(page: Page, parentText: string) {
           )
         }
         const labelOf = (node: Element) =>
-          [
-            node.getAttribute("aria-label") || "",
-            node.getAttribute("title") || "",
-            (node as HTMLElement).innerText || node.textContent || "",
-          ]
-            .join(" ")
+          (node.getAttribute("aria-label") || node.getAttribute("title") ||
+            (node as HTMLElement).innerText || node.textContent || "")
             .replace(/\s+/g, " ")
             .trim()
 
@@ -3626,44 +3586,26 @@ async function markReplyButtonForComment(page: Page, parentText: string) {
 }
 
 async function clickVisibleCommentExpansion(page: Page) {
-  return page
-    .evaluate(() => {
-      const labelRe =
-        /view more comments|view previous comments|see more comments|show more comments|view.*repl|show.*repl|\d+\s+(reply|replies)|показать.*коммент|посмотреть.*коммент|показати.*коментар|zobacz.*komentar|ver.*coment|voir.*comment|mehr.*kommentar|most relevant|all comments/i
-      const visible = (el: Element) => {
-        const box = (el as HTMLElement).getBoundingClientRect()
-        const style = getComputedStyle(el)
-        return (
-          box.width >= 8 &&
-          box.height >= 8 &&
-          box.bottom > 0 &&
-          box.right > 0 &&
-          box.top < innerHeight &&
-          box.left < innerWidth &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        )
-      }
-      const controls = [...document.querySelectorAll('a, button, span, div, [role="button"]')]
-        .filter((node) => visible(node))
-        .map((node) => ({
-          node: node as HTMLElement,
-          text: [
-            node.getAttribute("aria-label") || "",
-            node.getAttribute("title") || "",
-            (node as HTMLElement).innerText || node.textContent || "",
-          ]
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim(),
-        }))
-        .filter(({ text }) => text && labelRe.test(text))
-      const picked = controls[0]?.node
-      if (!picked) return false
-      picked.click()
+  return page.evaluate(() => {
+    const expansionRe = /^(view (more|previous) comments|see more comments|show more comments|view.*repl|show.*repl|\d+\s+(reply|replies)|показать.*коммент|посмотреть.*коммент|показати.*коментар|zobacz.*komentar|ver.*coment|voir.*comment|mehr.*kommentar)/i
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
+      .filter((node) => node.getBoundingClientRect().height > 120)
+    const root = dialogs.at(-1) || document.querySelector('[role="main"]') || document.body
+    for (const node of root.querySelectorAll('a, button, [role="button"], span')) {
+      const box = node.getBoundingClientRect()
+      const style = getComputedStyle(node)
+      if (box.width < 8 || box.height < 8 || box.bottom <= 0 || box.top >= innerHeight ||
+          style.display === "none" || style.visibility === "hidden") continue
+      const label = (node.getAttribute("aria-label") || (node as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()
+      if (label.length > 100 || !expansionRe.test(label)) continue
+      if ([...node.children].some((child) => expansionRe.test((child as HTMLElement).innerText || ""))) continue
+      const target = node.closest('button, a, [role="button"]') || node
+      if (!root.contains(target)) continue
+      ;(target as HTMLElement).click()
       return true
-    })
-    .catch(() => false)
+    }
+    return false
+  }).catch(() => false)
 }
 
 async function markCommentSortControl(page: Page) {
@@ -3690,12 +3632,8 @@ async function markCommentSortControl(page: Page) {
         )
       }
       const labelOf = (node: Element) =>
-        [
-          node.getAttribute("aria-label") || "",
-          node.getAttribute("title") || "",
-          (node as HTMLElement).innerText || node.textContent || "",
-        ]
-          .join(" ")
+        (node.getAttribute("aria-label") || node.getAttribute("title") ||
+          (node as HTMLElement).innerText || node.textContent || "")
           .replace(/[\u200B-\u200F\uFEFF]/g, "")
           .replace(/\s+/g, " ")
           .trim()
@@ -3745,8 +3683,12 @@ async function preferNewestComments(page: Page, log: (line: SwitchLog) => void) 
       await pause(1200)
       return
     }
-    await page.keyboard.press("Escape").catch(() => undefined)
-    await pause(300)
+    // Escape closes the post itself when the sort menu failed to open.
+    const menu = page.locator('[role="menu"]:visible, [role="listbox"]:visible').last()
+    if (await visible(menu)) {
+      await page.keyboard.press("Escape").catch(() => undefined)
+      await pause(300)
+    }
   }
 }
 
@@ -3834,126 +3776,45 @@ async function clickCommentExpansionNearText(page: Page, parentText: string) {
   return (await forceClick(button, 2500)) || (await clickAtBox(page, button))
 }
 
-async function scrollFacebookPostComments(page: Page, amount = 700) {
-  await page
-    .evaluate((delta) => {
-      const visible = (el: Element) => {
-        const box = (el as HTMLElement).getBoundingClientRect()
-        const style = getComputedStyle(el)
-        return (
-          box.width >= 120 &&
-          box.height >= 120 &&
-          box.bottom > 0 &&
-          box.right > 0 &&
-          box.top < innerHeight &&
-          box.left < innerWidth &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        )
-      }
-      const canScroll = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 80
-      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
-      const roots = dialog ? [dialog, ...([...dialog.querySelectorAll("div")] as HTMLElement[])] : []
-      const candidates = roots
-        .filter((node) => visible(node) && canScroll(node))
-        .map((node) => {
-          const rect = node.getBoundingClientRect()
-          const text = `${node.getAttribute("aria-label") || ""} ${node.innerText || ""}`
-          const looksLikePost = /post|пост|comment|коммент|reply|ответ|Camille Bouchard/i.test(text)
-          return {
-            node,
-            score: (looksLikePost ? 10_000_000 : 0) + rect.height * rect.width,
-          }
-        })
-        .sort((left, right) => right.score - left.score)
-
-      const target = candidates[0]?.node || document.scrollingElement || document.documentElement
-      target.scrollBy({ top: delta, left: 0, behavior: "auto" })
-      candidates.slice(0, 8).forEach(({ node }) => {
-        node.scrollTop += delta
+async function scrollFacebookPostComments(page: Page, amount = 350) {
+  await page.evaluate((delta) => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
+      .filter((node) => {
+        const box = node.getBoundingClientRect()
+        return box.width > 120 && box.height > 120
       })
-
-      let pointed = document.elementFromPoint(innerWidth / 2, innerHeight / 2) as HTMLElement | null
-      for (let depth = 0; depth < 12 && pointed; depth += 1, pointed = pointed.parentElement) {
-        if (canScroll(pointed)) {
-          pointed.scrollTop += delta
-          break
-        }
-      }
-      document.scrollingElement?.scrollBy({ top: delta, left: 0, behavior: "auto" })
-    }, amount)
-    .catch(() => undefined)
-
-  const dialogBox = await page
-    .locator('[role="dialog"]')
-    .last()
-    .boundingBox({ timeout: 1500 })
-    .catch(() => null)
-  const point = dialogBox
-    ? {
-        x: dialogBox.x + dialogBox.width / 2,
-        y: Math.max(dialogBox.y + 120, Math.min(dialogBox.y + dialogBox.height - 150, dialogBox.y + dialogBox.height / 2)),
-      }
-    : { x: 420, y: 320 }
-  const dragPoint = dialogBox
-    ? {
-        x: dialogBox.x + dialogBox.width - 10,
-        y: Math.max(dialogBox.y + 120, Math.min(dialogBox.y + dialogBox.height - 150, dialogBox.y + dialogBox.height / 2)),
-      }
-    : point
-
-  await page.mouse.move(point.x, point.y).catch(() => undefined)
-  await page.mouse.wheel(0, amount).catch(() => undefined)
-  await page.keyboard.press(amount > 0 ? "PageDown" : "PageUp").catch(() => undefined)
-
-  if (amount > 0) {
-    await page.mouse.move(dragPoint.x, dragPoint.y + 140).catch(() => undefined)
-    await page.mouse.down().catch(() => undefined)
-    await page.mouse.move(dragPoint.x, dragPoint.y - 160, { steps: 8 }).catch(() => undefined)
-    await page.mouse.up().catch(() => undefined)
-  }
+    const root = dialogs.at(-1) || document.querySelector('[role="main"]') || document.body
+    const candidates = [root, ...root.querySelectorAll("div")]
+      .filter((node) => {
+        const style = getComputedStyle(node)
+        return node.clientHeight > 120 && node.scrollHeight > node.clientHeight + 40 &&
+          /auto|scroll/.test(style.overflowY) && style.visibility !== "hidden" && style.display !== "none"
+      })
+      .sort((left, right) => right.clientHeight - left.clientHeight)
+    // Scroll exactly one container. Wheel, PageDown and dragging the viewer used
+    // to add together, skipping comments and sometimes opening unrelated Reels.
+    const target = candidates[0] || (dialogs.length === 0 ? document.scrollingElement : null)
+    target?.scrollBy({ top: delta, left: 0, behavior: "auto" })
+  }, amount)
 }
 
 async function resetFacebookPostCommentSearch(page: Page) {
-  await page.keyboard.press("Home").catch(() => undefined)
-  await page
-    .evaluate(() => {
-      const visible = (el: Element) => {
-        const box = (el as HTMLElement).getBoundingClientRect()
-        const style = getComputedStyle(el)
-        return (
-          box.width >= 120 &&
-          box.height >= 120 &&
-          box.bottom > 0 &&
-          box.right > 0 &&
-          box.top < innerHeight &&
-          box.left < innerWidth &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        )
+  await page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
+      .filter((node) => node.getBoundingClientRect().height > 120)
+    const root = dialogs.at(-1) || document.querySelector('[role="main"]') || document.body
+    for (const node of [root, ...root.querySelectorAll("div")]) {
+      if (node.scrollHeight > node.clientHeight + 40 && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+        node.scrollTop = 0
       }
-      const canScroll = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 80
-      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
-      const roots = dialog ? [dialog, ...([...dialog.querySelectorAll("div")] as HTMLElement[])] : []
-      roots
-        .filter((node) => visible(node) && canScroll(node))
-        .forEach((node) => {
-          node.scrollTop = 0
-        })
-      document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "auto" })
-    })
-    .catch(() => undefined)
-  for (let step = 0; step < 2; step += 1) {
-    await scrollFacebookPostComments(page, -1800)
-    await pause(250)
-  }
+    }
+    if (dialogs.length === 0) document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  })
 }
 
 function commentSearchScrollAmount(attempt: number) {
   if (attempt === 0) return 0
-  if (attempt % 7 === 0) return -2600
-  if (attempt % 5 === 0) return -1400
-  return 720
+  return 300
 }
 
 async function findTextInFacebookPost(page: Page, text: string) {
@@ -4089,7 +3950,10 @@ async function openReplyComposer(page: Page, parentText: string, log: (line: Swi
   await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (postUrl && attempt > 0 && attempt % 8 === 0) {
-      await ensurePostStillOpen(page, postUrl, log)
+      if (await ensurePostStillOpen(page, postUrl, log)) {
+        await resetFacebookPostCommentSearch(page)
+        await preferNewestComments(page, log)
+      }
     }
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText))) {
@@ -4445,12 +4309,8 @@ async function markCommentLikeButtonForText(page: Page, commentText: string) {
           )
         }
         const labelOf = (node: Element) =>
-          [
-            node.getAttribute("aria-label") || "",
-            node.getAttribute("title") || "",
-            (node as HTMLElement).innerText || node.textContent || "",
-          ]
-            .join(" ")
+          (node.getAttribute("aria-label") || node.getAttribute("title") ||
+            (node as HTMLElement).innerText || node.textContent || "")
             .replace(/\s+/g, " ")
             .trim()
 
@@ -4523,7 +4383,10 @@ async function likeCommentByText(
   await preferNewestComments(page, log)
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (postUrl && attempt > 0 && attempt % 8 === 0) {
-      await ensurePostStillOpen(page, postUrl, log)
+      if (await ensurePostStillOpen(page, postUrl, log)) {
+        await resetFacebookPostCommentSearch(page)
+        await preferNewestComments(page, log)
+      }
     }
     if (attempt > 0 && attempt % 4 === 0) {
       if (!(await scrollTextIntoViewInFacebookPost(page, parentText || commentText))) {

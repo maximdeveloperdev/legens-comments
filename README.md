@@ -74,6 +74,13 @@ npm run lint
 npm run build
 ```
 
+Browser regression checks for Facebook navigation, profile selection, and comment search use local fixtures without contacting Facebook or AdsPower:
+
+```bash
+npx playwright-core install chromium --only-shell
+npm run test:facebook
+```
+
 ## VPS Deploy with AdsPower
 
 Target server: Ubuntu 24.04/22.04, Docker Compose, AdsPower running on the host in headless Local API mode.
