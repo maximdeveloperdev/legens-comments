@@ -25,6 +25,7 @@ model User {
   avatarUrl        String?
   active           Boolean        @default(true)
   createdAt        DateTime       @default(now())
+  commentSets      CommentSet[]
   ledTeams         Team[]         @relation("TeamLead")
   buyerTeams       TeamBuyer[]
   farmTasks        FarmTask[]     @relation("FarmTaskCreator")
@@ -262,4 +263,16 @@ model FbAutouploadUpload {
   @@index([createdAt])
   @@index([groupId])
   @@index([status])
+}
+
+model CommentSet {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  draft     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
 }

@@ -24,8 +24,9 @@ function fixture(options = {}) {
       if (options.dbThrows) throw new Error("DB unavailable")
       return (options.markers || [" red "]).map((marker) => ({ marker }))
     } },
+    country: { findMany: async () => [{ code: "GB", nameRu: "Великобритания", flagSvg: "" }, { code: "FR", nameRu: "Франция", flagSvg: "" }, { code: "ES", nameRu: "Испания", flagSvg: "" }] },
     farmTask: {
-      findFirst: async () => ({ id: "old-task", name: "Old task", action: "mixed", jobs: (options.sourceProfiles || ["own"]).map((profileId, index) => ({
+      findFirst: async () => ({ id: "old-task", name: "Old task", action: "mixed", jobs: options.sourceJobs || (options.sourceProfiles || ["own"]).map((profileId, index) => ({
         id: `old-${index}`, profileId, action: "comment", fanName: "Fan", message: "Existing comment", aiComment: false,
         photoPath: "", url: "https://www.facebook.com/1/posts/2/", replyToJobId: null,
       })) }),
@@ -41,6 +42,7 @@ function fixture(options = {}) {
       if (options.apiThrows) throw new Error("AdsPower unavailable")
       return { ok: options.apiOk !== false, profiles }
     } },
+    "@/lib/facebook-fans": { listFacebookFansByProfile: async () => new Map(Object.entries(options.fans || {})) },
     "@/lib/session": { getActiveSession: async () => options.anonymous ? null : user },
     "@/lib/action-log": { writeTrackerLog: async () => {} },
     "@/lib/farm-queue": { kickFarmQueue: () => { throw new Error("Worker must never run in these tests") } },
@@ -59,7 +61,7 @@ function fixture(options = {}) {
     const compiled = ts.transpileModule(readFileSync(file, "utf8"), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true, target: ts.ScriptTarget.ES2022 },
     }).outputText
-    const sandbox = { exports: {}, process, console, Buffer, File, FormData, URL,
+    const sandbox = { exports: {}, Error, process, console, Buffer, File, FormData, URL, crypto: require("node:crypto").webcrypto,
       require: (name) => {
         if (Object.hasOwn(adapters, name)) return adapters[name]
         if (name.startsWith("@/")) return load(`src/${name.slice(2)}.ts`)
@@ -193,4 +195,45 @@ test("anonymous multipart submissions cannot write files or create tasks", async
   form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
   assert.match((await actions.enqueueFarmTaskForm(form)).error, /войти/)
   noSideEffects(calls)
+})
+
+for (const role of ["USER", "TEAM_LEAD", "ADMIN"]) {
+  test(`${role}: configured copies select gender/geo on the server and keep dependency links`, async () => {
+    const { actions, calls } = fixture({ role, fans: {
+      own: [{ id: "a", name: "Alice", gender: "FEMALE" }, { id: "b", name: "Bea", gender: "FEMALE" }, { id: "male", name: "Bob", gender: "MALE" }],
+      other: [{ id: "foreign", name: "Foreign", gender: "FEMALE" }],
+    } })
+    const result = await actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"], draft: {
+      gender: "FEMALE", geos: ["GB"], postLikes: 0, sources: { c: "old-0" },
+      comments: [{ id: "c", parentId: null, text: "Edited text", aiComment: false, likes: 1, gender: "ANY", geos: [] }],
+    } })
+    assert.equal(result.total, 2)
+    assert.equal(calls.jobs.length, 2)
+    assert.ok(calls.jobs.every((job) => job.profileId === "own"))
+    assert.ok(calls.jobs.every((job) => job.fanName !== "Bob"))
+    assert.equal(calls.jobs[1].replyToJobId, calls.jobs[0].id)
+    assert.equal(calls.jobs[0].message, "Edited text")
+  })
+}
+
+test("configured copy cannot use foreign team fans even if no matching own fans remain", async () => {
+  const { actions, calls } = fixture({ fans: {
+    other: [{ id: "foreign", name: "Foreign", gender: "FEMALE" }],
+  } })
+  const result = await actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"], draft: {
+    gender: "FEMALE", geos: ["FR"], postLikes: 0, sources: { c: "old-0" },
+    comments: [{ id: "c", parentId: null, text: "Edited", aiComment: false, likes: 0, gender: "ANY", geos: [] }],
+  } })
+  assert.match(result.error, /Недостаточно/)
+  noSideEffects(calls)
+})
+
+test("configured copy supports shared ALL fans", async () => {
+  const { actions, calls } = fixture({ fans: { common: [{ id: "shared", name: "Shared", gender: "FEMALE" }] } })
+  const result = await actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"], draft: {
+    gender: "FEMALE", geos: ["ES"], postLikes: 0, sources: {},
+    comments: [{ id: "c", parentId: null, text: "From a set", aiComment: false, likes: 0, gender: "ANY", geos: [] }],
+  } })
+  assert.equal(result.total, 1)
+  assert.equal(calls.jobs[0].profileId, "common")
 })

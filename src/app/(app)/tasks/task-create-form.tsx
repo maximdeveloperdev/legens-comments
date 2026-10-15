@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import Image from "next/image"
-import { ChevronDown, ImagePlus, Loader2, MessageCircle, Plus, Reply, Search, Trash2, X } from "lucide-react"
+import { ImagePlus, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
 import { enqueueFarmTaskForm } from "@/app/actions/farm-queue"
 import type { AdsPowerProfile } from "@/lib/adspower"
 import { pushAppNotification } from "@/lib/app-notifications"
@@ -14,6 +14,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "cn"
+import { GeoMultiSelect, RangeField, SelectField } from "@/components/task-targeting-fields"
+import { CommentSetPicker } from "@/components/comment-set-picker"
+import type { CommentSetDraft } from "@/lib/comment-set"
 
 type GenderFilter = "ANY" | "MALE" | "FEMALE"
 
@@ -30,6 +33,7 @@ type TaskFan = {
 type DraftUnit = {
   id: string
   text: string
+  aiComment: boolean
   photo: File | null
   preview: string
   reactionCount: number
@@ -56,6 +60,7 @@ function emptyUnit(): DraftUnit {
   return {
     id: newId(),
     text: "",
+    aiComment: false,
     photo: null,
     preview: "",
     reactionCount: 0,
@@ -140,11 +145,6 @@ function isFacebookUrl(value: string) {
 
 function taskKey(prefix: string, id: string) {
   return `${prefix}:${id}`
-}
-
-function geoSelectionLabel(geos: string[], countries: Record<string, CountryInfo>, emptyLabel: string) {
-  if (geos.length === 0) return emptyLabel
-  return geos.map((geo) => countries[geo]?.name || geo).join(", ")
 }
 
 function commentsFromBulkText(value: string) {
@@ -283,6 +283,33 @@ export function TaskCreateForm({
     pushAppNotification("Комментарии", `Сгенерировано: ${generated.length} комментариев`, { tone: "success" })
   }
 
+  function getCommentSet(): CommentSetDraft {
+    return {
+      gender: globalGender, geos: globalGeos, postLikes: postReactionCount,
+      comments: comments.flatMap((comment) => [
+        { id: comment.id, parentId: null, text: comment.text, aiComment: comment.aiComment, likes: comment.reactionCount, gender: comment.gender, geos: comment.geos },
+        ...comment.replies.map((reply) => ({ id: reply.id, parentId: comment.id, text: reply.text, aiComment: reply.aiComment, likes: reply.reactionCount, gender: reply.gender, geos: reply.geos })),
+      ]),
+    }
+  }
+
+  function applyCommentSet(draft: CommentSetDraft) {
+    const roots = new Set(draft.comments.filter((unit) => !unit.parentId).map((unit) => unit.id))
+    if (draft.comments.some((unit) => unit.parentId && !roots.has(unit.parentId))) {
+      pushAppNotification("Наборы", "Набор с вложенными ответами можно применить в окне копирования задачи", { tone: "error" })
+      return false
+    }
+    const toUnit = (unit: CommentSetDraft["comments"][number]): DraftUnit => ({
+      ...emptyUnit(), id: unit.id, text: unit.text, aiComment: unit.aiComment,
+      reactionCount: unit.likes, gender: unit.gender, geos: unit.geos,
+    })
+    revokeCommentPreviews(comments)
+    setComments(draft.comments.filter((unit) => !unit.parentId).map((unit) => ({
+      ...toUnit(unit), replies: draft.comments.filter((reply) => reply.parentId === unit.id).map(toUnit),
+    })))
+    setGlobalGender(draft.gender); setGlobalGeos(draft.geos); setPostReactionCount(draft.postLikes)
+  }
+
   function buildJobs() {
     const url = normalizeFacebookUrl(postUrl)
     const used = new Set<string>()
@@ -294,6 +321,7 @@ export function TaskCreateForm({
       fanName?: string
       url: string
       message: string
+      aiComment?: boolean
       photoKey?: string
     }> = []
     const photos = new Map<string, File>()
@@ -317,7 +345,7 @@ export function TaskCreateForm({
       const commentGeos = comment.geos.length === 0 ? globalGeos : comment.geos
       let parentKey = ""
 
-      if (commentText) {
+      if (commentText || comment.aiComment) {
         const fan = pickFan(fans, used, commentGender, commentGeos)
         if (fan) {
           parentKey = taskKey("comment", comment.id)
@@ -328,6 +356,7 @@ export function TaskCreateForm({
             fanName: fan.name,
             url,
             message: commentText,
+          aiComment: comment.aiComment && !commentText,
             photoKey: comment.photo ? parentKey : undefined,
           })
           if (comment.photo) photos.set(parentKey, comment.photo)
@@ -358,7 +387,7 @@ export function TaskCreateForm({
 
       for (const [replyIndex, replyItem] of comment.replies.entries()) {
         const replyText = replyItem.text.trim()
-        if (!replyText) continue
+        if (!replyText && !replyItem.aiComment) continue
         if (!parentKey) {
           skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}: нет текста родителя`)
           continue
@@ -379,6 +408,7 @@ export function TaskCreateForm({
           fanName: fan.name,
           url,
           message: replyText,
+          aiComment: replyItem.aiComment && !replyText,
           photoKey: replyItem.photo ? replyKey : undefined,
         })
         if (replyItem.photo) photos.set(replyKey, replyItem.photo)
@@ -454,8 +484,8 @@ export function TaskCreateForm({
     const textJobs = comments.reduce(
       (sum, comment) =>
         sum +
-        (comment.text.trim() ? 1 : 0) +
-        comment.replies.filter((replyItem) => replyItem.text.trim()).length,
+        (comment.text.trim() || comment.aiComment ? 1 : 0) +
+        comment.replies.filter((replyItem) => replyItem.text.trim() || replyItem.aiComment).length,
       0,
     )
     const reactions =
@@ -580,9 +610,7 @@ export function TaskCreateForm({
               </Button>
             </>
           ) : (
-            <div className="rounded-xl border bg-background px-3 py-6 text-center text-sm text-muted-foreground">
-              Библиотека комментариев пока не подключена.
-            </div>
+            <CommentSetPicker getDraft={getCommentSet} onApply={applyCommentSet} disabled={submitting} />
           )}
         </div>
       </section>
@@ -597,6 +625,7 @@ export function TaskCreateForm({
         </div>
 
         <div className="grid gap-3">
+          {generateMode !== "library" ? <CommentSetPicker getDraft={getCommentSet} onApply={applyCommentSet} disabled={submitting} /> : null}
           {comments.map((comment, index) => (
             <CommentEditor
               key={comment.id}
@@ -667,205 +696,6 @@ export function TaskCreateForm({
   )
 }
 
-function SelectField({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="grid gap-1.5">
-      <span className="text-sm font-medium">{label}</span>
-      <span className="relative">
-        <select
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-10 w-full appearance-none rounded-lg border bg-background px-3 pr-10 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          {children}
-        </select>
-        <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      </span>
-    </label>
-  )
-}
-
-function GeoMultiSelect({
-  label,
-  value,
-  geos,
-  countries,
-  emptyLabel,
-  onChange,
-}: {
-  label: string
-  value: string[]
-  geos: string[]
-  countries: Record<string, CountryInfo>
-  emptyLabel: string
-  onChange: (value: string[]) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState("")
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const selected = useMemo(() => new Set(value), [value])
-  const selectedLabel = geoSelectionLabel(value, countries, emptyLabel)
-  const filteredGeos = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return geos
-    return geos.filter((geo) => {
-      const label = countries[geo]?.name || geo
-      return geo.toLowerCase().includes(needle) || label.toLowerCase().includes(needle)
-    })
-  }, [countries, geos, query])
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("pointerdown", onPointerDown)
-    document.addEventListener("keydown", onKeyDown)
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown)
-      document.removeEventListener("keydown", onKeyDown)
-    }
-  }, [open])
-
-  function toggleGeo(geo: string) {
-    if (selected.has(geo)) {
-      onChange(value.filter((item) => item !== geo))
-      return
-    }
-    onChange([...value, geo])
-  }
-
-  return (
-    <div ref={rootRef} className="relative grid gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{label}</span>
-        {value.length > 0 ? (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => onChange([])}
-          >
-            Очистить
-          </button>
-        ) : null}
-      </div>
-      <button
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-background px-3 text-left text-sm outline-none transition-colors hover:border-ring focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        <span className={cn("truncate", value.length === 0 && "text-muted-foreground")}>
-          {selectedLabel}
-        </span>
-        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-
-      {open ? (
-        <div className="absolute top-full left-0 right-0 z-50 mt-1 overflow-hidden rounded-xl border bg-popover shadow-lg">
-          <div className="flex items-center gap-2 border-b p-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Поиск гео"
-                className="h-10 pr-9 pl-9"
-                autoFocus
-              />
-              {query ? (
-                <button
-                  type="button"
-                  className="absolute top-1/2 right-2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => setQuery("")}
-                  aria-label="Очистить поиск"
-                >
-                  <X className="size-4" />
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div role="listbox" aria-multiselectable="true" className="max-h-64 overflow-y-auto p-2">
-            {filteredGeos.length > 0 ? (
-              filteredGeos.map((geo) => (
-                <label
-                  key={geo}
-                  className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-muted"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(geo)}
-                    onChange={() => toggleGeo(geo)}
-                    className="size-4 shrink-0 rounded border-border accent-primary"
-                  />
-                  <span className="truncate">{countries[geo]?.name || geo}</span>
-                </label>
-              ))
-            ) : (
-              <div className="px-2 py-6 text-center text-sm text-muted-foreground">Ничего не найдено</div>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-    </div>
-  )
-}
-
-function RangeField({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  onChange: (value: number) => void
-}) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-sm font-medium">{label}</span>
-      <div className="grid gap-2 sm:grid-cols-[1fr_5rem] sm:items-center">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          value={value}
-          onChange={(event) => onChange(Number(event.target.value))}
-          className="w-full accent-primary"
-        />
-        <Input
-          type="number"
-          min={min}
-          max={max}
-          value={value}
-          onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value) || 0)))}
-        />
-      </div>
-      <span className="text-xs text-muted-foreground">
-        {min} - {max}, сейчас {value}
-      </span>
-    </label>
-  )
-}
-
 function CommentEditor({
   title,
   reply,
@@ -904,7 +734,7 @@ function CommentEditor({
       </div>
       <label className="grid gap-1.5">
         <span className="text-sm font-medium">Текст комментария</span>
-        <Textarea value={unit.text} onChange={(event) => onChange({ text: event.target.value })} rows={5} />
+        <Textarea value={unit.text} placeholder={unit.aiComment ? "AI-комментарий будет сгенерирован при запуске" : "Текст комментария"} onChange={(event) => onChange({ text: event.target.value })} rows={5} />
       </label>
       <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="grid gap-2">

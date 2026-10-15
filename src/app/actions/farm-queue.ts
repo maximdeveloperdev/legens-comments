@@ -10,6 +10,8 @@ import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
 import { getFarmProfileAccessError } from "@/lib/adspower-profile-access"
 import { rewriteFarmJobsForAntiSpam } from "@/lib/farm-comment-auto-rewrite"
+import { buildFarmTaskCopy, type CopyDraft, type CopySourceJob } from "@/lib/farm-task-copy"
+import { getFarmCopyCatalog } from "@/lib/farm-copy-catalog"
 import { kickFarmQueue } from "@/lib/farm-queue"
 import { farmTaskAccessWhere, getFarmQueueAccess } from "@/lib/farm-queue-access"
 import { prisma } from "@/lib/db"
@@ -423,10 +425,27 @@ export async function startFarmTask(taskId?: string): Promise<{ error?: string; 
   return { started: reset.count }
 }
 
+export async function getFarmTaskCopyOptions(taskId: string) {
+  const session = await getActiveSession()
+  if (!session) return { error: "Нужно войти в аккаунт" }
+  const access = farmTaskAccessWhere(await getFarmQueueAccess(session))
+  const task = await prisma.farmTask.findFirst({
+    where: access ? { AND: [{ id: taskId }, access] } : { id: taskId }, select: { id: true },
+  })
+  if (!task) return { error: "Задача не найдена или нет доступа" }
+  try {
+    const { fans, geos, countries } = await getFarmCopyCatalog(session)
+    return { countries, geos, available: fans.length }
+  } catch {
+    return { error: "Не удалось загрузить доступные профили. Попробуйте ещё раз." }
+  }
+}
+
 export async function duplicateFarmTask(input: {
   taskId: string
   urls: string[]
   comments?: Array<{ jobId?: string; message?: string }>
+  draft?: CopyDraft
 }): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
   if (!session) {
@@ -473,7 +492,16 @@ export async function duplicateFarmTask(input: {
     urlByOriginal.set(originalUrl, newUrls.length === 1 ? newUrls[0] : newUrls[index])
   }
 
-  const nextJobs = task.jobs.map((job) => {
+  let sourceJobs: CopySourceJob[] = task.jobs
+  if (input.draft) {
+    try {
+      const catalog = await getFarmCopyCatalog(session)
+      sourceJobs = buildFarmTaskCopy(task.jobs, input.draft, catalog.fans, urlByOriginal)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Не удалось подобрать фанки" }
+    }
+  }
+  const nextJobs = sourceJobs.map((job) => {
     const message = messageByJobId.has(job.id)
       ? (messageByJobId.get(job.id) || "").trim()
       : job.message
@@ -495,7 +523,7 @@ export async function duplicateFarmTask(input: {
       id: job.id,
       profileId: job.profileId,
       fanName: job.fanName,
-      url: urlByOriginal.get(job.url) ?? newUrls[0],
+      url: input.draft ? job.url : (urlByOriginal.get(job.url) ?? job.url),
       message,
       aiComment: job.aiComment && !message,
     })),
@@ -516,7 +544,7 @@ export async function duplicateFarmTask(input: {
     action: job.action,
     profileId: job.profileId,
     fanName: job.fanName,
-    url: urlByOriginal.get(job.url) ?? newUrls[0],
+    url: input.draft ? job.url : (urlByOriginal.get(job.url) ?? job.url),
     message: rewrittenMessages.get(job.id) ?? message,
     aiComment: job.aiComment && !(rewrittenMessages.get(job.id) ?? message),
     photoPath: job.photoPath,
@@ -529,8 +557,8 @@ export async function duplicateFarmTask(input: {
         name: task.name ? `${task.name} · копия` : "",
         createdBy: session.name,
         createdByUserId: session.id,
-        action: task.action,
-        total: task.jobs.length,
+        action: input.draft ? (new Set(duplicateRows.map((row) => row.action)).size > 1 ? "mixed" : duplicateRows[0].action) : task.action,
+        total: duplicateRows.length,
       },
     })
     await createFarmJobsInReplyOrder(tx, createdTask.id, duplicateRows)
@@ -540,7 +568,7 @@ export async function duplicateFarmTask(input: {
   await writeTrackerLog({
     userName: session.name,
     action: "Скопировал задачу",
-    detail: `${task.action} · ${task.jobs.length} шт. · ${originalUrls.length} → ${newUrls.length} пост.${antiSpam.rewritten > 0 ? ` · AI перефразировал ${antiSpam.rewritten}` : ""}`,
+    detail: `${task.action} · ${duplicateRows.length} шт. · ${originalUrls.length} → ${newUrls.length} пост.${antiSpam.rewritten > 0 ? ` · AI перефразировал ${antiSpam.rewritten}` : ""}`,
   })
 
   revalidatePath("/stats")
@@ -552,7 +580,7 @@ export async function duplicateFarmTask(input: {
     kickFarmQueue()
   })
 
-  return { taskId: duplicated.id, total: task.jobs.length, rewritten: antiSpam.rewritten }
+  return { taskId: duplicated.id, total: duplicateRows.length, rewritten: antiSpam.rewritten }
 }
 
 export async function deleteFarmTasks(taskIds: string[]): Promise<{ error?: string; deleted?: number }> {

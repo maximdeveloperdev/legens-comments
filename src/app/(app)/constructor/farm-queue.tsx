@@ -16,7 +16,7 @@ import {
   Square,
   Trash2Icon,
 } from "lucide-react"
-import { deleteFarmTasks, duplicateFarmTask, startFarmTask, stopFarmTask } from "@/app/actions/farm-queue"
+import { deleteFarmTasks, startFarmTask, stopFarmTask } from "@/app/actions/farm-queue"
 import { pushAppNotification } from "@/lib/app-notifications"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
@@ -32,7 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { FarmTaskCopyDialog } from "@/components/farm-task-copy-dialog"
 import {
   Table,
   TableBody,
@@ -1274,8 +1274,6 @@ export function FarmQueue({
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [detailsTask, setDetailsTask] = useState<QueueTask | null>(null)
   const [duplicateTask, setDuplicateTask] = useState<QueueTask | null>(null)
-  const [duplicateUrls, setDuplicateUrls] = useState("")
-  const [duplicateMessages, setDuplicateMessages] = useState<Record<string, string>>({})
   const previousTaskTabs = useRef<Map<string, QueueTab> | null>(null)
 
   useEffect(() => {
@@ -1612,48 +1610,6 @@ export function FarmQueue({
 
   function openDuplicateTask(task: QueueTask) {
     setDuplicateTask(task)
-    setDuplicateUrls(uniqueTaskUrls(task).slice(0, 1).join("\n"))
-    setDuplicateMessages(
-      Object.fromEntries(task.jobs.map((job) => [job.id, job.message || ""])),
-    )
-  }
-
-  async function handleDuplicateTask() {
-    if (!duplicateTask) return
-    const urls = duplicateUrls
-      .split(/\r?\n/)
-      .map((url) => url.trim())
-      .filter(Boolean)
-    setBusyId(duplicateTask.id)
-    const result = await duplicateFarmTask({
-      taskId: duplicateTask.id,
-      urls,
-      comments: duplicateTask.jobs.map((job) => ({
-        jobId: job.id,
-        message: duplicateMessages[job.id] ?? job.message,
-      })),
-    })
-    if (result.error) {
-      pushAppNotification("Копия задачи · ошибка", result.error, {
-        href: "/queue?tab=work",
-        tone: "error",
-      })
-    } else {
-      pushAppNotification(
-        "Задача скопирована",
-        `В очередь · ${result.total ?? 0} шт.${result.rewritten ? ` AI перефразировал дублей: ${result.rewritten}.` : ""}`,
-        {
-          href: "/queue?tab=work",
-          tone: "queue",
-        },
-      )
-      setDuplicateTask(null)
-      setDuplicateUrls("")
-      setDuplicateMessages({})
-      await refreshQueue().catch(() => undefined)
-      void fetch("/api/farm-queue", { method: "POST" })
-    }
-    setBusyId(null)
   }
 
   async function runConfirmedAction() {
@@ -1850,112 +1806,7 @@ export function FarmQueue({
         </>
       )}
       <TaskDetailsDialog task={detailsTask} onOpenChange={(open) => !open && setDetailsTask(null)} />
-      <Dialog
-        open={Boolean(duplicateTask)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDuplicateTask(null)
-            setDuplicateUrls("")
-            setDuplicateMessages({})
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Скопировать задачу</DialogTitle>
-            <DialogDescription>
-              Фанки и вложения сохранятся. Перед запуском можно заменить ссылку и отредактировать комментарии.
-            </DialogDescription>
-          </DialogHeader>
-          {duplicateTask ? (
-            <div className="grid gap-4">
-              <div className="grid gap-2 rounded-xl border bg-muted/25 p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge>{actionLabel[duplicateTask.action] || duplicateTask.action}</Badge>
-                  <Badge variant="secondary">{duplicateTask.total} коммент.</Badge>
-                </div>
-                <p className="text-muted-foreground">
-                  Старых постов: {uniqueTaskUrls(duplicateTask).length}. Если вставить одну ссылку, она заменит пост во всех комментариях.
-                </p>
-              </div>
-              <label className="grid gap-1.5">
-                <span className="text-sm font-medium">Новая ссылка на пост</span>
-                <Textarea
-                  value={duplicateUrls}
-                  onChange={(event) => setDuplicateUrls(event.target.value)}
-                  placeholder="https://www.facebook.com/..."
-                  rows={4}
-                />
-                <span className="text-xs text-muted-foreground">
-                  Для задачи с несколькими постами можно вставить несколько ссылок, каждая с новой строки.
-                </span>
-              </label>
-              {duplicateTask.action !== "likeonly" ? (
-                <div className="grid gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">Комментарии</span>
-                    <Badge variant="outline">{duplicateTask.jobs.length} шт.</Badge>
-                  </div>
-                  <div className="grid max-h-[22rem] gap-2 overflow-y-auto rounded-xl border bg-muted/10 p-2">
-                    {duplicateTask.jobs.map((job, index) => (
-                      <div key={job.id} className="grid gap-1.5 rounded-lg bg-background p-2">
-                        <span className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
-                          <span className="truncate">
-                            #{index + 1} · {job.fanName || job.profileId}
-                          </span>
-                          {job.photoPath ? <Badge variant="secondary">фото</Badge> : null}
-                        </span>
-                        {job.photoPath ? (
-                          <a
-                            href={job.photoPath}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex w-fit max-w-full items-center gap-2 rounded-lg border bg-muted/20 p-1.5 text-xs text-primary hover:bg-muted/40"
-                          >
-                            <Image
-                              src={job.photoPath}
-                              alt=""
-                              width={56}
-                              height={56}
-                              className="size-14 rounded-md object-cover"
-                              loading="lazy"
-                            />
-                            <span className="truncate">Фото сохранится в копии</span>
-                          </a>
-                        ) : null}
-                        <Textarea
-                          value={duplicateMessages[job.id] ?? job.message}
-                          onChange={(event) =>
-                            setDuplicateMessages((current) => ({
-                              ...current,
-                              [job.id]: event.target.value,
-                            }))
-                          }
-                          placeholder={job.aiComment ? "AI-комментарий" : "Текст комментария"}
-                          rows={3}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          <DialogFooter>
-            <DialogClose render={<Button type="button" variant="outline" />}>
-              Отмена
-            </DialogClose>
-            <Button
-              type="button"
-              disabled={!duplicateUrls.trim() || busyId === duplicateTask?.id}
-              onClick={() => void handleDuplicateTask()}
-            >
-              {busyId === duplicateTask?.id ? <Loader2 className="animate-spin" /> : <CopyIcon />}
-              Создать копию
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {duplicateTask ? <FarmTaskCopyDialog key={duplicateTask.id} task={duplicateTask} onClose={() => setDuplicateTask(null)} onCreated={refreshQueue} /> : null}
       <Dialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
         <DialogContent>
           <DialogHeader>
