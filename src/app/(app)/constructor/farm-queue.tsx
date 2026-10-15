@@ -1,5 +1,8 @@
 "use client"
 
+import { useTranslations, useLanguage } from "@/components/language-provider"
+import { LANGUAGE_LOCALES } from "@/lib/i18n"
+
 import { CommentMediaPreview } from "@/components/comment-media-preview"
 import { commentMediaLabel } from "@/lib/comment-media"
 import { DateTime, useTimeZone } from "@/components/time-zone-provider"
@@ -169,25 +172,26 @@ function formatWhen(value: string) {
   return <DateTime value={value} />
 }
 
-function formatDuration(ms: number | null) {
+function formatDuration(ms: number | null, t: ReturnType<typeof useTranslations>) {
   if (ms === null) return "—"
   const seconds = Math.max(0, Math.floor(ms / 1000))
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const rest = seconds % 60
-  if (hours > 0) return `${hours}ч ${minutes}м ${rest}с`
-  if (minutes > 0) return `${minutes}м ${rest}с`
-  return `${rest}с`
+  if (hours > 0) return t("{0}ч {1}м {2}с", hours, minutes, rest)
+  if (minutes > 0) return t("{0}м {1}с", minutes, rest)
+  return t("{0}с", rest)
 }
 
 function TaskMetaList({ task, compact = false }: { task: QueueTask; compact?: boolean }) {
+  const t = useTranslations()
   const rows = [
-    ["Team", task.teamName || "—"],
-    ["Owner", task.createdBy || "—"],
-    ["Last login", task.lastLoginAt ? formatWhen(task.lastLoginAt) : "—"],
-    ["Created", formatWhen(task.createdAt)],
-    ["Finished", task.finishedAt ? formatWhen(task.finishedAt) : "—"],
-    ["Duration", formatDuration(task.durationMs)],
+    [t("Команда"), task.teamName || "—"],
+    [t("Владелец"), task.createdBy || "—"],
+    [t("Последний вход"), task.lastLoginAt ? formatWhen(task.lastLoginAt) : "—"],
+    [t("Создано"), formatWhen(task.createdAt)],
+    [t("Завершено"), task.finishedAt ? formatWhen(task.finishedAt) : "—"],
+    [t("Длительность"), formatDuration(task.durationMs, t)],
   ] as const
 
   return (
@@ -214,22 +218,23 @@ function shortUrl(url: string) {
 }
 
 function JobTable({ jobs }: { jobs: QueueJob[] }) {
+  const t = useTranslations()
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Фанка</TableHead>
-          <TableHead>Пост</TableHead>
-          <TableHead>Статус</TableHead>
-          <TableHead>Когда</TableHead>
+          <TableHead>{t("Фанка")}</TableHead>
+          <TableHead>{t("Пост")}</TableHead>
+          <TableHead>{t("Статус")}</TableHead>
+          <TableHead>{t("Когда")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {jobs.length === 0 ? (
           <TableRow>
             <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-              Пока нет заданий
-            </TableCell>
+              {t("Пока нет заданий")}</TableCell>
           </TableRow>
         ) : (
           jobs.map((job) => (
@@ -240,7 +245,7 @@ function JobTable({ jobs }: { jobs: QueueJob[] }) {
               </TableCell>
               <TableCell>
                 <div className="grid gap-1">
-                  <Badge variant={jobStatusVariant[job.status]}>{jobStatusLabel[job.status]}</Badge>
+                  <Badge variant={jobStatusVariant[job.status]}>{t(jobStatusLabel[job.status])}</Badge>
                   {job.error ? (
                     <span className="max-w-xs truncate text-xs text-destructive">{job.error}</span>
                   ) : null}
@@ -262,8 +267,10 @@ function TaskDetailsDialog({
   task: QueueTask | null
   onOpenChange: (open: boolean) => void
 }) {
+  const t = useTranslations()
+
   const errors = task ? taskErrorLog(task) : []
-  const serviceMessage = task ? taskServiceMessage(task) : ""
+  const serviceMessage = task ? taskServiceMessage(task, t) : ""
 
   return (
     <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>
@@ -271,16 +278,15 @@ function TaskDetailsDialog({
         {task ? (
           <>
             <DialogHeader className="pr-8">
-              <DialogTitle>{task.name.trim() || `Задача · ${actionLabel[task.action] || task.action}`}</DialogTitle>
+              <DialogTitle>{task.name.trim() || t("Задача · {0}", t(actionLabel[task.action] || task.action))}</DialogTitle>
               <DialogDescription>
-                {task.createdBy} · {formatWhen(task.createdAt)} · {task.total} коммент.
-              </DialogDescription>
+                {task.createdBy} · {formatWhen(task.createdAt)} · {task.total} {t(" коммент.")}</DialogDescription>
             </DialogHeader>
             <div className="grid min-h-0 gap-4 overflow-y-auto pr-2">
               <div className="flex flex-wrap items-center gap-2">
                 <TaskCommentStatus task={task} />
                 <Badge variant={errors.length > 0 ? "destructive" : "outline"}>
-                  Ошибок: {errors.length}
+                  {t("Ошибок: ")}{errors.length}
                 </Badge>
               </div>
               <div className="rounded-xl border bg-muted/20 p-3">
@@ -289,7 +295,7 @@ function TaskDetailsDialog({
               <ServiceMessage message={serviceMessage} />
               {errors.length > 0 ? (
                 <div className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-                  <p className="text-sm font-medium text-destructive">Лог ошибок</p>
+                  <p className="text-sm font-medium text-destructive">{t("Лог ошибок")}</p>
                   <div className="grid max-h-40 min-w-0 gap-1 overflow-y-auto text-sm">
                     {errors.map((job) => (
                       <p key={job.id} className="min-w-0 break-words text-destructive [overflow-wrap:anywhere]">
@@ -303,11 +309,11 @@ function TaskDetailsDialog({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Фанка</TableHead>
-                      <TableHead>Пост</TableHead>
-                      <TableHead>Комментарий</TableHead>
-                      <TableHead>Вложения</TableHead>
-                      <TableHead>Статус</TableHead>
+                      <TableHead>{t("Фанка")}</TableHead>
+                      <TableHead>{t("Пост")}</TableHead>
+                      <TableHead>{t("Комментарий")}</TableHead>
+                      <TableHead>{t("Вложения")}</TableHead>
+                      <TableHead>{t("Статус")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -338,7 +344,7 @@ function TaskDetailsDialog({
                                 height={40}
                                 className="size-10 rounded-md border object-cover"
                               />
-                              <span>{commentMediaLabel(job.photoPath)}</span>
+                              <span>{t(commentMediaLabel(job.photoPath))}</span>
                             </a>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -346,7 +352,7 @@ function TaskDetailsDialog({
                         </TableCell>
                         <TableCell>
                           <div className="grid gap-1">
-                            <Badge variant={jobStatusVariant[job.status]}>{jobStatusLabel[job.status]}</Badge>
+                            <Badge variant={jobStatusVariant[job.status]}>{t(jobStatusLabel[job.status])}</Badge>
                             {job.error ? (
                               <span className="max-w-xs text-xs text-destructive">{job.error}</span>
                             ) : null}
@@ -393,7 +399,9 @@ function rememberQueue(scope: QueueScope, stats: QueueStats, tasks: QueueTask[])
 }
 
 function QueueLoading() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">Загружаем очередь…</p>
+  const t = useTranslations()
+
+  return <p className="py-6 text-center text-sm text-muted-foreground">{t("Загружаем очередь…")}</p>
 }
 
 function taskStatus(task: QueueTask): TaskStatus {
@@ -425,36 +433,39 @@ function taskTab(task: QueueTask): QueueTab {
 }
 
 function TaskCommentStatus({ task }: { task: QueueTask }) {
+  const t = useTranslations()
+
   return (
     <div className="flex flex-wrap gap-1.5">
-      <Badge variant="outline">готово {task.counts.done}</Badge>
-      {task.counts.error > 0 ? <Badge variant="destructive">ошибок {task.counts.error}</Badge> : null}
-      {task.counts.running > 0 ? <Badge>идёт {task.counts.running}</Badge> : null}
-      {task.counts.pending > 0 ? <Badge variant="secondary">очередь {task.counts.pending}</Badge> : null}
+      <Badge variant="outline">{t("готово ")}{task.counts.done}</Badge>
+      {task.counts.error > 0 ? <Badge variant="destructive">{t("ошибок ")}{task.counts.error}</Badge> : null}
+      {task.counts.running > 0 ? <Badge>{t("идёт ")}{task.counts.running}</Badge> : null}
+      {task.counts.pending > 0 ? <Badge variant="secondary">{t("очередь ")}{task.counts.pending}</Badge> : null}
     </div>
   )
 }
 
-function taskTitle(task: QueueTask) {
-  return task.name.trim() || actionLabel[task.action] || task.action
+function taskTitle(task: QueueTask, t: ReturnType<typeof useTranslations>) {
+  return task.name.trim() || t(actionLabel[task.action] || task.action)
 }
 
 function cleanFanName(value: string) {
   return value.replace(/^(?:\[[^\]]+\]\s*)+/, "").trim()
 }
 
-function taskServiceMessage(task: QueueTask) {
+function taskServiceMessage(task: QueueTask, t: ReturnType<typeof useTranslations>) {
   const errors = task.jobs.filter((job) => job.error)
   const first = errors[0]
   if (!first?.error) return ""
 
   const name = cleanFanName(first.fanName || "")
   const prefix = name ? `${name}: ` : ""
-  const suffix = errors.length > 1 ? ` Ещё ошибок: ${errors.length - 1}.` : ""
-  return `${prefix}${first.error}${suffix}`
+  const suffix = errors.length > 1 ? ` ${t("Ещё ошибок: {0}.", errors.length - 1)}` : ""
+  return `${prefix}${t(first.error)}${suffix}`
 }
 
 function ServiceMessage({ message, compact = false }: { message: string; compact?: boolean }) {
+  const t = useTranslations()
   if (!message) return null
 
   return (
@@ -465,7 +476,7 @@ function ServiceMessage({ message, compact = false }: { message: string; compact
           : "min-w-0 max-w-full overflow-hidden rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive"
       }
     >
-      <span className="font-medium text-foreground">Service message:</span>{" "}
+      <span className="font-medium text-foreground">{t("Сервисное сообщение")}:</span>{" "}
       <span className="break-words [overflow-wrap:anywhere]">{message}</span>
     </div>
   )
@@ -517,30 +528,31 @@ function buildOwnerStats(tasks: QueueTask[]) {
 }
 
 function OwnerStatsTable({ stats }: { stats: OwnerStats[] }) {
+  const t = useTranslations()
+
   return (
     <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
       <div className="mb-4 grid gap-1">
-        <h2 className="font-heading text-base font-medium">Статистика байеров</h2>
+        <h2 className="font-heading text-base font-medium">{t("Статистика байеров")}</h2>
         <p className="text-sm text-muted-foreground">
-          Задачи и результаты по тем пользователям, которые доступны текущей роли.
-        </p>
+          {t("Задачи и результаты по тем пользователям, которые доступны текущей роли.")}</p>
       </div>
       {stats.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Пока нет задач</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">{t("Пока нет задач")}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Байер</TableHead>
-              <TableHead>Задач</TableHead>
-              <TableHead>Комментов</TableHead>
-              <TableHead>Лайков</TableHead>
-              <TableHead>Вложения</TableHead>
+              <TableHead>{t("Байер")}</TableHead>
+              <TableHead>{t("Задач")}</TableHead>
+              <TableHead>{t("Комментов")}</TableHead>
+              <TableHead>{t("Лайков")}</TableHead>
+              <TableHead>{t("Вложения")}</TableHead>
               <TableHead>ChatGPT</TableHead>
-              <TableHead>Готово</TableHead>
-              <TableHead>Ошибки</TableHead>
-              <TableHead>В работе</TableHead>
-              <TableHead>Последняя задача</TableHead>
+              <TableHead>{t("Готово")}</TableHead>
+              <TableHead>{t("Ошибки")}</TableHead>
+              <TableHead>{t("В работе")}</TableHead>
+              <TableHead>{t("Последняя задача")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -614,6 +626,8 @@ function TasksTable({
   currentUserName?: string
   tools?: boolean
 }) {
+  const t = useTranslations()
+
   const busy = busyId !== null
   const selectedOnPage = tasks.filter((task) => selectedIds.includes(task.id)).length
   const pageChecked = tasks.length > 0 && selectedOnPage === tasks.length
@@ -628,25 +642,23 @@ function TasksTable({
               <Input
                 value={query}
                 onChange={(event) => onQueryChange(event.target.value)}
-                placeholder="Поиск по юзеру, фанке, посту, статусу или ошибке"
+                placeholder={t("Поиск по юзеру, фанке, посту, статусу или ошибке")}
                 className="pl-8"
-                aria-label="Поиск по задачам"
+                aria-label={t("Поиск по задачам")}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">
-                {totalTasks} найдено
-              </Badge>
+                {totalTasks} {t(" найдено")}</Badge>
               <select
                 value={pageSize}
                 onChange={(event) => onPageSizeChange(Number(event.target.value))}
                 className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
-                aria-label="Задач на странице"
+                aria-label={t("Задач на странице")}
               >
                 {PAGE_SIZES.map((size) => (
                   <option key={size} value={size}>
-                    {size} / стр.
-                  </option>
+                    {size} {t(" / стр.")}</option>
                 ))}
               </select>
               {canManage ? (
@@ -657,7 +669,7 @@ function TasksTable({
                   onClick={onDelete}
                 >
                   {busyId === "delete" ? <Loader2 className="animate-spin" /> : <Trash2Icon />}
-                  Удалить {selectedIds.length > 0 ? selectedIds.length : ""}
+                  {t("Удалить ")}{selectedIds.length > 0 ? selectedIds.length : ""}
                 </Button>
               ) : null}
             </div>
@@ -666,7 +678,7 @@ function TasksTable({
       ) : null}
       {tasks.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          {query ? "По этому поиску ничего не найдено" : "Очередь пустая"}
+          {query ? t("По этому поиску ничего не найдено") : t("Очередь пустая")}
         </p>
       ) : (
         <Table>
@@ -677,16 +689,16 @@ function TasksTable({
                   <Checkbox
                     checked={pageChecked}
                     onCheckedChange={(checked) => onTogglePage(Boolean(checked))}
-                    aria-label="Выбрать задачи на странице"
+                    aria-label={t("Выбрать задачи на странице")}
                   />
                 </TableHead>
               ) : null}
-              <TableHead>Очередь</TableHead>
-              <TableHead>Информация</TableHead>
-              <TableHead>Задача</TableHead>
-              <TableHead>Комментарии</TableHead>
-              <TableHead>Статус</TableHead>
-              <TableHead className="text-right">Действия</TableHead>
+              <TableHead>{t("Очередь")}</TableHead>
+              <TableHead>{t("Информация")}</TableHead>
+              <TableHead>{t("Задача")}</TableHead>
+              <TableHead>{t("Комментарии")}</TableHead>
+              <TableHead>{t("Статус")}</TableHead>
+              <TableHead className="text-right">{t("Действия")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -695,7 +707,7 @@ function TasksTable({
               const busy = busyId === task.id || busyId === "all"
               const mine = Boolean(currentUserName && task.createdBy === currentUserName)
               const position = queuePositions.get(task.id)
-              const serviceMessage = taskServiceMessage(task)
+              const serviceMessage = taskServiceMessage(task, t)
               return (
                 <TableRow key={task.id} className={mine ? "bg-primary/5" : undefined}>
                   {tools && canManage ? (
@@ -703,7 +715,7 @@ function TasksTable({
                       <Checkbox
                         checked={selectedIds.includes(task.id)}
                         onCheckedChange={(checked) => onToggleSelected(task.id, Boolean(checked))}
-                        aria-label={`Выбрать задачу ${task.id}`}
+                        aria-label={t("Выбрать задачу {0}", task.id)}
                       />
                     </TableCell>
                   ) : null}
@@ -712,16 +724,15 @@ function TasksTable({
                   </TableCell>
                   <TableCell className="min-w-56">
                     <div className="grid gap-1">
-                      {mine ? <Badge variant="secondary" className="w-fit">Моя</Badge> : null}
+                      {mine ? <Badge variant="secondary" className="w-fit">{t("Моя")}</Badge> : null}
                       <TaskMetaList task={task} compact />
                     </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     <div className="grid gap-0.5">
-                      <span>{task.name.trim() || actionLabel[task.action] || task.action}</span>
+                      <span>{task.name.trim() || t(actionLabel[task.action] || task.action)}</span>
                       <span className="text-xs text-muted-foreground">
-                        {actionLabel[task.action] || task.action} · {task.total} шт.
-                      </span>
+                        {t(actionLabel[task.action] || task.action)} · {task.total} {t(" шт.")}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -730,7 +741,7 @@ function TasksTable({
                   <TableCell className="max-w-80">
                     <div className="grid min-w-0 max-w-80 gap-1.5">
                       <Badge variant={taskStatusVariant[status]} className="w-fit">
-                        {taskStatusLabel[status]}
+                        {t(taskStatusLabel[status])}
                       </Badge>
                       <ServiceMessage message={serviceMessage} compact />
                     </div>
@@ -744,8 +755,7 @@ function TasksTable({
                         onClick={() => onDetails(task)}
                       >
                         <EyeIcon />
-                        Детали
-                      </Button>
+                        {t("Детали")}</Button>
                       <Button
                         type="button"
                         size="sm"
@@ -754,8 +764,7 @@ function TasksTable({
                         onClick={() => onDuplicate(task)}
                       >
                         <CopyIcon />
-                        Копия
-                      </Button>
+                        {t("Копия")}</Button>
                       {canManage ? (
                         <>
                         <Button
@@ -766,8 +775,7 @@ function TasksTable({
                           onClick={() => onStop(task.id)}
                         >
                           {busy ? <Loader2 className="animate-spin" /> : <Square />}
-                          Стоп
-                        </Button>
+                          {t("Стоп")}</Button>
                         <Button
                           type="button"
                           size="sm"
@@ -775,8 +783,7 @@ function TasksTable({
                           onClick={() => onStart(task.id)}
                         >
                           {busy ? <Loader2 className="animate-spin" /> : <Play />}
-                          Старт
-                        </Button>
+                          {t("Старт")}</Button>
                         </>
                       ) : null}
                     </div>
@@ -790,7 +797,7 @@ function TasksTable({
       {tools && totalTasks > 0 ? (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            Страница {page} из {totalPages}
+            {t("Страница ")}{page} {t(" из ")}{totalPages}
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -800,16 +807,14 @@ function TasksTable({
               onClick={() => onPageChange(page - 1)}
             >
               <ChevronLeftIcon />
-              Назад
-            </Button>
+              {t("Назад")}</Button>
             <Button
               type="button"
               variant="outline"
               disabled={page >= totalPages}
               onClick={() => onPageChange(page + 1)}
             >
-              Вперёд
-              <ChevronRightIcon />
+              {t("Вперёд")}<ChevronRightIcon />
             </Button>
           </div>
         </div>
@@ -858,7 +863,7 @@ function TaskActionIcon({
   )
 }
 
-async function copyPostUrl(url: string) {
+async function copyPostUrl(url: string, t: ReturnType<typeof useTranslations>) {
   if (!url) return
   try {
     if (navigator.clipboard?.writeText) {
@@ -875,9 +880,9 @@ async function copyPostUrl(url: string) {
       textarea.remove()
       if (!copied) throw new Error("copy failed")
     }
-    pushAppNotification("Task list", "Ссылка на пост скопирована", { tone: "success" })
+    pushAppNotification(t("Список задач"), t("Ссылка на пост скопирована"), { tone: "success" })
   } catch {
-    pushAppNotification("Task list", "Не удалось скопировать ссылку", { tone: "error" })
+    pushAppNotification(t("Список задач"), t("Не удалось скопировать ссылку"), { tone: "error" })
   }
 }
 
@@ -966,39 +971,41 @@ function TasksCardList({
   currentUserName?: string
   tools?: boolean
 }) {
+  const t = useTranslations()
+
   return (
     <section className="grid gap-4">
       {tools ? (
         <div className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
           <div className="grid gap-3 xl:grid-cols-[minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(16rem,1.2fr)_auto] xl:items-center">
             <QueueFilterSelect
-              label="Сортировка задач"
+              label={t("Сортировка задач")}
               value={sortOrder}
               onChange={(value) => onSortChange(value as QueueSort)}
             >
               {sortOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.label)}
                 </option>
               ))}
             </QueueFilterSelect>
             <QueueFilterSelect
-              label="Фильтр статуса"
+              label={t("Фильтр статуса")}
               value={statusFilter}
               onChange={(value) => onStatusFilterChange(value as QueueStatusFilter)}
             >
               {statusFilterOptions.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.label)}
                 </option>
               ))}
             </QueueFilterSelect>
             <QueueFilterSelect
-              label="Фильтр команды"
+              label={t("Фильтр команды")}
               value={teamFilter}
               onChange={onTeamFilterChange}
             >
-              <option value="all">Все команды</option>
+              <option value="all">{t("Все команды")}</option>
               {teamOptions.map((team) => (
                 <option key={team} value={team}>
                   {team}
@@ -1013,27 +1020,25 @@ function TasksCardList({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onSearch()
                 }}
-                placeholder="Поиск по названию, ссылке, владельцу, фанке..."
+                placeholder={t("Поиск по названию, ссылке, владельцу, фанке...")}
                 className="pl-8"
-                aria-label="Поиск по задачам"
+                aria-label={t("Поиск по задачам")}
               />
             </div>
             <Button type="button" onClick={onSearch}>
-              Поиск
-            </Button>
+              {t("Поиск")}</Button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{totalTasks} найдено</Badge>
+            <Badge variant="secondary">{totalTasks} {t(" найдено")}</Badge>
             <QueueFilterSelect
-              label="Задач на странице"
+              label={t("Задач на странице")}
               value={String(pageSize)}
               onChange={(value) => onPageSizeChange(Number(value))}
               className="w-28"
             >
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={size}>
-                  {size} / стр.
-                </option>
+                  {size} {t(" / стр.")}</option>
               ))}
             </QueueFilterSelect>
           </div>
@@ -1043,7 +1048,7 @@ function TasksCardList({
       {tasks.length === 0 ? (
         <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
           <p className="py-6 text-center text-sm text-muted-foreground">
-            {query ? "По этому поиску ничего не найдено" : "Очередь пустая"}
+            {query ? t("По этому поиску ничего не найдено") : t("Очередь пустая")}
           </p>
         </section>
       ) : (
@@ -1055,7 +1060,7 @@ function TasksCardList({
             const position = queuePositions.get(task.id)
             const urls = uniqueTaskUrls(task)
             const firstUrl = urls[0]
-            const serviceMessage = taskServiceMessage(task)
+            const serviceMessage = taskServiceMessage(task, t)
             const firstPhoto = task.jobs.find((job) => job.photoPath)?.photoPath || ""
             const runningOrPending = task.counts.running > 0 || task.counts.pending > 0
 
@@ -1071,26 +1076,26 @@ function TasksCardList({
                   <div className="grid min-w-0 gap-2">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <h2 className="min-w-0 truncate font-heading text-base font-medium text-primary">
-                        {taskTitle(task)}
+                        {taskTitle(task, t)}
                       </h2>
-                      <Badge variant={taskStatusVariant[status]}>{taskStatusLabel[status]}</Badge>
+                      <Badge variant={taskStatusVariant[status]}>{t(taskStatusLabel[status])}</Badge>
                       {position ? <Badge variant="secondary">#{position}</Badge> : null}
-                      {mine ? <Badge variant="secondary">Моя</Badge> : null}
+                      {mine ? <Badge variant="secondary">{t("Моя")}</Badge> : null}
                     </div>
                     <TaskCommentStatus task={task} />
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
                     <TaskActionIcon
-                      label="Скопировать ссылку на пост"
+                      label={t("Скопировать ссылку на пост")}
                       disabled={!firstUrl}
-                      onClick={() => void copyPostUrl(firstUrl)}
+                      onClick={() => void copyPostUrl(firstUrl, t)}
                     >
                       <LinkIcon />
                     </TaskActionIcon>
                     {canManage ? (
                       <TaskActionIcon
-                        label="Удалить"
+                        label={t("Удалить")}
                         destructive
                         disabled={busy}
                         onClick={() => onDeleteTask(task.id)}
@@ -1098,12 +1103,12 @@ function TasksCardList({
                         {busyId === "delete" ? <Loader2 className="animate-spin" /> : <Trash2Icon />}
                       </TaskActionIcon>
                     ) : null}
-                    <TaskActionIcon label="Копировать" disabled={busy} onClick={() => onDuplicate(task)}>
+                    <TaskActionIcon label={t("Копировать")} disabled={busy} onClick={() => onDuplicate(task)}>
                       <CopyIcon />
                     </TaskActionIcon>
                     {canManage ? (
                       <TaskActionIcon
-                        label={runningOrPending ? "Стоп" : "Старт"}
+                        label={runningOrPending ? t("Стоп") : t("Старт")}
                         primary={!runningOrPending}
                         disabled={busy}
                         onClick={() => (runningOrPending ? onStop(task.id) : onStart(task.id))}
@@ -1111,7 +1116,7 @@ function TasksCardList({
                         {busy ? <Loader2 className="animate-spin" /> : runningOrPending ? <Square /> : <Play />}
                       </TaskActionIcon>
                     ) : null}
-                    <TaskActionIcon label="Инфо" onClick={() => onDetails(task)}>
+                    <TaskActionIcon label={t("Инфо")} onClick={() => onDetails(task)}>
                       <InfoIcon />
                     </TaskActionIcon>
                   </div>
@@ -1146,7 +1151,7 @@ function TasksCardList({
       {tools && totalTasks > 0 ? (
         <div className="flex flex-col gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            Страница {page} из {totalPages}
+            {t("Страница ")}{page} {t(" из ")}{totalPages}
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -1156,16 +1161,14 @@ function TasksCardList({
               onClick={() => onPageChange(page - 1)}
             >
               <ChevronLeftIcon />
-              Назад
-            </Button>
+              {t("Назад")}</Button>
             <Button
               type="button"
               variant="outline"
               disabled={page >= totalPages}
               onClick={() => onPageChange(page + 1)}
             >
-              Вперёд
-              <ChevronRightIcon />
+              {t("Вперёд")}<ChevronRightIcon />
             </Button>
           </div>
         </div>
@@ -1185,6 +1188,8 @@ function QueueTabs({
   completedCount: number
   onChange: (value: QueueTab) => void
 }) {
+  const t = useTranslations()
+
   return (
     <div className="flex w-fit flex-wrap items-center gap-1 rounded-full bg-muted p-1">
       <Button
@@ -1194,8 +1199,7 @@ function QueueTabs({
         className={value === "work" ? "rounded-full bg-background shadow-sm hover:bg-background" : "rounded-full text-muted-foreground"}
         onClick={() => onChange("work")}
       >
-        В работе
-        <Badge variant="secondary">{workCount}</Badge>
+        {t("В работе")}<Badge variant="secondary">{workCount}</Badge>
       </Button>
       <Button
         type="button"
@@ -1204,8 +1208,7 @@ function QueueTabs({
         className={value === "completed" ? "rounded-full bg-background shadow-sm hover:bg-background" : "rounded-full text-muted-foreground"}
         onClick={() => onChange("completed")}
       >
-        Завершено
-        <Badge variant="secondary">{completedCount}</Badge>
+        {t("Завершено")}<Badge variant="secondary">{completedCount}</Badge>
       </Button>
     </div>
   )
@@ -1248,6 +1251,9 @@ export function FarmQueue({
   currentUserName?: string
   queueScope?: QueueScope
 }) {
+  const t = useTranslations()
+  const language = useLanguage()
+
   const initialQueue = getRememberedQueue(queueScope)
   const queueApiUrl = queueScope === "own" ? "/api/farm-queue?scope=own" : "/api/farm-queue"
   const safeInitialPageSize = PAGE_SIZES.includes(initialPageSize as (typeof PAGE_SIZES)[number])
@@ -1286,7 +1292,7 @@ export function FarmQueue({
         }
         if (cancelled) return
         if (!response.ok || data.error) {
-          setError(data.error || "Не удалось загрузить очередь")
+          setError(data.error || t("Не удалось загрузить очередь"))
           setLoaded(true)
           return
         }
@@ -1301,8 +1307,8 @@ export function FarmQueue({
             if (previousTab !== "work" || nextTab !== "completed") continue
             const failed = taskStatusBucket(task) === "ERROR"
             pushAppNotification(
-              failed ? "Задача завершилась с ошибкой" : "Задача готова",
-              `${actionLabel[task.action] || task.action} · ${task.total} шт.`,
+              failed ? t("Задача завершилась с ошибкой") : t("Задача готова"),
+              t("{0} · {1} шт.", t(actionLabel[task.action] || task.action), task.total),
               {
                 href: "/queue?tab=completed",
                 tone: failed ? "error" : "success",
@@ -1318,7 +1324,7 @@ export function FarmQueue({
         setLoaded(true)
       } catch {
         if (!cancelled) {
-          setError("Не удалось загрузить очередь")
+          setError(t("Не удалось загрузить очередь"))
           setLoaded(true)
         }
       }
@@ -1330,7 +1336,7 @@ export function FarmQueue({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [active, currentUserName, queueApiUrl, queueScope])
+  }, [active, currentUserName, queueApiUrl, queueScope, t])
 
   const recentJobs = useMemo(
     () =>
@@ -1396,8 +1402,8 @@ export function FarmQueue({
     }
     if (needle) {
       next = next.filter((task) => {
-        const status = taskStatusLabel[taskStatus(task)]
-        const action = actionLabel[task.action] || task.action
+        const status = t(taskStatusLabel[taskStatus(task)])
+        const action = t(actionLabel[task.action] || task.action)
         return [
           task.name,
           task.createdBy,
@@ -1405,15 +1411,15 @@ export function FarmQueue({
           action,
           status,
           String(task.total),
-          formatDateTime(task.createdAt, timeZone),
+          formatDateTime(task.createdAt, timeZone, undefined, LANGUAGE_LOCALES[language]),
           ...task.jobs.flatMap((job) => [
             job.fanName,
             job.profileId,
             job.url,
             job.aiComment ? "ChatGPT" : job.message,
-            job.photoPath ? commentMediaLabel(job.photoPath) : "",
+            job.photoPath ? t(commentMediaLabel(job.photoPath)) : "",
             job.error || "",
-            jobStatusLabel[job.status],
+            t(jobStatusLabel[job.status]),
           ]),
         ]
           .join(" ")
@@ -1427,7 +1433,7 @@ export function FarmQueue({
         ? right.createdAt.localeCompare(left.createdAt)
         : left.createdAt.localeCompare(right.createdAt),
     )
-  }, [query, sortOrder, timeZone, statusFilter, tableTools, taskFilters, teamFilter, visibleTasks])
+  }, [query, sortOrder, timeZone, statusFilter, tableTools, taskFilters, teamFilter, visibleTasks, t, language])
   const ownerStats = useMemo(() => buildOwnerStats(filteredTasks), [filteredTasks])
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -1550,12 +1556,12 @@ export function FarmQueue({
     setBusyId(taskId || "all")
     const result = await stopFarmTask(taskId)
     if (result.error) {
-      pushAppNotification("Стоп · ошибка", result.error, {
+      pushAppNotification(t("Стоп · ошибка"), result.error, {
         href: "/queue?tab=work",
         tone: "error",
       })
     } else {
-      pushAppNotification("Остановлено", `Закрыли AdsPower · заданий ${result.stopped ?? 0}`, {
+      pushAppNotification(t("Остановлено"), t("Закрыли AdsPower · заданий {0}", result.stopped ?? 0), {
         href: "/queue?tab=completed",
         tone: "queue",
       })
@@ -1571,12 +1577,12 @@ export function FarmQueue({
     setBusyId(taskId || "all")
     const result = await startFarmTask(taskId)
     if (result.error) {
-      pushAppNotification("Старт · ошибка", result.error, {
+      pushAppNotification(t("Старт · ошибка"), result.error, {
         href: "/queue?tab=work",
         tone: "error",
       })
     } else {
-      pushAppNotification("Запущено", `В очередь · ${result.started ?? 0} шт.`, {
+      pushAppNotification(t("Запущено"), t("В очередь · {0} шт.", result.started ?? 0), {
         href: "/queue?tab=work",
         tone: "queue",
       })
@@ -1590,12 +1596,12 @@ export function FarmQueue({
     setBusyId("delete")
     const result = await deleteFarmTasks(taskIds)
     if (result.error) {
-      pushAppNotification("Удаление · ошибка", result.error, {
+      pushAppNotification(t("Удаление · ошибка"), result.error, {
         href: "/stats",
         tone: "error",
       })
     } else {
-      pushAppNotification("Удалено", `Задач ${result.deleted ?? 0}`, {
+      pushAppNotification(t("Удалено"), t("Задач {0}", result.deleted ?? 0), {
         href: "/stats",
         tone: "success",
       })
@@ -1624,33 +1630,33 @@ export function FarmQueue({
 
   const confirmTitle =
     confirmAction?.kind === "start"
-      ? "Запустить задачу?"
+      ? t("Запустить задачу?")
       : confirmAction?.kind === "stop"
-        ? "Остановить задачу?"
-        : "Удалить задачи?"
+        ? t("Остановить задачу?")
+        : t("Удалить задачи?")
   const confirmDescription =
     confirmAction?.kind === "start"
-      ? "Задания этой задачи будут возвращены в работу. Связанные AdsPower-профили перед запуском остановятся и откроются заново."
+      ? t("Задания этой задачи будут возвращены в работу. Связанные AdsPower-профили перед запуском остановятся и откроются заново.")
       : confirmAction?.kind === "stop"
-        ? "Активные и ожидающие задания станут ошибкой «Остановлено», связанные AdsPower-профили будут закрыты."
-        : `Будет удалено ${confirmAction?.taskIds.length ?? 0} задач вместе с заданиями. Связанные AdsPower-профили будут остановлены.`
+        ? t("Активные и ожидающие задания станут ошибкой «Остановлено», связанные AdsPower-профили будут закрыты.")
+        : t("Будет удалено {0} задач вместе с заданиями. Связанные AdsPower-профили будут остановлены.", confirmAction?.taskIds.length ?? 0)
   const confirmButton =
     confirmAction?.kind === "start"
-      ? "Запустить"
+      ? t("Запустить")
       : confirmAction?.kind === "stop"
-        ? "Остановить"
-        : "Удалить"
+        ? t("Остановить")
+        : t("Удалить")
 
   return (
     <section className="grid gap-4">
       {cards ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">В очереди</p>
+            <p className="text-sm text-muted-foreground">{t("В очереди")}</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums">{cardStats.pending}</p>
           </div>
           <div className="rounded-2xl border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">Идёт</p>
+            <p className="text-sm text-muted-foreground">{t("Идёт")}</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums">
               {cardStats.running}
               {tableTools ? null : stats.maxParallel ? (
@@ -1659,24 +1665,24 @@ export function FarmQueue({
             </p>
           </div>
           <div className="rounded-2xl border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">Готово</p>
+            <p className="text-sm text-muted-foreground">{t("Готово")}</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums">{cardStats.done}</p>
           </div>
           <div className="rounded-2xl border bg-card p-4 shadow-sm">
-            <p className="text-sm text-muted-foreground">Ошибки</p>
+            <p className="text-sm text-muted-foreground">{t("Ошибки")}</p>
             <p className="mt-2 text-3xl font-semibold tabular-nums">{cardStats.error}</p>
           </div>
         </div>
       ) : full ? null : (
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">В очереди {stats.pending}</Badge>
-          <Badge>Идёт {stats.running}{stats.maxParallel ? ` / ${stats.maxParallel}` : ""}</Badge>
-          <Badge variant="outline">Готово {stats.done}</Badge>
-          <Badge variant={stats.error > 0 ? "destructive" : "outline"}>Ошибки {stats.error}</Badge>
+          <Badge variant="secondary">{t("В очереди ")}{stats.pending}</Badge>
+          <Badge>{t("Идёт ")}{stats.running}{stats.maxParallel ? ` / ${stats.maxParallel}` : ""}</Badge>
+          <Badge variant="outline">{t("Готово ")}{stats.done}</Badge>
+          <Badge variant={stats.error > 0 ? "destructive" : "outline"}>{t("Ошибки ")}{stats.error}</Badge>
         </div>
       )}
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{t(error)}</p> : null}
 
       {showTabs ? (
         <QueueTabs
@@ -1757,19 +1763,18 @@ export function FarmQueue({
         <>
           <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
             <div className="mb-4 grid gap-1">
-              <h2 className="font-heading text-base font-medium">Задачи</h2>
+              <h2 className="font-heading text-base font-medium">{t("Задачи")}</h2>
               <p className="text-sm text-muted-foreground">
-                Новые задачи сразу попадают сюда и крутятся в фоне. Полный список — в разделе «Очередь».
-              </p>
+                {t("Новые задачи сразу попадают сюда и крутятся в фоне. Полный список — в разделе «Очередь».")}</p>
             </div>
             {!loaded ? (
               <QueueLoading />
             ) : tasks.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Очередь пустая</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{t("Очередь пустая")}</p>
             ) : (
               <ul className="grid gap-2">
                 {tasks.map((task) => {
-                  const serviceMessage = taskServiceMessage(task)
+                  const serviceMessage = taskServiceMessage(task, t)
                   return (
                     <li
                       key={task.id}
@@ -1777,8 +1782,7 @@ export function FarmQueue({
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">
-                          {actionLabel[task.action] || task.action} · {task.total} шт.
-                        </p>
+                          {t(actionLabel[task.action] || task.action)} · {task.total} {t(" шт.")}</p>
                         <TaskMetaList task={task} compact />
                       </div>
                       <div className="flex flex-wrap gap-1.5 md:justify-end">
@@ -1796,7 +1800,7 @@ export function FarmQueue({
 
           <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
             <div className="mb-4 grid gap-1">
-              <h2 className="font-heading text-base font-medium">Последние задания</h2>
+              <h2 className="font-heading text-base font-medium">{t("Последние задания")}</h2>
             </div>
             {!loaded ? <QueueLoading /> : <JobTable jobs={recentJobs} />}
           </section>
@@ -1812,8 +1816,7 @@ export function FarmQueue({
           </DialogHeader>
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>
-              Отмена
-            </DialogClose>
+              {t("Отмена")}</DialogClose>
             <Button
               type="button"
               variant={confirmAction?.kind === "start" ? "default" : "destructive"}

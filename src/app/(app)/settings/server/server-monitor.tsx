@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useEffect, useState } from "react"
 import { Cpu, HardDrive, MemoryStick, Server } from "lucide-react"
 import type { ServerMetrics } from "@/lib/server-metrics"
@@ -18,13 +20,13 @@ function formatBytes(value: number) {
   return `${value} Б`
 }
 
-function formatUptime(seconds: number) {
+function formatUptime(seconds: number, t: ReturnType<typeof useTranslations>) {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days} д ${hours} ч`
-  if (hours > 0) return `${hours} ч ${minutes} мин`
-  return `${minutes} мин`
+  if (days > 0) return t("{0} д {1} ч", days, hours)
+  if (hours > 0) return t("{0} ч {1} мин", hours, minutes)
+  return t("{0} мин", minutes)
 }
 
 function formatPct(value: number) {
@@ -54,6 +56,8 @@ function LoadChart({
 }: {
   points: { cpu: number; mem: number; load: number }[]
 }) {
+  const t = useTranslations()
+
   const width = 1100
   const height = 240
   const padL = 44
@@ -89,7 +93,7 @@ function LoadChart({
       preserveAspectRatio="none"
       className="h-52 w-full md:h-56"
       role="img"
-      aria-label="График нагрузки"
+      aria-label={t("График нагрузки")}
     >
       <defs>
         <linearGradient id="load-fill" x1="0" y1="1" x2="0" y2="0">
@@ -143,6 +147,8 @@ function LoadChart({
 }
 
 export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
+  const t = useTranslations()
+
   const [data, setData] = useState<ServerMetrics>(initial)
   const [error, setError] = useState("")
 
@@ -153,7 +159,7 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
       try {
         const res = await fetch("/api/server-metrics", { cache: "no-store" })
         if (!res.ok) {
-          throw new Error(res.status === 401 ? "Нужно войти в аккаунт" : "Не удалось получить метрики")
+          throw new Error(res.status === 401 ? t("Нужно войти в аккаунт") : t("Не удалось получить метрики"))
         }
         const json = (await res.json()) as ServerMetrics
         if (!cancelled) {
@@ -162,7 +168,7 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Ошибка мониторинга")
+          setError(err instanceof Error ? err.message : t("Ошибка мониторинга"))
         }
       }
     }
@@ -173,45 +179,44 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [])
+  }, [t])
 
   return (
     <div className="grid gap-4">
       {error ? (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {t(error)}
         </p>
       ) : null}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card size="sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardDescription>Процессор</CardDescription>
+            <CardDescription>{t("Процессор")}</CardDescription>
             <Cpu className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <CardTitle className="text-2xl tabular-nums">{formatPct(data.cpuPercent)}</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              {data.cpuCores} ядер · {data.cpuSpeedMhz} МГц
-            </p>
+              {data.cpuCores} {t(" ядер · ")}{data.cpuSpeedMhz} {t(" МГц")}</p>
             <Meter value={data.cpuPercent} color="#3b82f6" />
           </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardDescription>Оперативная память</CardDescription>
+            <CardDescription>{t("Оперативная память")}</CardDescription>
             <MemoryStick className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <CardTitle className="text-2xl tabular-nums">{formatPct(data.memPercent)}</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              {formatBytes(data.memUsed)} из {formatBytes(data.memTotal)}
+              {formatBytes(data.memUsed)} {t(" из ")}{formatBytes(data.memTotal)}
             </p>
             <Meter value={data.memPercent} color="#8b5cf6" />
           </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardDescription>Диск</CardDescription>
+            <CardDescription>{t("Диск")}</CardDescription>
             <HardDrive className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -220,21 +225,21 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
             </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               {data.disk
-                ? `${formatBytes(data.disk.used)} из ${formatBytes(data.disk.total)}`
-                : "Нет данных"}
+                ? t("{0} из {1}", formatBytes(data.disk.used), formatBytes(data.disk.total))
+                : t("Нет данных")}
             </p>
             <Meter value={data.disk?.percent ?? 0} color="#06b6d4" />
           </CardContent>
         </Card>
         <Card size="sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardDescription>Нагрузка</CardDescription>
+            <CardDescription>{t("Нагрузка")}</CardDescription>
             <Server className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <CardTitle className="text-2xl tabular-nums">{data.load1.toFixed(2)}</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              5 мин {data.load5.toFixed(2)} · 15 мин {data.load15.toFixed(2)}
+              {t("5 мин ")}{data.load5.toFixed(2)} {t(" · 15 мин ")}{data.load15.toFixed(2)}
             </p>
             <Meter
               value={(data.load1 / Math.max(1, data.cpuCores)) * 100}
@@ -246,8 +251,8 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
 
       <Card className="overflow-hidden">
         <CardHeader>
-          <CardTitle>График нагрузки</CardTitle>
-          <CardDescription>Обновляется каждые 2 секунды. Пока открыта эта страница.</CardDescription>
+          <CardTitle>{t("График нагрузки")}</CardTitle>
+          <CardDescription>{t("Обновляется каждые 2 секунды. Пока открыта эта страница.")}</CardDescription>
         </CardHeader>
         <CardContent className="px-2 pb-4 sm:px-4">
           <LoadChart points={data.history} />
@@ -257,41 +262,39 @@ export function ServerMonitor({ initial }: { initial: ServerMetrics }) {
                 className="size-2.5 rounded-full"
                 style={{ background: "linear-gradient(180deg, #ef4444, #eab308, #22c55e)" }}
               />
-              Нагрузка: зелёный спокойно, жёлтый средне, красный высокая
-            </span>
+              {t("Нагрузка: зелёный спокойно, жёлтый средне, красный высокая")}</span>
             <span className="inline-flex items-center gap-2">
               <span className="size-2.5 rounded-full" style={{ backgroundColor: "#3b82f6" }} />
               CPU
             </span>
             <span className="inline-flex items-center gap-2">
               <span className="size-2.5 rounded-full" style={{ backgroundColor: "#8b5cf6" }} />
-              Оператива
-            </span>
+              {t("Оператива")}</span>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Данные сервера</CardTitle>
-          <CardDescription>Хост, система, процесс Node и сеть.</CardDescription>
+          <CardTitle>{t("Данные сервера")}</CardTitle>
+          <CardDescription>{t("Хост, система, процесс Node и сеть.")}</CardDescription>
         </CardHeader>
         <CardContent>
           <dl className="grid gap-3 sm:grid-cols-2">
-            <Info label="Хост" value={data.hostname} />
-            <Info label="Система" value={`${data.platform} ${data.release} · ${data.arch}`} />
-            <Info label="Аптайм" value={formatUptime(data.uptimeSec)} />
+            <Info label={t("Хост")} value={data.hostname} />
+            <Info label={t("Система")} value={`${data.platform} ${data.release} · ${data.arch}`} />
+            <Info label={t("Аптайм")} value={formatUptime(data.uptimeSec, t)} />
             <Info label="CPU" value={data.cpuModel} />
             <Info label="Node" value={`${data.node} · PID ${data.pid}`} />
             <Info
-              label="Память процесса"
+              label={t("Память процесса")}
               value={`RSS ${formatBytes(data.processRss)} · heap ${formatBytes(data.processHeapUsed)} / ${formatBytes(data.processHeapTotal)}`}
             />
             <Info
               label="IP"
               value={data.addresses.length > 0 ? data.addresses.join(", ") : "—"}
             />
-            <Info label="Свободная оператива" value={formatBytes(data.memFree)} />
+            <Info label={t("Свободная оператива")} value={formatBytes(data.memFree)} />
           </dl>
         </CardContent>
       </Card>

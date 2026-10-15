@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useRef, useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
@@ -48,6 +50,8 @@ export function ProfileForm({
   }
   setup: { qrDataUrl: string; secret: string } | null
 }) {
+  const t = useTranslations()
+
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState(user.name)
@@ -151,7 +155,7 @@ export function ProfileForm({
           type="button"
           className="relative"
           onClick={() => fileRef.current?.click()}
-          aria-label="Загрузить фото"
+          aria-label={t("Загрузить фото")}
         >
           <Avatar className="size-32 overflow-hidden after:rounded-full">
             {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
@@ -170,14 +174,14 @@ export function ProfileForm({
           className="hidden"
           onChange={onAvatar}
         />
-        <CardTitle>Профиль</CardTitle>
+        <CardTitle>{t("Профиль")}</CardTitle>
         <CardDescription>{user.email}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={saveName}>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="profile-name">Имя</FieldLabel>
+              <FieldLabel htmlFor="profile-name">{t("Имя")}</FieldLabel>
               <Input
                 id="profile-name"
                 value={name}
@@ -186,14 +190,13 @@ export function ProfileForm({
               />
             </Field>
             <Field>
-              <FieldLabel>Роль</FieldLabel>
+              <FieldLabel>{t("Роль")}</FieldLabel>
               <p className="text-sm font-medium">
-                {userRoleLabel(user.role)}
+                {t(userRoleLabel(user.role))}
               </p>
             </Field>
             <Button type="submit" disabled={pending}>
-              Сохранить имя
-            </Button>
+              {t("Сохранить имя")}</Button>
           </FieldGroup>
         </form>
 
@@ -201,38 +204,36 @@ export function ProfileForm({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="font-medium">Google Authenticator</p>
-              <p className="text-sm text-muted-foreground">Вход по коду из приложения</p>
+              <p className="text-sm text-muted-foreground">{t("Вход по коду из приложения")}</p>
             </div>
             <Badge variant={user.twoFactorEnabled ? "default" : "outline"}>
-              {user.twoFactorEnabled ? "Включена" : "Выключена"}
+              {user.twoFactorEnabled ? t("Включена") : t("Выключена")}
             </Badge>
           </div>
 
           {!user.twoFactorEnabled && !qr ? (
             <Button type="button" variant="outline" disabled={pending} onClick={enableTwoFactor}>
               <ShieldCheck />
-              Включить 2FA
-            </Button>
+              {t("Включить 2FA")}</Button>
           ) : null}
 
           {qr ? (
             <form onSubmit={confirmEnable} className="grid gap-3">
               <p className="text-sm text-muted-foreground">
-                Отсканируйте QR в Google Authenticator и введите код.
-              </p>
+                {t("Отсканируйте QR в Google Authenticator и введите код.")}</p>
               <Image
                 src={qr.qrDataUrl}
-                alt="QR-код Google Authenticator"
+                alt={t("QR-код Google Authenticator")}
                 width={176}
                 height={176}
                 unoptimized
                 className="mx-auto size-44 rounded-lg bg-white p-2"
               />
               <p className="break-all text-center text-xs text-muted-foreground">
-                Ключ: {qr.secret}
+                {t("Ключ: ")}{qr.secret}
               </p>
               <Field>
-                <FieldLabel htmlFor="totp-enable">Код из приложения</FieldLabel>
+                <FieldLabel htmlFor="totp-enable">{t("Код из приложения")}</FieldLabel>
                 <Input
                   id="totp-enable"
                   inputMode="numeric"
@@ -245,11 +246,9 @@ export function ProfileForm({
               </Field>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" onClick={cancelSetup} disabled={pending}>
-                  Отмена
-                </Button>
+                  {t("Отмена")}</Button>
                 <Button type="submit" disabled={pending} className="flex-1">
-                  Подтвердить
-                </Button>
+                  {t("Подтвердить")}</Button>
               </div>
             </form>
           ) : null}
@@ -257,7 +256,7 @@ export function ProfileForm({
           {user.twoFactorEnabled ? (
             <form onSubmit={confirmDisable} className="grid gap-3">
               <Field>
-                <FieldLabel htmlFor="totp-disable">Код для выключения</FieldLabel>
+                <FieldLabel htmlFor="totp-disable">{t("Код для выключения")}</FieldLabel>
                 <Input
                   id="totp-disable"
                   inputMode="numeric"
@@ -270,15 +269,14 @@ export function ProfileForm({
               </Field>
               <Button type="submit" variant="outline" disabled={pending}>
                 <ShieldOff />
-                Выключить 2FA
-              </Button>
+                {t("Выключить 2FA")}</Button>
             </form>
           ) : null}
         </div>
 
         {error ? (
           <p className="mt-4 text-sm text-destructive" role="alert">
-            {error}
+            {t(error)}
           </p>
         ) : null}
       </CardContent>

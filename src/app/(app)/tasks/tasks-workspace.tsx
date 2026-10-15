@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import Link from "next/link"
 import { ListTree, PlusCircle } from "lucide-react"
 import type { AdsPowerProfile } from "@/lib/adspower"
@@ -16,6 +18,8 @@ export function TasksWorkspace({
   countries: Record<string, CountryInfo>
   error?: string
 }) {
+  const t = useTranslations()
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <section className="flex items-center justify-between gap-4 rounded-2xl border bg-gradient-to-r from-muted/80 to-card p-4 md:p-5">
@@ -24,16 +28,14 @@ export function TasksWorkspace({
             <PlusCircle className="size-5" />
           </span>
           <div className="grid min-w-0 gap-1">
-            <h1 className="font-heading text-lg font-medium">Создать задачу</h1>
+            <h1 className="font-heading text-lg font-medium">{t("Создать задачу")}</h1>
             <p className="text-sm text-muted-foreground">
-              Создание задачи с таргетингом фанок, комментариями, ответами, картинками и реакциями.
-            </p>
+              {t("Создание задачи с таргетингом фанок, комментариями, ответами, картинками и реакциями.")}</p>
           </div>
         </div>
         <Button variant="outline" render={<Link href="/tasks/list" />}>
           <ListTree />
-          Список задач
-        </Button>
+          {t("Список задач")}</Button>
       </section>
 
       <TaskCreateForm profiles={profiles} countries={countries} error={error} />

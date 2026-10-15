@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { getOpenAiAccount } from "@/lib/openai-account"
@@ -14,18 +16,20 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default async function SubscriptionSettingsPage() {
+  const t = await getTranslations()
+
   const account = await getOpenAiAccount()
   const statusLabel = !account.keyPresent
-    ? "Ключ не задан"
+    ? t("Ключ не задан")
     : account.connected
-      ? "Подключено"
-      : "Нет связи"
+      ? t("Подключено")
+      : t("Нет связи")
   const statusVariant = account.connected ? "default" : "destructive"
 
   return (
     <SettingsSection
-      title="Подписки"
-      description="Ключ ChatGPT (OpenAI) и доступ к API."
+      title={t("Подписки")}
+      description={t("Ключ ChatGPT (OpenAI) и доступ к API.")}
     >
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <Badge variant={statusVariant}>{statusLabel}</Badge>
@@ -38,17 +42,17 @@ export default async function SubscriptionSettingsPage() {
       ) : null}
 
       <div className="mb-8 grid gap-3">
-        <Row label="Ключ">{account.keyMasked}</Row>
-        <Row label="Модель конструктора">
+        <Row label={t("Ключ")}>{account.keyMasked}</Row>
+        <Row label={t("Модель конструктора")}>
           {account.model}
           {account.modelAvailable == null
             ? ""
             : account.modelAvailable
-              ? " · есть в аккаунте"
-              : " · нет в списке моделей"}
+              ? t(" · есть в аккаунте")
+              : t(" · нет в списке моделей")}
         </Row>
-        <Row label="Модели">{account.modelCount ? `${account.modelCount} шт.` : "—"}</Row>
-        <Row label="Файлы">
+        <Row label={t("Модели")}>{account.modelCount ? t("{0} шт.", account.modelCount) : "—"}</Row>
+        <Row label={t("Файлы")}>
           {account.files == null ? "—" : `${account.files}${account.filesHasMore ? "+" : ""}`}
         </Row>
         <Row label="Fine-tune">{account.fineTunes == null ? "—" : account.fineTunes}</Row>

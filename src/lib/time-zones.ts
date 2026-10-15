@@ -78,10 +78,10 @@ export function normalizeTimeZone(value: unknown) {
   return isAllowedTimeZone(value) ? value : DEFAULT_TIME_ZONE
 }
 
-export function formatDateTime(value: string | number | Date, timeZone = DEFAULT_TIME_ZONE, options: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "short" }) {
+export function formatDateTime(value: string | number | Date, timeZone = DEFAULT_TIME_ZONE, options: Intl.DateTimeFormatOptions = { dateStyle: "short", timeStyle: "short" }, locale = "ru-RU") {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "—"
-  return new Intl.DateTimeFormat("ru-RU", { ...options, timeZone: normalizeTimeZone(timeZone) }).format(date)
+  return new Intl.DateTimeFormat(locale, { ...options, timeZone: normalizeTimeZone(timeZone) }).format(date)
 }
 
 export function timeZoneOffset(timeZone: string, now = new Date()) {

@@ -25,6 +25,7 @@ model User {
   avatarUrl        String?
   active           Boolean        @default(true)
   timeZone         String         @default("Europe/Kyiv")
+  language         String         @default("ru")
   createdAt        DateTime       @default(now())
   commentSets      CommentSet[]
   ledTeams         Team[]         @relation("TeamLead")

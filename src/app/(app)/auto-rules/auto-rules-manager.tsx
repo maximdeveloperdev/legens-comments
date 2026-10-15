@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useState } from "react"
 import { PlusIcon } from "lucide-react"
 
@@ -29,6 +31,7 @@ function SelectField({
   options: string[]
   onChange: (value: string) => void
 }) {
+  const t = useTranslations()
   return (
     <Field className="gap-2">
       <FieldLabel className={fieldLabelClass}>{label}</FieldLabel>
@@ -44,7 +47,7 @@ function SelectField({
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option} value={option}>
-              {option}
+              {t(option)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -54,6 +57,8 @@ function SelectField({
 }
 
 function RuleForm({ onBack }: { onBack: () => void }) {
+  const t = useTranslations()
+
   const [ruleType, setRuleType] = useState("Расписание")
   const [frequency, setFrequency] = useState("Каждые полчаса")
   const [statsPeriod, setStatsPeriod] = useState("Все время")
@@ -69,47 +74,47 @@ function RuleForm({ onBack }: { onBack: () => void }) {
       <div className="flex-1 p-4 md:p-6">
         <div className="grid gap-x-6 gap-y-5 xl:grid-cols-2">
           <Field className="gap-2">
-            <FieldLabel className={fieldLabelClass}>Название правила</FieldLabel>
+            <FieldLabel className={fieldLabelClass}>{t("Название правила")}</FieldLabel>
             <Input className="h-12 rounded-sm bg-card px-4 text-base" />
           </Field>
           <SelectField
-            label="Тип правила"
+            label={t("Тип правила")}
             value={ruleType}
             options={["Расписание", "По условию"]}
             onChange={setRuleType}
           />
           <SelectField
-            label="Частота"
+            label={t("Частота")}
             value={frequency}
             options={["Каждые полчаса", "Каждый час", "Раз в день"]}
             onChange={setFrequency}
           />
           <SelectField
-            label="Период времени статы"
+            label={t("Период времени статы")}
             value={statsPeriod}
             options={["Все время", "Сегодня", "Вчера", "Последние 7 дней"]}
             onChange={setStatsPeriod}
           />
           <SelectField
-            label="С чем работать?"
+            label={t("С чем работать?")}
             value={workTarget}
             options={["Объявления", "Кампании", "Группы объявлений"]}
             onChange={setWorkTarget}
           />
           <SelectField
-            label="Какие статусы брать?"
+            label={t("Какие статусы брать?")}
             value={status}
             options={["Активные", "Остановленные", "Все"]}
             onChange={setStatus}
           />
           <SelectField
-            label="Что делать?"
+            label={t("Что делать?")}
             value={action}
             options={["Остановить", "Запустить", "Изменить бюджет"]}
             onChange={setAction}
           />
           <SelectField
-            label="Группа"
+            label={t("Группа")}
             value={group}
             options={["Без группы"]}
             onChange={setGroup}
@@ -117,13 +122,10 @@ function RuleForm({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="mt-8 rounded-sm bg-sky-100 px-4 py-3 text-sm leading-6 text-sky-800">
-          Внимание, теперь для вашего удобства все цены в условиях указываются в
-          Долларах! Если валюта кабинета не доллары, то правило автоматически
-          сконвертируется в валюту кабинета в момент его установки!
-        </div>
+          {t("Внимание, теперь для вашего удобства все цены в условиях указываются в Долларах! Если валюта кабинета не доллары, то правило автоматически сконвертируется в валюту кабинета в момент его установки!")}</div>
 
         <div className="mt-9 flex items-center gap-3">
-          <span className="text-base text-muted-foreground">Без условий</span>
+          <span className="text-base text-muted-foreground">{t("Без условий")}</span>
           <Switch
             checked={withoutConditions}
             onCheckedChange={setWithoutConditions}
@@ -134,7 +136,7 @@ function RuleForm({ onBack }: { onBack: () => void }) {
           {conditions.map((condition, index) => (
             <div key={condition} className="grid gap-3">
               <p className="text-base text-muted-foreground">
-                Условие {index + 1}
+                {t("Условие ")}{index + 1}
               </p>
               <div className="grid gap-4 xl:grid-cols-[1fr_300px_1fr]">
                 <Select defaultValue="Показы">
@@ -142,9 +144,9 @@ function RuleForm({ onBack }: { onBack: () => void }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Показы">Показы</SelectItem>
-                    <SelectItem value="Клики">Клики</SelectItem>
-                    <SelectItem value="Расход">Расход</SelectItem>
+                    <SelectItem value="Показы">{t("Показы")}</SelectItem>
+                    <SelectItem value="Клики">{t("Клики")}</SelectItem>
+                    <SelectItem value="Расход">{t("Расход")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select defaultValue="=">
@@ -181,39 +183,37 @@ function RuleForm({ onBack }: { onBack: () => void }) {
 
         <div className="mt-6 flex flex-wrap gap-2">
           <Button type="button" className="h-11 px-6 text-base">
-            Создать
-          </Button>
+            {t("Создать")}</Button>
           <Button
             type="button"
             variant="outline"
             className="h-11 px-8 text-base"
             onClick={onBack}
           >
-            Назад
-          </Button>
+            {t("Назад")}</Button>
         </div>
       </div>
       <div className="border-t px-4 py-5 text-sm text-muted-foreground md:px-6">
-        Copyright © 2018-2026 Legends Tools. Все права защищены.
-      </div>
+        {t("Copyright © 2018-2026 Legends Tools. Все права защищены.")}</div>
     </div>
   )
 }
 
 function RulesList({ onCreate }: { onCreate: () => void }) {
+  const t = useTranslations()
+
   return (
     <div className="flex min-h-[calc(100svh-var(--header-height))] flex-col bg-background">
       <div className="flex flex-1 flex-col p-4 md:p-6">
         <div className="flex justify-end">
           <Button type="button" className="h-10 px-5 text-base" onClick={onCreate}>
             <PlusIcon />
-            Создать правило
-          </Button>
+            {t("Создать правило")}</Button>
         </div>
         <div className="flex-1" />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-5 text-sm text-muted-foreground md:px-6">
-        <span>Copyright © 2018-2026 Legends Tools. Все права защищены.</span>
+        <span>{t("Copyright © 2018-2026 Legends Tools. Все права защищены.")}</span>
         <span>Made with heart in Estonia</span>
       </div>
     </div>

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { LanguageProvider } from "@/components/language-provider";
+import { getLanguage } from "@/lib/i18n-server";
 import "./globals.css";
 
 const gilroy = localFont({
@@ -23,10 +25,11 @@ export const metadata: Metadata = {
   description: "Legends Tools",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const language = await getLanguage();
   return (
     <html
-      lang="ru"
+      lang={language}
       className={`${gilroy.variable} h-full antialiased`}
       suppressHydrationWarning
     >
@@ -35,7 +38,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         suppressHydrationWarning
       >
         <ThemeProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <LanguageProvider language={language}>
+            <TooltipProvider>{children}</TooltipProvider>
+          </LanguageProvider>
         </ThemeProvider>
       </body>
     </html>

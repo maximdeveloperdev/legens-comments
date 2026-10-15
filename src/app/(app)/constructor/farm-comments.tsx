@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocalizedCountries } from "@/components/language-provider"
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
@@ -124,48 +126,6 @@ function pagesFromProfile(profile: AdsPowerProfile, countryCodes?: Iterable<stri
   ]
 }
 
-const ACTION_OPTIONS: {
-  id: FarmAction
-  title: ReactNode
-  description: string
-}[] = [
-  {
-    id: "comment",
-    title: "Комментарий",
-    description: "Комментарий от фанки через браузер, как от страницы.",
-  },
-  {
-    id: "likeonly",
-    title: (
-      <span className="inline-flex items-center gap-1.5">
-        <Heart className="size-4 fill-current" />
-        Просто лайк
-      </span>
-    ),
-    description: "Фанка ставит Like или Love, комментарий не пишем.",
-  },
-  {
-    id: "like",
-    title: (
-      <span className="inline-flex items-center gap-1.5">
-        <Heart className="size-4 fill-current" />
-        Лайк вместе с комментарием
-      </span>
-    ),
-    description: "Комментарий, затем наводим на лайк и ставим Like или Love.",
-  },
-  {
-    id: "subscribe",
-    title: (
-      <span className="inline-flex items-center gap-1.5">
-        <UserPlus className="size-4" />
-        Подписка + лайк + комментарий
-      </span>
-    ),
-    description:
-      "Комментарий, лайк и подписка на автора: Follow на карточке или в профиле. Если Follow не выйдет — комментарий и лайк всё равно уйдут.",
-  },
-]
 
 function actionLabel(action: FarmAction) {
   if (action === "likeonly") return "Лайк"
@@ -282,13 +242,60 @@ async function fetchFormatJobs(ids: string[]) {
 
 export function FarmComments({
   profiles,
-  countries = {},
+  countries: sourceCountries = {},
   canSyncFans,
 }: {
   profiles: AdsPowerProfile[]
   countries: Record<string, CountryInfo>
   canSyncFans: boolean
 }) {
+  const t = useTranslations()
+  const countries = useLocalizedCountries(sourceCountries)
+
+  const ACTION_OPTIONS: {
+    id: FarmAction
+    title: ReactNode
+    description: string
+  }[] = [
+    {
+      id: "comment",
+      title: t("Комментарий"),
+      description: t("Комментарий от фанки через браузер, как от страницы."),
+    },
+    {
+      id: "likeonly",
+      title: (
+        <span className="inline-flex items-center gap-1.5">
+          <Heart className="size-4 fill-current" />
+          {t("Просто лайк")}
+        </span>
+      ),
+      description: t("Фанка ставит Like или Love, комментарий не пишем."),
+    },
+    {
+      id: "like",
+      title: (
+        <span className="inline-flex items-center gap-1.5">
+          <Heart className="size-4 fill-current" />
+          {t("Лайк вместе с комментарием")}
+        </span>
+      ),
+      description: t("Комментарий, затем наводим на лайк и ставим Like или Love."),
+    },
+    {
+      id: "subscribe",
+      title: (
+        <span className="inline-flex items-center gap-1.5">
+          <UserPlus className="size-4" />
+          {t("Подписка + лайк + комментарий")}
+        </span>
+      ),
+      description:
+        t("Комментарий, лайк и подписка на автора: Follow на карточке или в профиле. Если Follow не выйдет — комментарий и лайк всё равно уйдут."),
+    },
+  ]
+
+
   const router = useRouter()
   const [posts, setPosts] = useState<string[]>([""])
   const [action, setAction] = useState<FarmAction>("comment")
@@ -549,7 +556,7 @@ export function FarmComments({
       const payloadText = JSON.stringify(payload)
       const attachmentFiles = splitPerPage ? Object.values(splitPhotos) : commentPhoto ? [commentPhoto] : []
       if (attachmentFiles.reduce((sum, file) => sum + file.size, new Blob([payloadText]).size) > MAX_COMMENT_MEDIA_TOTAL_SIZE) {
-        pushAppNotification("Вложения", "Общий размер вложений и задачи должен быть до 70 МБ", { tone: "error" })
+        pushAppNotification(t("Вложения"), t("Общий размер вложений и задачи должен быть до 70 МБ"), { tone: "error" })
         return
       }
       formData.set("payload", payloadText)
@@ -562,7 +569,7 @@ export function FarmComments({
       }
       const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
-        pushAppNotification("Очередь", result.error, {
+        pushAppNotification(t("Очередь"), result.error, {
           href: "/queue?tab=work",
           tone: "error",
         })
@@ -571,15 +578,15 @@ export function FarmComments({
       setConfirmOpen(false)
       clearForm()
       pushAppNotification(
-        "Задача в очереди",
-        `${actionLabel(action)} · ${result.total || jobs.length} шт.${result.rewritten ? ` AI перефразировал дублей: ${result.rewritten}.` : ""} Можно создавать следующую.`,
+        t("Задача в очереди"),
+        t("{0} · {1} шт.{2} Можно создавать следующую.", actionLabel(action), result.total || jobs.length, result.rewritten ? t(" AI перефразировал дублей: {0}.", result.rewritten) : ""),
         { href: "/queue?tab=work", tone: "queue" },
       )
       void fetch("/api/farm-queue", { method: "POST" })
     } catch (error) {
       pushAppNotification(
-        "Очередь",
-        error instanceof Error ? error.message : "Не удалось поставить в очередь",
+        t("Очередь"),
+        error instanceof Error ? error.message : t("Не удалось поставить в очередь"),
         { href: "/queue?tab=work", tone: "error" },
       )
     } finally {
@@ -592,8 +599,8 @@ export function FarmComments({
     if (ids.length === 0) return
     setSyncPending(true)
     pushAppNotification(
-      "Синхронизация фанок",
-      `Запущена · ${ids.length} профил.`,
+      t("Синхронизация фанок"),
+      t("Запущена · {0} профил.", ids.length),
       { tone: "queue" },
     )
 
@@ -619,10 +626,10 @@ export function FarmComments({
       failCount += 1
     } finally {
       pushAppNotification(
-        failCount === 0 ? "Синхронизация фанок" : "Синхронизация фанок · ошибка",
+        failCount === 0 ? t("Синхронизация фанок") : t("Синхронизация фанок · ошибка"),
         failCount === 0
-          ? `Готово · ${okCount} профил.`
-          : `${okCount} ок, ${failCount} с ошибкой`,
+          ? t("Готово · {0} профил.", okCount)
+          : t("{0} ок, {1} с ошибкой", okCount, failCount),
         { tone: failCount === 0 ? "success" : "error" },
       )
       setSyncPending(false)
@@ -641,8 +648,8 @@ export function FarmComments({
 
     setFormatPending(true)
     pushAppNotification(
-      "Форматирование фанок",
-      `Ставим в фон · ${selectedPages.length} фанок`,
+      t("Форматирование фанок"),
+      t("Ставим в фон · {0} фанок", selectedPages.length),
       { tone: "queue" },
     )
 
@@ -667,14 +674,14 @@ export function FarmComments({
         | { jobs?: Array<{ id: string; profileId: string; total: number }>; error?: string }
         | null
       if (!response.ok || !data?.jobs?.length) {
-        throw new Error(data?.error || "Не удалось поставить форматирование в очередь")
+        throw new Error(data?.error || t("Не удалось поставить форматирование в очередь"))
       }
 
       queuedIds = data.jobs.map((job) => job.id)
       setSelectedIds([])
       pushAppNotification(
-        "Форматирование фанок",
-        `Фоновая задача создана · ${data.jobs.length} профил. · ${selectedPages.length} фанок`,
+        t("Форматирование фанок"),
+        t("Фоновая задача создана · {0} профил. · {1} фанок", data.jobs.length, selectedPages.length),
         { tone: "queue" },
       )
 
@@ -692,29 +699,29 @@ export function FarmComments({
         0,
       )
       const summary = [
-        `${okCount} ок`,
-        pendingCount > 0 ? `${pendingCount} на review` : "",
-        failCount > 0 ? `${failCount} с ошибкой` : "",
+        t("{0} ок", okCount),
+        pendingCount > 0 ? t("{0} на review", pendingCount) : "",
+        failCount > 0 ? t("{0} с ошибкой", failCount) : "",
       ]
         .filter(Boolean)
         .join(", ")
       pushAppNotification(
         failCount > 0
-          ? "Форматирование фанок · ошибка"
+          ? t("Форматирование фанок · ошибка")
           : pendingCount > 0
-            ? "Форматирование фанок · review"
-            : "Форматирование фанок",
-        failCount === 0 && pendingCount === 0 ? `Готово · ${okCount} фанок` : summary,
+            ? t("Форматирование фанок · review")
+            : t("Форматирование фанок"),
+        failCount === 0 && pendingCount === 0 ? t("Готово · {0} фанок", okCount) : summary,
         { tone: failCount > 0 ? "error" : pendingCount > 0 ? "queue" : "success" },
       )
     } catch (error) {
       pushAppNotification(
-        queuedIds.length > 0 ? "Форматирование фанок" : "Форматирование фанок · ошибка",
+        queuedIds.length > 0 ? t("Форматирование фанок") : t("Форматирование фанок · ошибка"),
         queuedIds.length > 0
-          ? "Фоновая задача продолжает идти на сервере; статус будет в логах"
+          ? t("Фоновая задача продолжает идти на сервере; статус будет в логах")
           : error instanceof Error
             ? error.message
-            : "Не удалось запустить форматирование",
+            : t("Не удалось запустить форматирование"),
         { tone: queuedIds.length > 0 ? "queue" : "error" },
       )
     } finally {
@@ -745,14 +752,13 @@ export function FarmComments({
       {showTaskBuilder ? (
       <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="grid gap-1">
-          <h2 className="font-heading text-base font-medium">Пост и действия</h2>
+          <h2 className="font-heading text-base font-medium">{t("Пост и действия")}</h2>
           <p className="text-sm text-muted-foreground">
-            Вставь ссылку на пост и выбери комментарий или лайк.
-          </p>
+            {t("Вставь ссылку на пост и выбери комментарий или лайк.")}</p>
         </div>
 
         <div className="mt-5 grid gap-2">
-          <p className="text-sm font-medium">Ссылки на посты (или числовые id)</p>
+          <p className="text-sm font-medium">{t("Ссылки на посты (или числовые id)")}</p>
           <div className="grid gap-2">
             {posts.map((post, index) => (
               <Input
@@ -765,7 +771,7 @@ export function FarmComments({
                     ),
                   )
                 }
-                placeholder="Ссылка на пост Facebook или числовой id"
+                placeholder={t("Ссылка на пост Facebook или числовой id")}
                 autoComplete="off"
               />
             ))}
@@ -777,13 +783,12 @@ export function FarmComments({
             onClick={() => setPosts((current) => [...current, ""])}
           >
             <Plus />
-            Добавить ещё пост
-          </Button>
+            {t("Добавить ещё пост")}</Button>
         </div>
 
         <div className="mt-6 grid gap-2">
-          <p className="text-sm font-medium">Действия</p>
-          <div role="radiogroup" aria-label="Действие" className="grid gap-2">
+          <p className="text-sm font-medium">{t("Действия")}</p>
+          <div role="radiogroup" aria-label={t("Действие")} className="grid gap-2">
             {ACTION_OPTIONS.map((option) => (
               <ActionTablet
                 key={option.id}
@@ -799,16 +804,15 @@ export function FarmComments({
         <div className="mt-6 grid gap-3">
           {action === "likeonly" ? (
             <p className="text-sm text-muted-foreground">
-              Для простого лайка текст не нужен — фанка только поставит реакцию на пост.
-            </p>
+              {t("Для простого лайка текст не нужен — фанка только поставит реакцию на пост.")}</p>
           ) : (
             <>
-              <p className="text-sm font-medium">Текст комментария</p>
+              <p className="text-sm font-medium">{t("Текст комментария")}</p>
           <div className="grid h-9 grid-cols-3 items-center gap-1 rounded-full bg-muted p-1">
             {(
               [
-                { id: "same", label: "Один текст" },
-                { id: "split", label: "Разные" },
+                { id: "same", label: t("Один текст") },
+                { id: "split", label: t("Разные") },
                 { id: "ai", label: "ChatGPT" },
               ] as const
             ).map((option) => (
@@ -832,17 +836,15 @@ export function FarmComments({
           {contentMode === "ai" ? null : splitPerPage ? (
             selectedIds.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Выбери страницы справа — появится поле на каждую.
-              </p>
+                {t("Выбери страницы справа — появится поле на каждую.")}</p>
             ) : (
               <div className="grid gap-3">
                 <div className="grid gap-2 rounded-xl border bg-muted/25 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="grid gap-1">
-                      <p className="text-sm font-medium">Раздельный текст</p>
+                      <p className="text-sm font-medium">{t("Раздельный текст")}</p>
                       <p className="text-xs text-muted-foreground">
-                        Каждая новая строка станет отдельным комментарием.
-                      </p>
+                        {t("Каждая новая строка станет отдельным комментарием.")}</p>
                     </div>
                     <Button
                       type="button"
@@ -851,13 +853,13 @@ export function FarmComments({
                       onClick={generateSplitMessages}
                     >
                       <Sparkles />
-                      Generate
+                      {t("Сгенерировать")}
                     </Button>
                   </div>
                   <Textarea
                     value={bulkSplitText}
                     onChange={(event) => setBulkSplitText(event.target.value)}
-                    placeholder={"Первый комментарий\nВторой комментарий\nТретий комментарий"}
+                    placeholder={t("Первый комментарий\nВторой комментарий\nТретий комментарий")}
                     rows={5}
                   />
                 </div>
@@ -865,12 +867,11 @@ export function FarmComments({
                   <div key={`${postIndex}-${url || "draft"}`} className="grid gap-2">
                     {splitPostSlots.length > 1 ? (
                       <p className="truncate text-xs font-medium text-muted-foreground">
-                        Пост {postIndex + 1}: {url}
+                        {t("Пост ")}{postIndex + 1}: {url}
                       </p>
                     ) : postUrls.length === 0 ? (
                       <p className="text-xs font-medium text-muted-foreground">
-                        Ссылка ещё не заполнена — комментарии подготовятся для первого поста.
-                      </p>
+                        {t("Ссылка ещё не заполнена — комментарии подготовятся для первого поста.")}</p>
                     ) : null}
                     {selectedPages.map((page) => {
                       const key = messageKey(postIndex, page.listId)
@@ -886,7 +887,7 @@ export function FarmComments({
                                   [key]: event.target.value,
                                 }))
                               }
-                              placeholder="Текст комментария"
+                              placeholder={t("Текст комментария")}
                               rows={3}
                             />
                           </label>
@@ -906,11 +907,11 @@ export function FarmComments({
             )
           ) : (
             <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Сообщение</span>
+              <span className="text-sm font-medium">{t("Сообщение")}</span>
               <Textarea
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="Текст комментария"
+                placeholder={t("Текст комментария")}
                 rows={4}
               />
             </label>
@@ -919,12 +920,12 @@ export function FarmComments({
             <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">Вложение к комментарию</p>
-                  <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
+                  <p className="text-sm font-medium">{t("Вложение к комментарию")}</p>
+                  <p className="text-xs text-muted-foreground">{t(COMMENT_MEDIA_HINT)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {commentPhoto ? (
-                    <Button type="button" variant="ghost" size="icon" aria-label="Убрать вложение" onClick={removePhoto}>
+                    <Button type="button" variant="ghost" size="icon" aria-label={t("Убрать вложение")} onClick={removePhoto}>
                       <Trash2 />
                     </Button>
                   ) : null}
@@ -935,8 +936,7 @@ export function FarmComments({
                     onClick={() => photoInputRef.current?.click()}
                   >
                     <Paperclip />
-                    Прикрепить
-                  </Button>
+                    {t("Прикрепить")}</Button>
                 </div>
               </div>
             <input
@@ -979,7 +979,7 @@ export function FarmComments({
           onClick={() => setConfirmOpen(true)}
         >
           <Play />
-          {`Создать задачу (${selectedPages.length * postUrls.length})`}
+          {t("Создать задачу ({0})", selectedPages.length * postUrls.length)}
         </Button>
       </section>
       ) : null}
@@ -987,20 +987,19 @@ export function FarmComments({
       <section className="rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-heading shrink-0 text-sm font-medium">
-            Страницы ({selectedIds.length} выбрано)
-          </h2>
+            {t("Страницы (")}{selectedIds.length} {t(" выбрано)")}</h2>
           <div className="flex shrink-0 items-center gap-0.5">
             {canSyncFans ? (
               <>
                 <PagesIconButton
-                  label="Синхронизировать фанки"
+                  label={t("Синхронизировать фанки")}
                   disabled={syncPending || formatPending || activeProfiles.length === 0}
                   onClick={() => void onSyncFans()}
                 >
                   {syncPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 </PagesIconButton>
                 <PagesIconButton
-                  label="Форматировать фанки"
+                  label={t("Форматировать фанки")}
                   disabled={syncPending || formatPending || selectedPages.length === 0}
                   onClick={() => void onFormatFans()}
                 >
@@ -1009,7 +1008,7 @@ export function FarmComments({
               </>
             ) : null}
             <PagesIconButton
-              label="Выбрать видимые"
+              label={t("Выбрать видимые")}
               disabled={visibleIds.length === 0}
               onClick={() =>
                 setSelectedIds((current) => [...new Set([...current, ...visibleIds])])
@@ -1018,7 +1017,7 @@ export function FarmComments({
               <CheckCheck className="size-4" />
             </PagesIconButton>
             <PagesIconButton
-              label="Сбросить"
+              label={t("Сбросить")}
               disabled={selectedIds.length === 0}
               onClick={() => setSelectedIds([])}
             >
@@ -1031,13 +1030,12 @@ export function FarmComments({
           <Input
             value={profileQuery}
             onChange={(event) => setProfileQuery(event.target.value)}
-            placeholder="Поиск профиля..."
-            aria-label="Поиск профиля"
+            placeholder={t("Поиск профиля...")}
+            aria-label={t("Поиск профиля")}
           />
           {visibleGroups.length === 0 ? (
             <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              Профилей нет
-            </p>
+              {t("Профилей нет")}</p>
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {visibleGroups.map((group) => {
@@ -1120,17 +1118,16 @@ export function FarmComments({
           <Input
             value={pageQuery}
             onChange={(event) => setPageQuery(event.target.value)}
-            placeholder="Поиск страниц или гео..."
-            aria-label="Поиск страниц или гео"
+            placeholder={t("Поиск страниц или гео...")}
+            aria-label={t("Поиск страниц или гео")}
             disabled={activeGroups.length === 0}
           />
 
           {activeGroups.length === 0 ? (
             <div className="grid gap-6 py-8 text-center text-sm text-muted-foreground">
               <p>
-                Сначала выбери профиль выше — тогда появится фильтр гео и список фанок.
-              </p>
-              <p>Выбери профиль выше.</p>
+                {t("Сначала выбери профиль выше — тогда появится фильтр гео и список фанок.")}</p>
+              <p>{t("Выбери профиль выше.")}</p>
             </div>
           ) : (
             <>
@@ -1142,8 +1139,7 @@ export function FarmComments({
                   className="rounded-full"
                   onClick={() => setGeoFilter(null)}
                 >
-                  Все гео
-                </Button>
+                  {t("Все гео")}</Button>
                 {geos.map((code) => (
                   <Button
                     key={code}
@@ -1159,10 +1155,10 @@ export function FarmComments({
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  ["ALL", "Все полы"],
-                  ["FEMALE", "Жен."],
-                  ["MALE", "Муж."],
-                  ["UNKNOWN", "Не определено"],
+                  ["ALL", t("Все полы")],
+                  ["FEMALE", t("Жен.")],
+                  ["MALE", t("Муж.")],
+                  ["UNKNOWN", t("Не определено")],
                 ].map(([value, label]) => (
                   <Button
                     key={value}
@@ -1178,7 +1174,7 @@ export function FarmComments({
               </div>
 
               {pageList.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Никого не нашли</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">{t("Никого не нашли")}</p>
               ) : (
                 <ul className="grid max-h-[32rem] gap-1.5 overflow-y-auto pr-1">
                   {pageList.map((page) => {
@@ -1198,7 +1194,7 @@ export function FarmComments({
                             onCheckedChange={(checked) =>
                               toggleId(page.listId, checked === true)
                             }
-                            aria-label={`Выбрать ${page.displayName}`}
+                            aria-label={t("Выбрать {0}", page.displayName)}
                           />
                           <span
                             className={cn(
@@ -1219,12 +1215,11 @@ export function FarmComments({
                                   fanGenderTone(page.gender),
                                 )}
                               >
-                                {fanGenderLabel(page.gender)}
+                                {t(fanGenderLabel(page.gender))}
                               </span>
                             ) : (
                               <span className="block text-xs text-muted-foreground">
-                                Имя AdsPower
-                              </span>
+                                {t("Имя AdsPower")}</span>
                             )}
                           </span>
                         </label>
@@ -1251,16 +1246,15 @@ export function FarmComments({
           showCloseButton={!enqueueing}
         >
           <DialogHeader className="pr-8">
-            <DialogTitle>Проверь задачу</DialogTitle>
+            <DialogTitle>{t("Проверь задачу")}</DialogTitle>
             <DialogDescription>
-              Задача сразу попадёт в очередь и пойдёт в фоне. Можно сразу создавать следующую.
-            </DialogDescription>
+              {t("Задача сразу попадёт в очередь и пойдёт в фоне. Можно сразу создавать следующую.")}</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto pr-2">
             <dl className="grid gap-3 text-sm">
-              <ConfirmRow label="Действие" value={actionLabel(action)} />
+              <ConfirmRow label={t("Действие")} value={t(actionLabel(action))} />
               <ConfirmRow
-                label="Посты"
+                label={t("Посты")}
                 value={
                   <span className="grid gap-1">
                     {postUrls.map((url) => (
@@ -1272,35 +1266,35 @@ export function FarmComments({
                 }
               />
               <ConfirmRow
-                label="Страницы"
+                label={t("Страницы")}
                 value={`${selectedPages.length}: ${selectedPages.map((page) => page.displayName).join(", ")}`}
               />
               {action === "likeonly" ? null : (
                 <>
                   <ConfirmRow
-                    label="Контент"
+                    label={t("Контент")}
                     value={
                       contentMode === "ai"
-                        ? "ChatGPT · сгенерирует при выполнении"
+                        ? t("ChatGPT · сгенерирует при выполнении")
                         : splitPerPage
-                          ? "Разный текст на каждый пост и страницу"
-                          : "Один текст для всех"
+                          ? t("Разный текст на каждый пост и страницу")
+                          : t("Один текст для всех")
                     }
                   />
                   {splitPerPage && splitPhotoCount > 0 ? (
                     <ConfirmRow
-                      label="Вложение"
+                      label={t("Вложение")}
                       value={`${splitPhotoCount} персонал.`}
                     />
                   ) : commentPhoto ? (
                     <ConfirmRow
-                      label="Вложение"
+                      label={t("Вложение")}
                       value={`${commentPhoto.name} · ${fileSizeLabel(commentPhoto.size)}`}
                     />
                   ) : null}
                   {contentMode === "ai" ? null : (
                     <ConfirmRow
-                      label="Сообщение"
+                      label={t("Сообщение")}
                       value={
                         splitPerPage
                           ? postUrls.flatMap((url, postIndex) =>
@@ -1326,12 +1320,10 @@ export function FarmComments({
               disabled={enqueueing}
               onClick={() => setConfirmOpen(false)}
             >
-              Назад
-            </Button>
+              {t("Назад")}</Button>
             <Button type="button" disabled={enqueueing} onClick={() => void onLaunch()}>
               {enqueueing ? <Loader2 className="animate-spin" /> : <Play />}
-              В очередь
-            </Button>
+              {t("В очередь")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1362,23 +1354,24 @@ function CommentPhotoPicker({
   onSelect: (file: File | undefined) => void
   onRemove: () => void
 }) {
+  const t = useTranslations()
+
   return (
     <div className="grid gap-2 rounded-xl border border-dashed bg-muted/25 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium">Вложение к комментарию</p>
-          <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
+          <p className="text-sm font-medium">{t("Вложение к комментарию")}</p>
+          <p className="text-xs text-muted-foreground">{t(COMMENT_MEDIA_HINT)}</p>
         </div>
         <div className="flex items-center gap-2">
           {file ? (
-            <Button type="button" variant="ghost" size="icon" aria-label="Убрать вложение" onClick={onRemove}>
+            <Button type="button" variant="ghost" size="icon" aria-label={t("Убрать вложение")} onClick={onRemove}>
               <Trash2 />
             </Button>
           ) : null}
           <label className="inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-medium whitespace-nowrap transition-colors hover:bg-muted">
             <Paperclip className="size-3.5" />
-            Прикрепить
-            <input
+            {t("Прикрепить")}<input
               type="file"
               accept={COMMENT_MEDIA_ACCEPT}
               className="hidden"
@@ -1401,7 +1394,7 @@ function CommentPhotoPicker({
           </div>
         </div>
       ) : null}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{t(error)}</p> : null}
     </div>
   )
 }

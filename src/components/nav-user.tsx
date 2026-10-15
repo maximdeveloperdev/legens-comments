@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useState } from "react"
 import Link from "next/link"
 import { ChevronsUpDownIcon, LogOutIcon, UserIcon } from "lucide-react"
@@ -52,6 +54,8 @@ export function NavUser({
     avatar: string
   }
 }) {
+  const t = useTranslations()
+
   const { isMobile } = useSidebar()
   const fallback = initials(user.name)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -103,15 +107,13 @@ export function NavUser({
               <DropdownMenuGroup>
                 <DropdownMenuItem render={<Link href="/profile" />}>
                   <UserIcon />
-                  Профиль
-                </DropdownMenuItem>
+                  {t("Профиль")}</DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={() => setConfirmOpen(true)}
                 >
                   <LogOutIcon />
-                  Выход
-                </DropdownMenuItem>
+                  {t("Выход")}</DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -121,18 +123,15 @@ export function NavUser({
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="sm:max-w-sm" showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Выйти из аккаунта?</DialogTitle>
+            <DialogTitle>{t("Выйти из аккаунта?")}</DialogTitle>
             <DialogDescription>
-              Сессия будет завершена, понадобится снова войти.
-            </DialogDescription>
+              {t("Сессия будет завершена, понадобится снова войти.")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
-              Отмена
-            </Button>
+              {t("Отмена")}</Button>
             <Button type="button" variant="destructive" onClick={() => logout()}>
-              Выйти
-            </Button>
+              {t("Выйти")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

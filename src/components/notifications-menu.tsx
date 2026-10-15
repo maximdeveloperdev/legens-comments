@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
@@ -49,6 +51,8 @@ function notificationTone(tone: AppNotification["tone"]) {
 }
 
 export function NotificationsMenu({ userKey }: { userKey: string }) {
+  const t = useTranslations()
+
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<AppNotification[]>([])
   const unread = items.filter((item) => !item.readAt).length
@@ -82,7 +86,7 @@ export function NotificationsMenu({ userKey }: { userKey: string }) {
           setOpen(true)
           markRead()
         }}
-        aria-label="Уведомления"
+        aria-label={t("Уведомления")}
       >
         <span className="relative">
           <BellIcon />
@@ -96,18 +100,17 @@ export function NotificationsMenu({ userKey }: { userKey: string }) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
           <SheetHeader className="border-b">
-            <SheetTitle>Уведомления</SheetTitle>
+            <SheetTitle>{t("Уведомления")}</SheetTitle>
             <SheetDescription>
               {items.length > 0
-                ? `${items.length} всего, ${unread} новых`
-                : "Новых событий пока нет"}
+                ? t("{0} всего, {1} новых", items.length, unread)
+                : t("Новых событий пока нет")}
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {items.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-                Сообщений нет
-              </p>
+                {t("Сообщений нет")}</p>
             ) : (
               <ul className="divide-y">
                 {items.map((item) => (
@@ -138,8 +141,7 @@ export function NotificationsMenu({ userKey }: { userKey: string }) {
                               variant="outline"
                               render={<Link href={item.href} onClick={() => setOpen(false)} />}
                             >
-                              Открыть
-                            </Button>
+                              {t("Открыть")}</Button>
                           ) : null}
                         </div>
                       </div>
@@ -158,16 +160,14 @@ export function NotificationsMenu({ userKey }: { userKey: string }) {
                 onClick={markRead}
               >
                 <CheckCheckIcon />
-                Прочитано
-              </Button>
+                {t("Прочитано")}</Button>
               <Button
                 type="button"
                 variant="outline"
                 disabled={items.length === 0}
                 onClick={() => clearAppNotifications(userKey)}
               >
-                Очистить
-              </Button>
+                {t("Очистить")}</Button>
             </div>
           </SheetFooter>
         </SheetContent>

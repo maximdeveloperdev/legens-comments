@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocalizedCountries } from "@/components/language-provider"
+
 import { useMemo, useState, useTransition } from "react"
 import Image from "next/image"
 import { DateTime } from "@/components/time-zone-provider"
@@ -28,13 +30,16 @@ function groupKey(profile: AdsPowerProfile, byGeo: boolean, countries: Record<st
 
 export function FarmVps({
   profiles,
-  countries = {},
+  countries: sourceCountries = {},
   error,
 }: {
   profiles: AdsPowerProfile[]
   countries: Record<string, CountryInfo>
   error?: string
 }) {
+  const t = useTranslations()
+  const countries = useLocalizedCountries(sourceCountries)
+
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [byGeo, setByGeo] = useState(false)
@@ -82,13 +87,13 @@ export function FarmVps({
     if (result.error) {
       setActionError((current) => ({ ...current, [profile.id]: result.error ?? "" }))
       pushAppNotification(
-        profile.open ? "Стоп профиля · ошибка" : "Старт профиля · ошибка",
+        profile.open ? t("Стоп профиля · ошибка") : t("Старт профиля · ошибка"),
         `${profile.name} · ${result.error}`,
         { tone: "error" },
       )
     } else {
       pushAppNotification(
-        profile.open ? "Профиль остановлен" : "Профиль запущен",
+        profile.open ? t("Профиль остановлен") : t("Профиль запущен"),
         profile.name,
         { tone: "success" },
       )
@@ -105,7 +110,7 @@ export function FarmVps({
     for (const profile of open) {
       await stopAdsPowerProfile(profile.id)
     }
-    pushAppNotification("Освободить память", `Остановлено: ${open.length} профил.`, {
+    pushAppNotification(t("Освободить память"), t("Остановлено: {0} профил.", open.length), {
       tone: "success",
     })
     setStoppingAll(false)
@@ -123,16 +128,13 @@ export function FarmVps({
             <div className="grid min-w-0 gap-1">
               <h2 className="font-heading text-base font-medium">AdsPower VPS</h2>
               <p className="text-sm text-muted-foreground">
-                Общие профили фермы — запуск, стоп и вход. Нужные окна поднимаются сами при
-                комментариях.
-              </p>
+                {t("Общие профили фермы — запуск, стоп и вход. Нужные окна поднимаются сами при комментариях.")}</p>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                 <Badge variant="secondary" className="font-normal text-emerald-700">
-                  Запущено: {openCount} / {profiles.length}
+                  {t("Запущено: ")}{openCount} / {profiles.length}
                 </Badge>
                 <Badge variant="outline" className="font-normal">
-                  Комфортно до ~15 (упор в CPU, не RAM)
-                </Badge>
+                  {t("Комфортно до ~15 (упор в CPU, не RAM)")}</Badge>
               </div>
             </div>
           </div>
@@ -142,8 +144,7 @@ export function FarmVps({
               variant={byGeo ? "default" : "outline"}
               onClick={() => setByGeo((value) => !value)}
             >
-              Гео по названиям
-            </Button>
+              {t("Гео по названиям")}</Button>
             <Button
               type="button"
               variant="outline"
@@ -151,8 +152,7 @@ export function FarmVps({
               onClick={() => void stopAll()}
             >
               {stoppingAll ? <Loader2 className="animate-spin" /> : null}
-              Освободить память
-            </Button>
+              {t("Освободить память")}</Button>
             <Button
               type="button"
               variant="outline"
@@ -160,8 +160,7 @@ export function FarmVps({
               onClick={() => startRefresh(() => router.refresh())}
             >
               <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-              Обновить
-            </Button>
+              {t("Обновить")}</Button>
           </div>
         </div>
 
@@ -171,29 +170,27 @@ export function FarmVps({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск по имени, группе, заметке..."
+              placeholder={t("Поиск по имени, группе, заметке...")}
               className="pl-8"
-              aria-label="Поиск профилей VPS"
+              aria-label={t("Поиск профилей VPS")}
             />
           </div>
         </div>
 
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          <span className="text-emerald-700">Запущен</span> — браузер открыт, можно комментировать.{" "}
-          <span className="text-foreground">Остановлен</span> — нажми Запустить. Комментарии сами
-          поднимают нужный профиль.
-        </p>
+          <span className="text-emerald-700">{t("Запущен")}</span> {t(" — браузер открыт, можно комментировать.")}{" "}
+          <span className="text-foreground">{t("Остановлен")}</span> {t(" — нажми Запустить. Комментарии сами поднимают нужный профиль.")}</p>
       </section>
 
       {error ? (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {t(error)}
         </p>
       ) : null}
 
       {filtered.length === 0 ? (
         <p className="rounded-2xl border bg-card py-10 text-center text-sm text-muted-foreground">
-          {profiles.length === 0 ? "Профилей нет" : "Никого не нашли"}
+          {profiles.length === 0 ? t("Профилей нет") : t("Никого не нашли")}
         </p>
       ) : (
         grouped.map(([name, items]) => {
@@ -203,8 +200,7 @@ export function FarmVps({
               <div className="mb-3 flex items-baseline justify-between gap-3">
                 <h3 className="font-heading text-sm font-medium">{name}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {openInGroup} / {items.length} фанок
-                </p>
+                  {openInGroup} / {items.length} {t(" фанок")}</p>
               </div>
               <ul className="grid gap-2">
                 {items.map((profile) => {
@@ -228,7 +224,7 @@ export function FarmVps({
                           />
                           <p className="truncate font-medium">{profile.name}</p>
                           <Badge variant={profile.open ? "default" : "outline"}>
-                            {profile.open ? "Запущен" : "Остановлен"}
+                            {profile.open ? t("Запущен") : t("Остановлен")}
                           </Badge>
                         </div>
                         <p className="mt-1 truncate text-sm text-muted-foreground">
@@ -249,7 +245,7 @@ export function FarmVps({
                               {country?.name || profile.ipCountry}
                             </span>
                           ) : (
-                            "без гео"
+                            t("без гео")
                           )}
                           {" · "}
                           {formatUnix(profile.lastOpenAt)}
@@ -273,7 +269,7 @@ export function FarmVps({
                         ) : (
                           <Play />
                         )}
-                        {profile.open ? "Стоп" : "Запустить"}
+                        {profile.open ? t("Стоп") : t("Запустить")}
                       </Button>
                     </li>
                   )

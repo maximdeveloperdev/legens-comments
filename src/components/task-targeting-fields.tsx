@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocalizedCountries } from "@/components/language-provider"
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronDown, Search, X } from "lucide-react"
 import { cn } from "cn"
@@ -44,7 +46,7 @@ export function GeoMultiSelect({
   label,
   value,
   geos,
-  countries,
+  countries: sourceCountries,
   emptyLabel,
   onChange,
 }: {
@@ -55,6 +57,9 @@ export function GeoMultiSelect({
   emptyLabel: string
   onChange: (value: string[]) => void
 }) {
+  const t = useTranslations()
+  const countries = useLocalizedCountries(sourceCountries)
+
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -103,8 +108,7 @@ export function GeoMultiSelect({
             className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             onClick={() => onChange([])}
           >
-            Очистить
-          </button>
+            {t("Очистить")}</button>
         ) : null}
       </div>
       <button
@@ -129,7 +133,7 @@ export function GeoMultiSelect({
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Поиск гео"
+                placeholder={t("Поиск гео")}
                 className="h-10 pr-9 pl-9"
                 autoFocus
               />
@@ -138,7 +142,7 @@ export function GeoMultiSelect({
                   type="button"
                   className="absolute top-1/2 right-2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                   onClick={() => setQuery("")}
-                  aria-label="Очистить поиск"
+                  aria-label={t("Очистить поиск")}
                 >
                   <X className="size-4" />
                 </button>
@@ -162,7 +166,7 @@ export function GeoMultiSelect({
                 </label>
               ))
             ) : (
-              <div className="px-2 py-6 text-center text-sm text-muted-foreground">Ничего не найдено</div>
+              <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("Ничего не найдено")}</div>
             )}
           </div>
         </div>
@@ -185,6 +189,8 @@ export function RangeField({
   max: number
   onChange: (value: number) => void
 }) {
+  const t = useTranslations()
+
   return (
     <label className="grid gap-2">
       <span className="text-sm font-medium">{label}</span>
@@ -208,7 +214,7 @@ export function RangeField({
         />
       </div>
       <span className="text-xs text-muted-foreground">
-        {min} - {max}, сейчас {value}
+        {min} - {max}{t(", сейчас ")}{value}
       </span>
     </label>
   )

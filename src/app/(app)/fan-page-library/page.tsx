@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { UserRole } from "@prisma/client"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
@@ -5,6 +7,8 @@ import { getActiveSession } from "@/lib/session"
 import { FanPageLibraryManager } from "./fan-page-library-manager"
 
 export default async function FanPageLibraryPage() {
+  const t = await getTranslations()
+
   const session = await getActiveSession()
   if (!session) {
     redirect("/")
@@ -49,10 +53,9 @@ export default async function FanPageLibraryPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <div className="grid gap-1">
-        <h1 className="font-heading text-lg font-medium">Библиотека Fan Page</h1>
+        <h1 className="font-heading text-lg font-medium">{t("Библиотека Fan Page")}</h1>
         <p className="text-sm text-muted-foreground">
-          Галерея аватарок и обложек, привязанная к командам и гео.
-        </p>
+          {t("Галерея аватарок и обложек, привязанная к командам и гео.")}</p>
       </div>
       <FanPageLibraryManager
         assets={assets.map((asset) => ({

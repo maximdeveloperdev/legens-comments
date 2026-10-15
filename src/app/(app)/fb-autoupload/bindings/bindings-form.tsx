@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useCountryName } from "@/components/language-provider"
+
 import { useMemo, useState, useTransition } from "react"
 import type { FormEvent } from "react"
 import { useRouter } from "next/navigation"
@@ -98,6 +100,7 @@ function SelectField({
   options: SelectOption[]
   name?: string
 }) {
+  const t = useTranslations()
   const [value, setValue] = useState(defaultValue)
 
   return (
@@ -111,7 +114,7 @@ function SelectField({
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={optionValue(option)} value={optionValue(option)}>
-              {optionLabel(option)}
+              {t(optionLabel(option))}
             </SelectItem>
           ))}
         </SelectContent>
@@ -129,16 +132,18 @@ function IncludeExcludeBlock({
   includeName: string
   excludeName: string
 }) {
+  const t = useTranslations()
+
   return (
     <section className="grid gap-3">
       <h2 className="text-xl font-normal text-foreground">{title}</h2>
       <div className="grid gap-4 xl:grid-cols-2">
         <Field className="gap-1.5">
-          <FieldLabel className={fieldLabelClass}>Включить</FieldLabel>
+          <FieldLabel className={fieldLabelClass}>{t("Включить")}</FieldLabel>
           <Input name={includeName} className={controlClass} />
         </Field>
         <Field className="gap-1.5">
-          <FieldLabel className={fieldLabelClass}>Исключить</FieldLabel>
+          <FieldLabel className={fieldLabelClass}>{t("Исключить")}</FieldLabel>
           <Input name={excludeName} className={controlClass} />
         </Field>
       </div>
@@ -157,17 +162,19 @@ function IncludeExcludeSelectBlock({
   includeName: string
   excludeName: string
 }) {
+  const t = useTranslations()
+
   return (
     <section className="grid gap-3">
       <h2 className="text-xl font-normal text-foreground">{title}</h2>
       <div className="grid gap-4 xl:grid-cols-2">
         <MultiSelectField
-          label="Включить"
+          label={t("Включить")}
           options={options}
           name={includeName}
         />
         <MultiSelectField
-          label="Исключить"
+          label={t("Исключить")}
           options={options}
           name={excludeName}
         />
@@ -185,6 +192,8 @@ function MultiSelectField({
   options: CountryOption[]
   name: string
 }) {
+  const t = useTranslations()
+
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<CountryOption[]>([])
@@ -233,7 +242,7 @@ function MultiSelectField({
               <button
                 type="button"
                 className="rounded-sm text-muted-foreground hover:text-foreground"
-                aria-label={`Убрать ${item.label}`}
+                aria-label={t("Убрать {0}", item.label)}
                 onClick={() =>
                   setSelected((current) =>
                     current.filter((selectedItem) => selectedItem.value !== item.value),
@@ -247,7 +256,7 @@ function MultiSelectField({
           <input
             className="h-7 min-w-32 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
             value={query}
-            placeholder={selected.length ? "" : "Печатай для поиска"}
+            placeholder={selected.length ? "" : t("Печатай для поиска")}
             onChange={(event) => {
               setQuery(event.target.value)
               setOpen(true)
@@ -287,7 +296,7 @@ function MultiSelectField({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={addCustomValue}
               >
-                Добавить {query.trim()}
+                {t("Добавить ")}{query.trim()}
               </button>
             )}
           </div>
@@ -298,15 +307,20 @@ function MultiSelectField({
 }
 
 function PlacementCheckbox({ label }: { label: string }) {
+  const t = useTranslations()
   return (
     <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-      <Checkbox aria-label={label} name="placements" value={label} />
-      <span>{label}</span>
+      <Checkbox aria-label={t(label)} name="placements" value={label} />
+      <span>{t(label)}</span>
     </label>
   )
 }
 
-export function BindingsForm({ countries }: { countries: CountryOption[] }) {
+export function BindingsForm({ countries: sourceCountries }: { countries: CountryOption[] }) {
+  const t = useTranslations()
+  const countryName = useCountryName()
+  const countries = useMemo(() => sourceCountries.map((country) => ({ ...country, label: countryName(country.value, country.label) })), [sourceCountries, countryName])
+
   const router = useRouter()
   const [message, setMessage] = useState("")
   const [isPending, startTransition] = useTransition()
@@ -322,7 +336,7 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
         setMessage(result.error)
         return
       }
-      setMessage(`Связка сохранена, ID ${result.id}`)
+      setMessage(t("Связка сохранена, ID {0}", result.id))
     })
   }
 
@@ -337,7 +351,7 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
           />
           <div className="grid gap-4 xl:grid-cols-4">
             <SelectField
-              label="Цель кампании"
+              label={t("Цель кампании")}
               name="campaignGoal"
               defaultValue="Клики по ссылке (Трафик)"
               options={[
@@ -352,30 +366,30 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
           </div>
 
           <IncludeExcludeSelectBlock
-            title="Страны"
+            title={t("Страны")}
             options={countries}
             includeName="countriesInclude"
             excludeName="countriesExclude"
           />
           <IncludeExcludeBlock
-            title="Регионы"
+            title={t("Регионы")}
             includeName="regionsInclude"
             excludeName="regionsExclude"
           />
           <IncludeExcludeBlock
-            title="Города"
+            title={t("Города")}
             includeName="citiesInclude"
             excludeName="citiesExclude"
           />
           <IncludeExcludeBlock
-            title="Интересы"
+            title={t("Интересы")}
             includeName="interestsInclude"
             excludeName="interestsExclude"
           />
 
           <div className="grid gap-4 xl:grid-cols-4">
             <SelectField
-              label="Местоположение"
+              label={t("Местоположение")}
               name="locationType"
               defaultValue="Живущие здесь или недавние посетители"
               options={[
@@ -386,7 +400,7 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
               ]}
             />
             <SelectField
-              label="Расширение детального таргетинга"
+              label={t("Расширение детального таргетинга")}
               name="detailedTargetingExpansion"
               defaultValue="Нет"
               options={["Нет", "Да"]}
@@ -394,28 +408,27 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
           </div>
 
           <IncludeExcludeBlock
-            title="Поведение"
+            title={t("Поведение")}
             includeName="behaviorsInclude"
             excludeName="behaviorsExclude"
           />
 
           <section className="grid gap-4 xl:max-w-[50%]">
-            <h2 className="text-xl font-normal text-foreground">Языки</h2>
+            <h2 className="text-xl font-normal text-foreground">{t("Языки")}</h2>
             <Field className="gap-1.5">
-              <FieldLabel className={fieldLabelClass}>Включить</FieldLabel>
+              <FieldLabel className={fieldLabelClass}>{t("Включить")}</FieldLabel>
               <Input name="languagesInclude" className={controlClass} />
             </Field>
           </section>
 
           <section className="grid gap-3 xl:max-w-[50%]">
             <h2 className="text-xl font-normal text-foreground">
-              Специальные категории (Если не нужно - оставить пустым)
-            </h2>
+              {t("Специальные категории (Если не нужно - оставить пустым)")}</h2>
             <Input name="specialCategories" className={controlClass} />
           </section>
 
           <div className="flex items-center gap-3">
-            <span className={fieldLabelClass}>Автоплейсмент</span>
+            <span className={fieldLabelClass}>{t("Автоплейсмент")}</span>
             <Switch name="autoPlacement" />
           </div>
 
@@ -450,82 +463,81 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
             </div>
             <div className="grid content-start gap-2.5">
               <h2 className="text-xl font-normal text-foreground">Threads</h2>
-              <PlacementCheckbox label="Лента Threads" />
+              <PlacementCheckbox label={t("Лента Threads")} />
             </div>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-4">
             <div className="grid gap-3">
               <SelectField
-                label="Устройства"
+                label={t("Устройства")}
                 name="devices"
                 defaultValue="Все"
                 options={["Все"]}
               />
               <div className="flex items-center gap-3">
-                <span className={fieldLabelClass}>Только WI-FI</span>
+                <span className={fieldLabelClass}>{t("Только WI-FI")}</span>
                 <Switch name="wifiOnly" />
               </div>
               <SelectField
-                label="Запускать от имени"
+                label={t("Запускать от имени")}
                 name="runAs"
                 defaultValue="ФП"
                 options={["ФП", "Аккаунт"]}
               />
             </div>
             <SelectField
-              label="Пол"
+              label={t("Пол")}
               name="gender"
               defaultValue="Все"
               options={["Все", "Мужчины", "Женщины"]}
             />
             <Field className="gap-1.5">
               <FieldLabel className={fieldLabelClass}>
-                Возраст от (диапазон)
-              </FieldLabel>
+                {t("Возраст от (диапазон)")}</FieldLabel>
               <Input name="ageFromPrimary" defaultValue="13" className={controlClass} />
               <Input name="ageFromSecondary" defaultValue="13" className={controlClass} />
             </Field>
             <Field className="gap-1.5">
-              <FieldLabel className={fieldLabelClass}>До</FieldLabel>
+              <FieldLabel className={fieldLabelClass}>{t("До")}</FieldLabel>
               <Input name="ageToPrimary" defaultValue="13" className={controlClass} />
               <Input name="ageToSecondary" defaultValue="13" className={controlClass} />
             </Field>
           </section>
 
           <section className="grid gap-4">
-            <h2 className="text-xl font-normal text-foreground">Бюджет</h2>
+            <h2 className="text-xl font-normal text-foreground">{t("Бюджет")}</h2>
             <div className="grid gap-4 xl:grid-cols-4">
               <SelectField
-                label="Устанавливаем бюджет на"
+                label={t("Устанавливаем бюджет на")}
                 name="budgetTarget"
                 defaultValue="Адсет"
                 options={["Адсет", "Кампания"]}
               />
               <SelectField
-                label="Тип бюджета"
+                label={t("Тип бюджета")}
                 name="budgetType"
                 defaultValue="Дневной"
                 options={["Дневной", "Пожизненный"]}
               />
               <Field className="gap-1.5">
-                <FieldLabel className={fieldLabelClass}>Бюджет от ($)</FieldLabel>
+                <FieldLabel className={fieldLabelClass}>{t("Бюджет от ($)")}</FieldLabel>
                 <Input name="budgetFrom" className={controlClass} />
               </Field>
               <Field className="gap-1.5">
-                <FieldLabel className={fieldLabelClass}>До ($)</FieldLabel>
+                <FieldLabel className={fieldLabelClass}>{t("До ($)")}</FieldLabel>
                 <Input name="budgetTo" className={controlClass} />
               </Field>
             </div>
             <div className="grid gap-4 xl:grid-cols-4">
               <SelectField
-                label="Стратегия ставок"
+                label={t("Стратегия ставок")}
                 name="bidStrategy"
                 defaultValue="Минимальная цена"
                 options={["Минимальная цена", "Предельная ставка", "Предельная цена"]}
               />
               <SelectField
-                label="Окно конверсии"
+                label={t("Окно конверсии")}
                 name="conversionWindow"
                 defaultValue="7 дней после клика или 1 день после просмотра"
                 options={[
@@ -548,22 +560,20 @@ export function BindingsForm({ countries }: { countries: CountryOption[] }) {
               className={autouploadPrimaryButtonClass}
               disabled={isPending}
             >
-              Создать
-            </Button>
+              {t("Создать")}</Button>
             <Button
               type="button"
               variant="outline"
               className={autouploadSecondaryButtonClass}
               onClick={() => router.push("/fb-autoupload")}
             >
-              Назад
-            </Button>
+              {t("Назад")}</Button>
           </div>
         </form>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-5 text-sm text-muted-foreground md:px-6">
-        <span>Copyright © 2018-2026 Legends Tools. Все права защищены.</span>
+        <span>{t("Copyright © 2018-2026 Legends Tools. Все права защищены.")}</span>
         <span>Made with heart in Estonia</span>
       </div>
     </div>

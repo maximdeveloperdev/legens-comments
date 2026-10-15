@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useActionState, useState } from "react"
 import type { ComponentProps } from "react"
 import Image from "next/image"
@@ -18,6 +20,8 @@ export function LoginForm({
   className,
   ...props
 }: ComponentProps<"div">) {
+  const t = useTranslations()
+
   const [state, action, pending] = useActionState(login, initialState)
   const [showPassword, setShowPassword] = useState(false)
   const showTwoFactor = Boolean(state.twoFactor)
@@ -30,11 +34,11 @@ export function LoginForm({
             <FieldGroup>
               <div className="flex flex-col items-center gap-2 text-center">
                 <Image src="/icon.png" alt="" width={40} height={40} className="size-10" />
-                <h1 className="text-2xl font-bold">Вход</h1>
+                <h1 className="text-2xl font-bold">{t("Вход")}</h1>
                 <p className="text-balance text-muted-foreground">
                   {showTwoFactor
-                    ? "Введите 6-значный код из Google Authenticator"
-                    : "Войдите в Legends Tools"}
+                    ? t("Введите 6-значный код из Google Authenticator")
+                    : t("Войдите в Legends Tools")}
                 </p>
               </div>
               <Field>
@@ -50,7 +54,7 @@ export function LoginForm({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="password">Пароль</FieldLabel>
+                <FieldLabel htmlFor="password">{t("Пароль")}</FieldLabel>
                 <div className="relative">
                   <Input
                     id="password"
@@ -67,7 +71,7 @@ export function LoginForm({
                     size="icon-xs"
                     className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     onClick={() => setShowPassword((visible) => !visible)}
-                    aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                    aria-label={showPassword ? t("Скрыть пароль") : t("Показать пароль")}
                     aria-pressed={showPassword}
                   >
                     {showPassword ? <EyeOff /> : <Eye />}
@@ -79,7 +83,7 @@ export function LoginForm({
                   <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
                     <ShieldCheck className="mt-0.5 size-4 text-muted-foreground" />
                     <div className="grid w-full gap-2">
-                      <FieldLabel htmlFor="code">Код Google Authenticator</FieldLabel>
+                      <FieldLabel htmlFor="code">{t("Код Google Authenticator")}</FieldLabel>
                       <Input
                         id="code"
                         name="code"
@@ -97,16 +101,16 @@ export function LoginForm({
               ) : null}
               {state.error ? (
                 <p className="text-sm text-destructive" role="alert">
-                  {state.error}
+                  {t(state.error)}
                 </p>
               ) : null}
               <Field>
                 <Button type="submit" disabled={pending}>
                   {pending
-                    ? "Проверяем..."
+                    ? t("Проверяем...")
                     : showTwoFactor
-                      ? "Подтвердить код"
-                      : "Войти"}
+                      ? t("Подтвердить код")
+                      : t("Войти")}
                 </Button>
               </Field>
             </FieldGroup>

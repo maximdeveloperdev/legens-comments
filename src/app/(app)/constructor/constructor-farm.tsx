@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useState } from "react"
 import { ListTree, MessageCircle, Play, Server } from "lucide-react"
 import type { AdsPowerProfile } from "@/lib/adspower"
@@ -35,6 +37,8 @@ export function ConstructorFarm({
   queueScope: QueueScope
   initialTab: FarmTab
 }) {
+  const t = useTranslations()
+
   const defaultTab = !canManage && initialTab === "vps" ? "comments" : initialTab
   const [tab, setTab] = useState<FarmTab>(defaultTab)
   const [queueMounted, setQueueMounted] = useState(defaultTab === "queue")
@@ -55,7 +59,7 @@ export function ConstructorFarm({
           <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-background text-emerald-700 shadow-sm ring-1 ring-foreground/10">
             <MessageCircle className="size-5" />
           </span>
-          <h1 className="font-heading min-w-0 text-lg font-medium">Ферма комментариев</h1>
+          <h1 className="font-heading min-w-0 text-lg font-medium">{t("Ферма комментариев")}</h1>
         </div>
       </section>
 
@@ -78,7 +82,7 @@ export function ConstructorFarm({
               onClick={() => selectTab(item.id)}
             >
               <Icon />
-              {item.label}
+              {t(item.label)}
             </Button>
           )
         })}

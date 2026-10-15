@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
+import { useTranslations } from "@/components/language-provider"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { ChevronRightIcon } from "lucide-react"
@@ -40,6 +41,7 @@ function itemIsActive(pathname: string, item: NavMainItem): boolean {
 }
 
 function NavCollapsibleItem({ item }: { item: NavMainItem }) {
+  const t = useTranslations()
   const pathname = usePathname()
   const active = itemIsActive(pathname, item)
   const [open, setOpen] = useState(active)
@@ -53,17 +55,17 @@ function NavCollapsibleItem({ item }: { item: NavMainItem }) {
     >
       <CollapsibleTrigger
         render={
-          <SidebarMenuButton tooltip={item.title} isActive={active} />
+          <SidebarMenuButton tooltip={t(item.title)} isActive={active} />
         }
       >
         {item.icon}
-        <span>{item.title}</span>
+        <span>{t(item.title)}</span>
         {item.badge ? (
           <Badge
             variant="secondary"
             className="ml-auto h-4 px-1.5 text-[10px] uppercase"
           >
-            {item.badge}
+            {item.badge === "soon" ? t("Скоро") : item.badge}
           </Badge>
         ) : null}
         <ChevronRightIcon
@@ -84,6 +86,7 @@ function NavCollapsibleItem({ item }: { item: NavMainItem }) {
 }
 
 function NavSubItem({ item }: { item: NavMainItem }) {
+  const t = useTranslations()
   const pathname = usePathname()
   const active = itemIsActive(pathname, item)
   const [open, setOpen] = useState(active)
@@ -105,13 +108,13 @@ function NavSubItem({ item }: { item: NavMainItem }) {
           }
         >
           {item.icon}
-          <span>{item.title}</span>
+          <span>{t(item.title)}</span>
           {item.badge ? (
             <Badge
               variant="secondary"
               className="ml-auto h-4 px-1.5 text-[10px] uppercase"
             >
-              {item.badge}
+              {item.badge === "soon" ? t("Скоро") : item.badge}
             </Badge>
           ) : null}
           <ChevronRightIcon
@@ -140,13 +143,13 @@ function NavSubItem({ item }: { item: NavMainItem }) {
         render={<Link href={item.url} />}
       >
         {item.icon}
-        <span>{item.title}</span>
+        <span>{t(item.title)}</span>
         {item.badge ? (
           <Badge
             variant="secondary"
             className="ml-auto h-4 px-1.5 text-[10px] uppercase"
           >
-            {item.badge}
+            {item.badge === "soon" ? t("Скоро") : item.badge}
           </Badge>
         ) : null}
       </SidebarMenuSubButton>
@@ -159,6 +162,7 @@ export function NavMain({
 }: {
   items: NavMainItem[]
 }) {
+  const t = useTranslations()
   const pathname = usePathname()
 
   return (
@@ -171,17 +175,17 @@ export function NavMain({
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 isActive={pathname === item.url}
-                tooltip={item.title}
+                tooltip={t(item.title)}
                 render={<Link href={item.url} />}
               >
                 {item.icon}
-                <span>{item.title}</span>
+                <span>{t(item.title)}</span>
                 {item.badge ? (
                   <Badge
                     variant="secondary"
                     className="ml-auto h-4 px-1.5 text-[10px] uppercase"
                   >
-                    {item.badge}
+                    {item.badge === "soon" ? t("Скоро") : item.badge}
                   </Badge>
                 ) : null}
               </SidebarMenuButton>

@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { FarmQueue } from "@/app/(app)/constructor/farm-queue"
 import { getActiveSession } from "@/lib/session"
 
@@ -28,6 +30,8 @@ function queueScope(role: string | undefined) {
 }
 
 export default async function QueuePage({ searchParams }: QueuePageProps) {
+  const t = await getTranslations()
+
   const user = await getActiveSession()
   const params = await searchParams
   const canManage = user?.role === "ADMIN"
@@ -35,7 +39,7 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <div className="grid gap-1">
-        <h1 className="font-heading text-lg font-medium">Очередь</h1>
+        <h1 className="font-heading text-lg font-medium">{t("Очередь")}</h1>
       </div>
       <FarmQueue
         full

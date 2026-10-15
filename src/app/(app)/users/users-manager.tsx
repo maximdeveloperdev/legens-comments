@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { UserRole } from "@prisma/client"
@@ -98,6 +100,8 @@ export function UsersManager({
   users: UserRow[]
   currentUserId: string
 }) {
+  const t = useTranslations()
+
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormValues>(emptyForm)
@@ -171,7 +175,7 @@ export function UsersManager({
       if (result.error) { setBulkError(result.error); return }
       setSelectedIds([])
     } catch {
-      setBulkError("Не удалось обновить пользователей. Обновите страницу и проверьте результат.")
+      setBulkError(t("Не удалось обновить пользователей. Обновите страницу и проверьте результат."))
     } finally {
       setBulkPending(false)
     }
@@ -223,26 +227,26 @@ export function UsersManager({
       })
       const result = await response.json()
       if (!response.ok || result.error) {
-        setError(result.error || "Не удалось сохранить пользователя")
+        setError(result.error || t("Не удалось сохранить пользователя"))
         return
       }
       setOpen(false)
       router.refresh()
     } catch {
-      setError("Ответ сервера не получен. Обновите список: пользователь мог сохраниться. После проверки можно повторить попытку.")
+      setError(t("Ответ сервера не получен. Обновите список: пользователь мог сохраниться. После проверки можно повторить попытку."))
     } finally {
       setPending(false)
     }
   }
 
   async function onDelete(id: string) {
-    if (!confirm("Удалить пользователя?")) return
+    if (!confirm(t("Удалить пользователя?"))) return
     const data = new FormData()
     data.set("id", id)
     try {
       const result = await deleteUser(data)
       if (result.error) alert(result.error)
-    } catch { alert("Не удалось удалить пользователя. Обновите страницу и проверьте результат.") }
+    } catch { alert(t("Не удалось удалить пользователя. Обновите страницу и проверьте результат.")) }
   }
 
   return (
@@ -254,20 +258,19 @@ export function UsersManager({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск по имени или почте"
+              placeholder={t("Поиск по имени или почте")}
               className="pl-8"
-              aria-label="Поиск юзеров"
+              aria-label={t("Поиск юзеров")}
             />
           </div>
           <Button type="button" disabled={pending} onClick={openCreate} className="sm:w-auto">
             <Plus />
-            Добавить
-          </Button>
+            {t("Добавить")}</Button>
         </div>
         {selectedInView.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 p-2">
             <span className="px-2 text-sm text-muted-foreground">
-              Выбрано: {selectedInView.length}
+              {t("Выбрано: ")}{selectedInView.length}
             </span>
             <Button
               type="button"
@@ -277,8 +280,7 @@ export function UsersManager({
               onClick={() => onBulk("twoFactor")}
             >
               <ShieldOff />
-              Выключить 2FA
-            </Button>
+              {t("Выключить 2FA")}</Button>
             <Button
               type="button"
               variant="outline"
@@ -287,8 +289,7 @@ export function UsersManager({
               onClick={() => onBulk("active")}
             >
               <UserX />
-              Выключить активность
-            </Button>
+              {t("Выключить активность")}</Button>
             {bulkError ? (
               <p className="text-sm text-destructive" role="alert">
                 {bulkError}
@@ -306,23 +307,22 @@ export function UsersManager({
                 checked={allVisibleSelected}
                 indeterminate={!allVisibleSelected && selectedInView.length > 0}
                 onCheckedChange={(checked) => toggleAllVisible(checked)}
-                aria-label="Выбрать всех"
+                aria-label={t("Выбрать всех")}
               />
             </TableHead>
-            <TableHead>Имя</TableHead>
-            <TableHead>Почта</TableHead>
-            <TableHead>Роль</TableHead>
+            <TableHead>{t("Имя")}</TableHead>
+            <TableHead>{t("Почта")}</TableHead>
+            <TableHead>{t("Роль")}</TableHead>
             <TableHead>2FA</TableHead>
-            <TableHead>Активность</TableHead>
-            <TableHead className="text-right">Действия</TableHead>
+            <TableHead>{t("Активность")}</TableHead>
+            <TableHead className="text-right">{t("Действия")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {filteredUsers.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                Никого не нашли
-              </TableCell>
+                {t("Никого не нашли")}</TableCell>
             </TableRow>
           ) : (
             filteredUsers.map((user) => (
@@ -334,7 +334,7 @@ export function UsersManager({
                   <Checkbox
                     checked={selectedIds.includes(user.id)}
                     onCheckedChange={(checked) => toggleSelected(user.id, checked)}
-                    aria-label={`Выбрать ${user.name}`}
+                    aria-label={t("Выбрать {0}", user.name)}
                   />
                 </TableCell>
                 <TableCell>
@@ -359,13 +359,13 @@ export function UsersManager({
                           : "secondary"
                     }
                   >
-                    {userRoleLabel(user.role)}
+                    {t(userRoleLabel(user.role))}
                   </Badge>
                 </TableCell>
-                <TableCell>{user.twoFactorEnabled ? "Да" : "Нет"}</TableCell>
+                <TableCell>{user.twoFactorEnabled ? t("Да") : t("Нет")}</TableCell>
                 <TableCell>
                   <Badge variant={user.active ? "default" : "outline"}>
-                    {user.active ? "Активен" : "Выключен"}
+                    {user.active ? t("Активен") : t("Выключен")}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
@@ -375,7 +375,7 @@ export function UsersManager({
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => openEdit(user)}
-                      aria-label="Редактировать"
+                      aria-label={t("Редактировать")}
                     >
                       <Pencil />
                     </Button>
@@ -385,7 +385,7 @@ export function UsersManager({
                       size="icon-sm"
                       onClick={() => onDelete(user.id)}
                       disabled={user.id === currentUserId}
-                      aria-label="Удалить"
+                      aria-label={t("Удалить")}
                     >
                       <Trash2 />
                     </Button>
@@ -401,24 +401,23 @@ export function UsersManager({
         <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
           <form onSubmit={onSubmit}>
             <DialogHeader>
-              <DialogTitle>{isEdit ? "Редактировать юзера" : "Новый юзер"}</DialogTitle>
+              <DialogTitle>{isEdit ? t("Редактировать юзера") : t("Новый юзер")}</DialogTitle>
               <DialogDescription>
-                Имя, фото, почта, пароль, роль, 2FA и активность.
-              </DialogDescription>
+                {t("Имя, фото, почта, пароль, роль, 2FA и активность.")}</DialogDescription>
             </DialogHeader>
             <FieldGroup className="mt-4">
               <Field>
-                <FieldLabel>Фото</FieldLabel>
+                <FieldLabel>{t("Фото")}</FieldLabel>
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     className="relative"
                     onClick={() => fileRef.current?.click()}
-                    aria-label="Загрузить фото"
+                    aria-label={t("Загрузить фото")}
                   >
                     <Avatar className="size-14 after:rounded-full" size="lg">
                       {avatarPreviewUrl ? (
-                        <AvatarImage src={avatarPreviewUrl} alt={form.name || "Фото"} />
+                        <AvatarImage src={avatarPreviewUrl} alt={form.name || t("Фото")} />
                       ) : null}
                       <AvatarFallback>{initials(form.name)}</AvatarFallback>
                     </Avatar>
@@ -431,8 +430,7 @@ export function UsersManager({
                     variant="outline"
                     onClick={() => fileRef.current?.click()}
                   >
-                    Выбрать фото
-                  </Button>
+                    {t("Выбрать фото")}</Button>
                   <input
                     ref={fileRef}
                     type="file"
@@ -446,7 +444,7 @@ export function UsersManager({
                 </div>
               </Field>
               <Field>
-                <FieldLabel htmlFor="user-name">Имя</FieldLabel>
+                <FieldLabel htmlFor="user-name">{t("Имя")}</FieldLabel>
                 <Input
                   id="user-name"
                   value={form.name}
@@ -457,7 +455,7 @@ export function UsersManager({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="user-email">Почта</FieldLabel>
+                <FieldLabel htmlFor="user-email">{t("Почта")}</FieldLabel>
                 <Input
                   id="user-email"
                   type="email"
@@ -469,7 +467,7 @@ export function UsersManager({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="user-password">Пароль</FieldLabel>
+                <FieldLabel htmlFor="user-password">{t("Пароль")}</FieldLabel>
                 <div className="flex gap-2">
                   <div className="relative min-w-0 flex-1">
                     <Input
@@ -482,7 +480,7 @@ export function UsersManager({
                           password: event.target.value,
                         }))
                       }
-                      placeholder={isEdit ? "Оставьте пустым, чтобы не менять" : ""}
+                      placeholder={isEdit ? t("Оставьте пустым, чтобы не менять") : ""}
                       className="pr-9"
                       required={!isEdit}
                     />
@@ -492,7 +490,7 @@ export function UsersManager({
                       size="icon-xs"
                       className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       onClick={() => setShowPassword((visible) => !visible)}
-                      aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                      aria-label={showPassword ? t("Скрыть пароль") : t("Показать пароль")}
                     >
                       {showPassword ? <EyeOff /> : <Eye />}
                     </Button>
@@ -509,12 +507,11 @@ export function UsersManager({
                     }}
                   >
                     <RefreshCw />
-                    Сгенерировать
-                  </Button>
+                    {t("Сгенерировать")}</Button>
                 </div>
               </Field>
               <Field>
-                <FieldLabel>Роль</FieldLabel>
+                <FieldLabel>{t("Роль")}</FieldLabel>
                 <Select
                   value={form.role}
                   onValueChange={(value) => {
@@ -532,10 +529,10 @@ export function UsersManager({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={UserRole.ADMIN}>Админ</SelectItem>
-                    <SelectItem value={UserRole.TEAM_LEAD}>Тимлид</SelectItem>
-                    <SelectItem value={UserRole.FARMER}>Фармер</SelectItem>
-                    <SelectItem value={UserRole.USER}>Юзер</SelectItem>
+                    <SelectItem value={UserRole.ADMIN}>{t("Админ")}</SelectItem>
+                    <SelectItem value={UserRole.TEAM_LEAD}>{t("Тимлид")}</SelectItem>
+                    <SelectItem value={UserRole.FARMER}>{t("Фармер")}</SelectItem>
+                    <SelectItem value={UserRole.USER}>{t("Юзер")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -545,8 +542,7 @@ export function UsersManager({
                     <FieldLabel htmlFor="user-2fa">2FA</FieldLabel>
                     {!form.twoFactorEnabled ? (
                       <p className="text-xs text-muted-foreground">
-                        Включается пользователем в профиле
-                      </p>
+                        {t("Включается пользователем в профиле")}</p>
                     ) : null}
                   </div>
                   <Switch
@@ -560,7 +556,7 @@ export function UsersManager({
                 </Field>
               ) : null}
               <Field orientation="horizontal" className="items-center justify-between">
-                <FieldLabel htmlFor="user-active">Активность</FieldLabel>
+                <FieldLabel htmlFor="user-active">{t("Активность")}</FieldLabel>
                 <Switch
                   id="user-active"
                   checked={form.active}
@@ -571,17 +567,16 @@ export function UsersManager({
               </Field>
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
-                  {error}
-                  <button type="button" className="ml-2 underline" onClick={() => router.refresh()}>Обновить список</button>
+                  {t(error)}
+                  <button type="button" className="ml-2 underline" onClick={() => router.refresh()}>{t("Обновить список")}</button>
                 </p>
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>
-                Отмена
-              </Button>
+                {t("Отмена")}</Button>
               <Button type="submit" disabled={pending}>
-                {pending ? "Сохранение…" : "Сохранить"}
+                {pending ? t("Сохранение…") : t("Сохранить")}
               </Button>
             </DialogFooter>
           </form>

@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import {
   Card,
   CardContent,
@@ -6,16 +8,18 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
-export default function AccountPagesPage() {
+export default async function AccountPagesPage() {
+  const t = await getTranslations()
+
   return (
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
       <Card>
         <CardHeader>
-          <CardTitle>Страницы</CardTitle>
-          <CardDescription>Управление страницами.</CardDescription>
+          <CardTitle>{t("Страницы")}</CardTitle>
+          <CardDescription>{t("Управление страницами.")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Пока без задач.</p>
+          <p className="text-sm text-muted-foreground">{t("Пока без задач.")}</p>
         </CardContent>
       </Card>
     </div>

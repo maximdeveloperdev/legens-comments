@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import Link from "next/link"
 import { PlusCircle } from "lucide-react"
 import { FarmQueue, type QueueSort, type QueueStatusFilter } from "@/app/(app)/constructor/farm-queue"
@@ -52,6 +54,8 @@ function queueScope(role: string | undefined) {
 }
 
 export default async function TasksListPage({ searchParams }: TasksListPageProps) {
+  const t = await getTranslations()
+
   const user = await getActiveSession()
   const params = await searchParams
   const canManage = user?.role === "ADMIN"
@@ -60,15 +64,13 @@ export default async function TasksListPage({ searchParams }: TasksListPageProps
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
       <section className="flex items-center justify-between gap-4 rounded-2xl border bg-gradient-to-r from-muted/80 to-card p-4 md:p-5">
         <div className="grid min-w-0 gap-1">
-          <h1 className="font-heading text-lg font-medium">Список задач</h1>
+          <h1 className="font-heading text-lg font-medium">{t("Список задач")}</h1>
           <p className="text-sm text-muted-foreground">
-            Список задач с быстрыми действиями, статусами и сервисным сообщением внизу карточки.
-          </p>
+            {t("Список задач с быстрыми действиями, статусами и сервисным сообщением внизу карточки.")}</p>
         </div>
         <Button render={<Link href="/tasks" />}>
           <PlusCircle />
-          Создать задачу
-        </Button>
+          {t("Создать задачу")}</Button>
       </section>
 
       <FarmQueue

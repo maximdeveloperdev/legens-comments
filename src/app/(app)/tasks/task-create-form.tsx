@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useLocalizedCountries } from "@/components/language-provider"
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Paperclip, Loader2, MessageCircle, Plus, Reply, Trash2 } from "lucide-react"
@@ -176,13 +178,16 @@ function commentsFromBulkText(value: string) {
 
 export function TaskCreateForm({
   profiles,
-  countries,
+  countries: sourceCountries,
   error,
 }: {
   profiles: AdsPowerProfile[]
   countries: Record<string, CountryInfo>
   error?: string
 }) {
+  const t = useTranslations()
+  const countries = useLocalizedCountries(sourceCountries)
+
   const [taskName, setTaskName] = useState("")
   const [postUrl, setPostUrl] = useState("")
   const [globalGender, setGlobalGender] = useState<GenderFilter>("ANY")
@@ -246,7 +251,7 @@ export function TaskCreateForm({
     }
     const error = commentMediaError(file)
     if (error) {
-      pushAppNotification("Вложение", error, { tone: "error" })
+      pushAppNotification(t("Вложение"), error, { tone: "error" })
       return
     }
     if (unit.preview) URL.revokeObjectURL(unit.preview)
@@ -279,12 +284,12 @@ export function TaskCreateForm({
   function generateCommentsFromText() {
     const generated = commentsFromBulkText(bulkCommentsText)
     if (generated.length === 0) {
-      pushAppNotification("Комментарии", "Вставь текст комментариев", { tone: "error" })
+      pushAppNotification(t("Комментарии"), t("Вставь текст комментариев"), { tone: "error" })
       return
     }
     revokeCommentPreviews(comments)
     setComments(generated)
-    pushAppNotification("Комментарии", `Сгенерировано: ${generated.length} комментариев`, { tone: "success" })
+    pushAppNotification(t("Комментарии"), t("Сгенерировано: {0} комментариев", generated.length), { tone: "success" })
   }
 
   function getCommentSet(): CommentSetDraft {
@@ -300,7 +305,7 @@ export function TaskCreateForm({
   function applyCommentSet(draft: CommentSetDraft) {
     const roots = new Set(draft.comments.filter((unit) => !unit.parentId).map((unit) => unit.id))
     if (draft.comments.some((unit) => unit.parentId && !roots.has(unit.parentId))) {
-      pushAppNotification("Наборы", "Набор с вложенными ответами можно применить в окне копирования задачи", { tone: "error" })
+      pushAppNotification(t("Наборы"), t("Набор с вложенными ответами можно применить в окне копирования задачи"), { tone: "error" })
       return false
     }
     const toUnit = (unit: CommentSetDraft["comments"][number]): DraftUnit => ({
@@ -365,17 +370,17 @@ export function TaskCreateForm({
           })
           if (comment.photo) photos.set(parentKey, comment.photo)
         } else {
-          skipped.push(`Комментарий ${commentIndex + 1}`)
+          skipped.push(t("Комментарий {0}", commentIndex + 1))
         }
       }
 
       if (comment.reactionCount > 0 && !parentKey) {
-        skipped.push(`Лайки к комментарию ${commentIndex + 1}: нет текста родителя`)
+        skipped.push(t("Лайки к комментарию {0}: нет текста родителя", commentIndex + 1))
       } else {
         for (let index = 0; index < comment.reactionCount; index += 1) {
           const fan = pickFan(fans, used, commentGender, commentGeos)
           if (!fan) {
-            skipped.push(`Лайк ${index + 1} к комментарию ${commentIndex + 1}`)
+            skipped.push(t("Лайк {0} к комментарию {1}", index + 1, commentIndex + 1))
             break
           }
           jobs.push({
@@ -393,14 +398,14 @@ export function TaskCreateForm({
         const replyText = replyItem.text.trim()
         if (!replyText && !replyItem.aiComment) continue
         if (!parentKey) {
-          skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}: нет текста родителя`)
+          skipped.push(t("Ответ {0} к комментарию {1}: нет текста родителя", replyIndex + 1, commentIndex + 1))
           continue
         }
         const replyGender = replyItem.gender === "ANY" ? globalGender : replyItem.gender
         const replyGeos = replyItem.geos.length === 0 ? globalGeos : replyItem.geos
         const fan = pickFan(fans, used, replyGender, replyGeos)
         if (!fan) {
-          skipped.push(`Ответ ${replyIndex + 1} к комментарию ${commentIndex + 1}`)
+          skipped.push(t("Ответ {0} к комментарию {1}", replyIndex + 1, commentIndex + 1))
           continue
         }
         const replyKey = taskKey("reply", replyItem.id)
@@ -420,7 +425,7 @@ export function TaskCreateForm({
         for (let index = 0; index < replyItem.reactionCount; index += 1) {
           const reactionFan = pickFan(fans, used, replyGender, replyGeos)
           if (!reactionFan) {
-            skipped.push(`Лайк ${index + 1} к ответу ${replyIndex + 1}`)
+            skipped.push(t("Лайк {0} к ответу {1}", index + 1, replyIndex + 1))
             break
           }
           jobs.push({
@@ -442,21 +447,21 @@ export function TaskCreateForm({
     const name = taskName.trim()
     const url = normalizeFacebookUrl(postUrl)
     if (!name) {
-      pushAppNotification("Создание задачи", "Введи название задачи", { tone: "error" })
+      pushAppNotification(t("Создание задачи"), t("Введи название задачи"), { tone: "error" })
       return
     }
     if (!isFacebookUrl(url)) {
-      pushAppNotification("Создание задачи", "Вставь корректную ссылку на пост Facebook", { tone: "error" })
+      pushAppNotification(t("Создание задачи"), t("Вставь корректную ссылку на пост Facebook"), { tone: "error" })
       return
     }
 
     const { jobs, photos, skipped } = buildJobs()
     if (jobs.length === 0) {
-      pushAppNotification("Создание задачи", "Нет действий для запуска", { tone: "error" })
+      pushAppNotification(t("Создание задачи"), t("Нет действий для запуска"), { tone: "error" })
       return
     }
     if (skipped.length > 0) {
-      pushAppNotification("Создание задачи", `Не хватает фанок: ${skipped.slice(0, 3).join(", ")}`, { tone: "error" })
+      pushAppNotification(t("Создание задачи"), t("Не хватает фанок: {0}", skipped.slice(0, 3).join(", ")), { tone: "error" })
       return
     }
 
@@ -465,7 +470,7 @@ export function TaskCreateForm({
       const formData = new FormData()
       const payload = JSON.stringify({ name, action: "mixed", jobs })
       if ([...photos.values()].reduce((sum, file) => sum + file.size, new Blob([payload]).size) > MAX_COMMENT_MEDIA_TOTAL_SIZE) {
-        pushAppNotification("Вложения", "Общий размер вложений и задачи должен быть до 70 МБ", { tone: "error" })
+        pushAppNotification(t("Вложения"), t("Общий размер вложений и задачи должен быть до 70 МБ"), { tone: "error" })
         return
       }
       formData.set("payload", payload)
@@ -474,12 +479,12 @@ export function TaskCreateForm({
       }
       const result = await enqueueFarmTaskForm(formData)
       if (result.error) {
-        pushAppNotification("Создание задачи", result.error, { href: "/tasks/list?tab=work", tone: "error" })
+        pushAppNotification(t("Создание задачи"), result.error, { href: "/tasks/list?tab=work", tone: "error" })
         return
       }
       pushAppNotification(
-        "Создание задачи",
-        `${name} · ${result.total || jobs.length} действий в очереди${result.rewritten ? ` · AI перефразировал: ${result.rewritten}` : ""}`,
+        t("Создание задачи"),
+        t("{0} · {1} действий в очереди{2}", name, result.total || jobs.length, result.rewritten ? t(" · AI перефразировал: {0}", result.rewritten) : ""),
         { href: "/tasks/list?tab=work", tone: "queue" },
       )
       clearForm()
@@ -511,26 +516,26 @@ export function TaskCreateForm({
     <div className="grid gap-4">
       {error ? (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
+          {t(error)}
         </div>
       ) : null}
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="font-heading text-base font-medium">Создать новую задачу</h2>
-            <p className="text-sm text-muted-foreground">Один пост, таргетинг фанок, комментарии, ответы и реакции.</p>
+            <h2 className="font-heading text-base font-medium">{t("Создать новую задачу")}</h2>
+            <p className="text-sm text-muted-foreground">{t("Один пост, таргетинг фанок, комментарии, ответы и реакции.")}</p>
           </div>
-          <Badge variant="secondary">{totalDraftActions} действий</Badge>
+          <Badge variant="secondary">{totalDraftActions} {t(" действий")}</Badge>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Название задачи</span>
-            <Input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder="Название задачи..." />
+            <span className="text-sm font-medium">{t("Название задачи")}</span>
+            <Input value={taskName} onChange={(event) => setTaskName(event.target.value)} placeholder={t("Название задачи...")} />
           </label>
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Ссылка на пост Facebook</span>
+            <span className="text-sm font-medium">{t("Ссылка на пост Facebook")}</span>
             <Input
               value={postUrl}
               onChange={(event) => setPostUrl(event.target.value)}
@@ -542,30 +547,30 @@ export function TaskCreateForm({
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-heading text-base font-medium">Таргетинг комментаторов</h2>
-          <Badge variant="outline">{matchingFans.length} фанок</Badge>
+          <h2 className="font-heading text-base font-medium">{t("Таргетинг комментаторов")}</h2>
+          <Badge variant="outline">{matchingFans.length} {t(" фанок")}</Badge>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <SelectField label="Пол" value={globalGender} onChange={(value) => setGlobalGender(value as GenderFilter)}>
-            <option value="ANY">Любой</option>
-            <option value="MALE">Мужчины</option>
-            <option value="FEMALE">Женщины</option>
+          <SelectField label={t("Пол")} value={globalGender} onChange={(value) => setGlobalGender(value as GenderFilter)}>
+            <option value="ANY">{t("Любой")}</option>
+            <option value="MALE">{t("Мужчины")}</option>
+            <option value="FEMALE">{t("Женщины")}</option>
           </SelectField>
           <GeoMultiSelect
-            label="Гео"
+            label={t("Гео")}
             value={globalGeos}
             geos={geos}
             countries={countries}
-            emptyLabel="Выберите гео"
+            emptyLabel={t("Выберите гео")}
             onChange={setGlobalGeos}
           />
         </div>
       </section>
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
-        <h2 className="font-heading text-base font-medium">Настройки вовлечения поста</h2>
+        <h2 className="font-heading text-base font-medium">{t("Настройки вовлечения поста")}</h2>
         <RangeField
-          label="Реакции на пост"
+          label={t("Реакции на пост")}
           value={postReactionCount}
           min={0}
           max={MAX_POST_REACTIONS}
@@ -574,13 +579,13 @@ export function TaskCreateForm({
       </section>
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
-        <h2 className="font-heading text-base font-medium">Генерация комментариев</h2>
+        <h2 className="font-heading text-base font-medium">{t("Генерация комментариев")}</h2>
         <div className="grid gap-3">
           <div className="grid h-10 grid-cols-2 rounded-lg border bg-background p-1">
             {(
               [
-                { id: "text", label: "Из текста" },
-                { id: "library", label: "Из библиотеки" },
+                { id: "text", label: t("Из текста") },
+                { id: "library", label: t("Из библиотеки") },
               ] as const
             ).map((option) => (
               <button
@@ -602,12 +607,11 @@ export function TaskCreateForm({
           {generateMode === "text" ? (
             <>
               <p className="text-sm text-muted-foreground">
-                Один комментарий на строку. Начни строку с Tab или 4 пробелов, чтобы сделать reply к комментарию выше.
-              </p>
+                {t("Один комментарий на строку. Начни строку с Tab или 4 пробелов, чтобы сделать reply к комментарию выше.")}</p>
               <Textarea
                 value={bulkCommentsText}
                 onChange={(event) => setBulkCommentsText(event.target.value)}
-                placeholder={"Первый комментарий\n    Ответ к первому\nВторой комментарий"}
+                placeholder={t("Первый комментарий\n    Ответ к первому\nВторой комментарий")}
                 rows={7}
               />
               <Button
@@ -615,7 +619,7 @@ export function TaskCreateForm({
                 disabled={bulkCommentsText.trim().length === 0}
                 onClick={generateCommentsFromText}
               >
-                Generate
+                {t("Сгенерировать")}
               </Button>
             </>
           ) : (
@@ -626,11 +630,10 @@ export function TaskCreateForm({
 
       <section className="grid gap-4 rounded-2xl border bg-card p-4 shadow-sm md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-heading text-base font-medium">Комментарии</h2>
+          <h2 className="font-heading text-base font-medium">{t("Комментарии")}</h2>
           <Button type="button" variant="outline" size="sm" onClick={() => setComments((current) => [...current, emptyComment()])}>
             <Plus />
-            Добавить комментарий
-          </Button>
+            {t("Добавить комментарий")}</Button>
         </div>
 
         <div className="grid gap-3">
@@ -638,7 +641,7 @@ export function TaskCreateForm({
           {comments.map((comment, index) => (
             <CommentEditor
               key={comment.id}
-              title={`Комментарий ${index + 1}`}
+              title={t("Комментарий {0}", index + 1)}
               unit={comment}
               countries={countries}
               geos={geos}
@@ -657,7 +660,7 @@ export function TaskCreateForm({
                 {comment.replies.map((replyItem, replyIndex) => (
                   <CommentEditor
                     key={replyItem.id}
-                    title={`Ответ ${replyIndex + 1}`}
+                    title={t("Ответ {0}", replyIndex + 1)}
                     reply
                     unit={replyItem}
                     countries={countries}
@@ -693,8 +696,7 @@ export function TaskCreateForm({
                   }
                 >
                   <Reply />
-                  Добавить ответ к комментарию
-                </Button>
+                  {t("Добавить ответ к комментарию")}</Button>
               </div>
             </CommentEditor>
           ))}
@@ -702,8 +704,7 @@ export function TaskCreateForm({
 
         <Button type="button" size="lg" disabled={submitting} onClick={() => void submitTask()}>
           {submitting ? <Loader2 className="animate-spin" /> : <MessageCircle />}
-          Создать задачу
-        </Button>
+          {t("Создать задачу")}</Button>
       </section>
     </div>
   )
@@ -734,6 +735,8 @@ function CommentEditor({
   fileInput: (node: HTMLInputElement | null) => void
   onPickFile: () => void
 }) {
+  const t = useTranslations()
+
   return (
     <div className={cn("grid gap-4 rounded-2xl border p-3 md:p-4", reply ? "bg-muted/30" : "bg-background")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -741,22 +744,21 @@ function CommentEditor({
         {onDelete ? (
           <Button type="button" variant="outline" size="sm" onClick={onDelete}>
             <Trash2 />
-            Удалить
-          </Button>
+            {t("Удалить")}</Button>
         ) : null}
       </div>
       <label className="grid gap-1.5">
-        <span className="text-sm font-medium">Текст комментария</span>
-        <Textarea value={unit.text} placeholder={unit.aiComment ? "AI-комментарий будет сгенерирован при запуске" : "Текст комментария"} onChange={(event) => onChange({ text: event.target.value })} rows={5} />
+        <span className="text-sm font-medium">{t("Текст комментария")}</span>
+        <Textarea value={unit.text} placeholder={unit.aiComment ? t("AI-комментарий будет сгенерирован при запуске") : t("Текст комментария")} onChange={(event) => onChange({ text: event.target.value })} rows={5} />
       </label>
       <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="grid gap-2">
-          <span className="text-sm font-medium">Фото, GIF или MP4</span>
-          <p className="text-xs text-muted-foreground">{COMMENT_MEDIA_HINT}</p>
+          <span className="text-sm font-medium">{t("Фото, GIF или MP4")}</span>
+          <p className="text-xs text-muted-foreground">{t(COMMENT_MEDIA_HINT)}</p>
           <input
             ref={fileInput}
             type="file"
-            aria-label={reply ? "Вложение ответа" : "Вложение комментария"}
+            aria-label={reply ? t("Вложение ответа") : t("Вложение комментария")}
             accept={COMMENT_MEDIA_ACCEPT}
             className="hidden"
             onChange={(event) => {
@@ -767,8 +769,7 @@ function CommentEditor({
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={onPickFile}>
               <Paperclip />
-              Загрузить
-            </Button>
+              {t("Загрузить")}</Button>
             {unit.photo ? (
               <span className="text-xs text-muted-foreground">
                 {unit.photo.name} · {fileSizeLabel(unit.photo.size)}
@@ -777,8 +778,7 @@ function CommentEditor({
             {unit.photo ? (
               <Button type="button" variant="ghost" size="sm" onClick={() => onPhoto(undefined)}>
                 <Trash2 />
-                Убрать
-              </Button>
+                {t("Убрать")}</Button>
             ) : null}
           </div>
           {unit.preview ? (
@@ -794,7 +794,7 @@ function CommentEditor({
           ) : null}
         </div>
         <RangeField
-          label={reply ? "Лайки к ответу" : "Лайки к комментарию"}
+          label={reply ? t("Лайки к ответу") : t("Лайки к комментарию")}
           value={unit.reactionCount}
           min={0}
           max={MAX_COMMENT_REACTIONS}
@@ -802,17 +802,17 @@ function CommentEditor({
         />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <SelectField label="Пол" value={unit.gender} onChange={(value) => onChange({ gender: value as GenderFilter })}>
-          <option value="ANY">Любой</option>
-          <option value="MALE">Мужчины</option>
-          <option value="FEMALE">Женщины</option>
+        <SelectField label={t("Пол")} value={unit.gender} onChange={(value) => onChange({ gender: value as GenderFilter })}>
+          <option value="ANY">{t("Любой")}</option>
+          <option value="MALE">{t("Мужчины")}</option>
+          <option value="FEMALE">{t("Женщины")}</option>
         </SelectField>
         <GeoMultiSelect
-          label="Гео"
+          label={t("Гео")}
           value={unit.geos}
           geos={geos}
           countries={countries}
-          emptyLabel="Выберите гео"
+          emptyLabel={t("Выберите гео")}
           onChange={(value) => onChange({ geos: value })}
         />
       </div>

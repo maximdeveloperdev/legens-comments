@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations, useCountryName } from "@/components/language-provider"
+
 import { DateTime } from "@/components/time-zone-provider"
 
 import { useEffect, useMemo, useState, useTransition } from "react"
@@ -164,7 +166,7 @@ function CountryLabel({ country }: { country: CountryOption }) {
 export function FanPageLibraryManager({
   assets,
   teams,
-  countries,
+  countries: sourceCountries,
   canDelete,
 }: {
   assets: FanPageAssetRow[]
@@ -172,6 +174,10 @@ export function FanPageLibraryManager({
   countries: CountryOption[]
   canDelete: boolean
 }) {
+  const t = useTranslations()
+  const countryName = useCountryName()
+  const countries = useMemo(() => sourceCountries.map((country) => ({ ...country, name: countryName(country.code, country.name) })), [sourceCountries, countryName])
+
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -259,14 +265,14 @@ export function FanPageLibraryManager({
         asset.team.name,
         asset.team.marker,
         asset.createdByName ?? "",
-        assetTypeLabels[asset.type],
-        genderLabels[asset.gender],
+        t(assetTypeLabels[asset.type]),
+        t(genderLabels[asset.gender]),
       ]
         .join(" ")
         .toLowerCase()
         .includes(needle)
     })
-  }, [assets, countryMap, genderFilter, geoFilter, query, teamFilter, typeFilter])
+  }, [assets, countryMap, genderFilter, geoFilter, query, teamFilter, typeFilter, t])
   const totalPages = Math.max(1, Math.ceil(filteredAssets.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const pageStart = (currentPage - 1) * pageSize
@@ -324,15 +330,15 @@ export function FanPageLibraryManager({
         uploaded?: number
       } | null
       if (!response.ok) {
-        return { error: payload?.error || `Ошибка загрузки (${response.status})` }
+        return { error: payload?.error || t("Ошибка загрузки ({0})", response.status) }
       }
       return payload || {}
     } catch (uploadError) {
       if (uploadError instanceof DOMException && uploadError.name === "AbortError") {
-        return { error: "Загрузка заняла больше 2 минут. Попробуй меньше файлов или сжать картинки." }
+        return { error: t("Загрузка заняла больше 2 минут. Попробуй меньше файлов или сжать картинки.") }
       }
       return {
-        error: uploadError instanceof Error ? uploadError.message : "Не удалось загрузить картинки",
+        error: uploadError instanceof Error ? uploadError.message : t("Не удалось загрузить картинки"),
       }
     } finally {
       window.clearTimeout(timeoutId)
@@ -348,8 +354,8 @@ export function FanPageLibraryManager({
     if (invalidFile) {
       setError(
         !acceptedUploadTypes.has(invalidFile.type)
-          ? `${invalidFile.name || "Файл"}: нужен JPG, PNG или WEBP`
-          : `${invalidFile.name || "Файл"}: файл должен быть до 10 МБ`,
+          ? t("{0}: нужен JPG, PNG или WEBP", invalidFile.name || t("Файл"))
+          : t("{0}: файл должен быть до 10 МБ", invalidFile.name || t("Файл")),
       )
       return
     }
@@ -368,17 +374,17 @@ export function FanPageLibraryManager({
           data.append("files", file)
         }
 
-        setMessage(`Загрузка: ${uploaded}/${form.files.length} · ${batch[0]?.name ?? "файл"}`)
+        setMessage(t("Загрузка: {0}/{1} · {2}", uploaded, form.files.length, batch[0]?.name ?? t("файл")))
         const result = await uploadFanPageAsset(data)
         if (result.error) {
           setError(result.error)
-          setMessage(uploaded > 0 ? `Загружено до ошибки: ${uploaded}/${form.files.length}` : "")
+          setMessage(uploaded > 0 ? t("Загружено до ошибки: {0}/{1}", uploaded, form.files.length) : "")
           return
         }
         uploaded += result.uploaded || batch.length
       }
       setOpen(false)
-      setMessage(`Картинок добавлено: ${uploaded}`)
+      setMessage(t("Картинок добавлено: {0}", uploaded))
       setPage(1)
       router.refresh()
     } finally {
@@ -387,7 +393,7 @@ export function FanPageLibraryManager({
   }
 
   function removeAsset(asset: FanPageAssetRow) {
-    if (!confirm(`Удалить «${asset.originalName}»?`)) return
+    if (!confirm(t("Удалить «{0}»?", asset.originalName))) return
     const data = new FormData()
     data.set("id", asset.id)
     setError("")
@@ -398,7 +404,7 @@ export function FanPageLibraryManager({
         setError(result.error)
         return
       }
-      setMessage("Картинка удалена")
+      setMessage(t("Картинка удалена"))
       setSelectedIds((current) => current.filter((id) => id !== asset.id))
       router.refresh()
     })
@@ -421,7 +427,7 @@ export function FanPageLibraryManager({
 
   function removeSelectedAssets() {
     if (selectedIds.length === 0) return
-    if (!confirm(`Удалить выбранные картинки (${selectedIds.length})?`)) return
+    if (!confirm(t("Удалить выбранные картинки ({0})?", selectedIds.length))) return
     const data = new FormData()
     for (const id of selectedIds) {
       data.append("ids", id)
@@ -434,7 +440,7 @@ export function FanPageLibraryManager({
         setError(result.error)
         return
       }
-      setMessage(`Удалено картинок: ${selectedIds.length}`)
+      setMessage(t("Удалено картинок: {0}", selectedIds.length))
       setSelectedIds([])
       router.refresh()
     })
@@ -456,7 +462,7 @@ export function FanPageLibraryManager({
       bulkEditForm.geoCode !== keepValue ||
       bulkEditForm.teamId !== keepValue
     if (!shouldUpdate) {
-      setError("Выберите, что изменить")
+      setError(t("Выберите, что изменить"))
       return
     }
 
@@ -477,7 +483,7 @@ export function FanPageLibraryManager({
         setError(result.error)
         return
       }
-      setMessage(`Обновлено картинок: ${result.updated ?? selectedIds.length}`)
+      setMessage(t("Обновлено картинок: {0}", result.updated ?? selectedIds.length))
       setSelectedIds([])
       setBulkEditOpen(false)
       router.refresh()
@@ -487,7 +493,7 @@ export function FanPageLibraryManager({
   const pagination = filteredAssets.length > 0 ? (
     <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-muted-foreground">
-        Показано {pageStart + 1}-{pageEnd} из {filteredAssets.length}
+        {t("Показано ")}{pageStart + 1}-{pageEnd} {t(" из ")}{filteredAssets.length}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Select
@@ -498,13 +504,12 @@ export function FanPageLibraryManager({
           }}
         >
           <SelectTrigger className="h-9 w-[132px]">
-            <span>{pageSize} на странице</span>
+            <span>{pageSize} {t(" на странице")}</span>
           </SelectTrigger>
           <SelectContent>
             {pageSizeOptions.map((option) => (
               <SelectItem key={option} value={String(option)}>
-                {option} на странице
-              </SelectItem>
+                {option} {t(" на странице")}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -515,7 +520,7 @@ export function FanPageLibraryManager({
             variant="outline"
             disabled={currentPage <= 1}
             onClick={() => setPage((value) => Math.max(1, value - 1))}
-            aria-label="Предыдущая страница"
+            aria-label={t("Предыдущая страница")}
           >
             <ChevronLeft />
           </Button>
@@ -528,7 +533,7 @@ export function FanPageLibraryManager({
             variant="outline"
             disabled={currentPage >= totalPages}
             onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
-            aria-label="Следующая страница"
+            aria-label={t("Следующая страница")}
           >
             <ChevronRight />
           </Button>
@@ -549,15 +554,14 @@ export function FanPageLibraryManager({
                 setQuery(event.target.value)
                 setPage(1)
               }}
-              placeholder="Поиск по названию, geo, команде или автору"
+              placeholder={t("Поиск по названию, geo, команде или автору")}
               className="pl-8"
-              aria-label="Поиск по библиотеке"
+              aria-label={t("Поиск по библиотеке")}
             />
           </div>
           <Button type="button" onClick={openUpload} disabled={teams.length === 0 || countries.length === 0}>
             <Plus />
-            Добавить
-          </Button>
+            {t("Добавить")}</Button>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
@@ -571,14 +575,14 @@ export function FanPageLibraryManager({
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {typeFilter === emptyFilter
-                  ? "Все типы"
-                  : assetTypeLabels[typeFilter as FanPageAssetType]}
+                  ? t("Все типы")
+                  : t(assetTypeLabels[typeFilter as FanPageAssetType])}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={emptyFilter}>Все типы</SelectItem>
-              <SelectItem value={FanPageAssetType.AVATAR}>Аватарки</SelectItem>
-              <SelectItem value={FanPageAssetType.COVER}>Обложки</SelectItem>
+              <SelectItem value={emptyFilter}>{t("Все типы")}</SelectItem>
+              <SelectItem value={FanPageAssetType.AVATAR}>{t("Аватарки")}</SelectItem>
+              <SelectItem value={FanPageAssetType.COVER}>{t("Обложки")}</SelectItem>
             </SelectContent>
           </Select>
 
@@ -591,14 +595,14 @@ export function FanPageLibraryManager({
           >
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
-                {genderFilter === emptyFilter ? "Все полы" : genderLabels[genderFilter as Gender]}
+                {genderFilter === emptyFilter ? t("Все полы") : t(genderLabels[genderFilter as Gender])}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={emptyFilter}>Все полы</SelectItem>
-              <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
-              <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
-              <SelectItem value={Gender.MALE}>Мужские</SelectItem>
+              <SelectItem value={emptyFilter}>{t("Все полы")}</SelectItem>
+              <SelectItem value={Gender.ANY}>{t("Любой пол")}</SelectItem>
+              <SelectItem value={Gender.FEMALE}>{t("Женские")}</SelectItem>
+              <SelectItem value={Gender.MALE}>{t("Мужские")}</SelectItem>
             </SelectContent>
           </Select>
 
@@ -612,14 +616,14 @@ export function FanPageLibraryManager({
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {geoFilter === emptyFilter
-                  ? "Все geo"
+                  ? t("Все geo")
                   : countryMap.get(geoFilter)
                     ? <CountryLabel country={countryMap.get(geoFilter)!} />
                     : geoFilter}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={emptyFilter}>Все geo</SelectItem>
+              <SelectItem value={emptyFilter}>{t("Все geo")}</SelectItem>
               {countries.map((country) => (
                 <SelectItem key={country.code} value={country.code}>
                   <CountryLabel country={country} />
@@ -638,14 +642,14 @@ export function FanPageLibraryManager({
             <SelectTrigger className="w-full">
               <span className="truncate text-left">
                 {teamFilter === emptyFilter
-                  ? "Все команды"
+                  ? t("Все команды")
                   : teams.find((team) => team.id === teamFilter)
                     ? teamLine(teams.find((team) => team.id === teamFilter)!)
-                    : "Команда"}
+                    : t("Команда")}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={emptyFilter}>Все команды</SelectItem>
+              <SelectItem value={emptyFilter}>{t("Все команды")}</SelectItem>
               {teams.map((team) => (
                 <SelectItem key={team.id} value={team.id}>
                   {teamLine(team)}
@@ -661,16 +665,15 @@ export function FanPageLibraryManager({
             disabled={!hasActiveFilters}
             onClick={clearFilters}
           >
-            Очистить
-          </Button>
+            {t("Очистить")}</Button>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">{filteredAssets.length} найдено</Badge>
-          {filteredAssets.length > 0 ? <Badge variant="outline">Страница {currentPage}/{totalPages}</Badge> : null}
-          {selectedIds.length > 0 ? <Badge variant="secondary">Выбрано {selectedIds.length}</Badge> : null}
-          <Badge variant="outline">Аватарки {assets.filter((asset) => asset.type === "AVATAR").length}</Badge>
-          <Badge variant="outline">Обложки {assets.filter((asset) => asset.type === "COVER").length}</Badge>
+          <Badge variant="secondary">{filteredAssets.length} {t(" найдено")}</Badge>
+          {filteredAssets.length > 0 ? <Badge variant="outline">{t("Страница ")}{currentPage}/{totalPages}</Badge> : null}
+          {selectedIds.length > 0 ? <Badge variant="secondary">{t("Выбрано ")}{selectedIds.length}</Badge> : null}
+          <Badge variant="outline">{t("Аватарки ")}{assets.filter((asset) => asset.type === "AVATAR").length}</Badge>
+          <Badge variant="outline">{t("Обложки ")}{assets.filter((asset) => asset.type === "COVER").length}</Badge>
         </div>
 
         {canDelete && filteredAssets.length > 0 ? (
@@ -680,15 +683,14 @@ export function FanPageLibraryManager({
                 checked={allPageSelected}
                 indeterminate={!allPageSelected && selectedOnPage.length > 0}
                 onCheckedChange={(checked) => togglePageSelected(Boolean(checked))}
-                aria-label="Выбрать картинки на странице"
+                aria-label={t("Выбрать картинки на странице")}
               />
               <span className="text-sm text-muted-foreground">
-                На странице выбрано {selectedOnPage.length}/{pageAssetIds.length}
+                {t("На странице выбрано ")}{selectedOnPage.length}/{pageAssetIds.length}
               </span>
               {selectedIds.length > 0 ? (
                 <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
-                  Снять выбор
-                </Button>
+                  {t("Снять выбор")}</Button>
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -699,7 +701,7 @@ export function FanPageLibraryManager({
                 onClick={openBulkEdit}
               >
                 <Pencil />
-                Редактировать {selectedIds.length > 0 ? selectedIds.length : ""}
+                {t("Редактировать ")}{selectedIds.length > 0 ? selectedIds.length : ""}
               </Button>
               <Button
                 type="button"
@@ -708,7 +710,7 @@ export function FanPageLibraryManager({
                 onClick={removeSelectedAssets}
               >
                 <Trash2 />
-                Удалить выбранные {selectedIds.length > 0 ? selectedIds.length : ""}
+                {t("Удалить выбранные ")}{selectedIds.length > 0 ? selectedIds.length : ""}
               </Button>
             </div>
           </div>
@@ -716,18 +718,16 @@ export function FanPageLibraryManager({
 
         {teams.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Нет доступных команд. Админ может создать команду в разделе «Команды».
-          </p>
+            {t("Нет доступных команд. Админ может создать команду в разделе «Команды».")}</p>
         ) : null}
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p className="text-sm text-destructive">{t(error)}</p> : null}
       </section>
 
       {filteredAssets.length === 0 ? (
         <section className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground">
           <ImageIcon className="mx-auto mb-3 size-8" />
-          В библиотеке пока нет картинок под выбранные фильтры
-        </section>
+          {t("В библиотеке пока нет картинок под выбранные фильтры")}</section>
       ) : (
         <div className="grid gap-3">
           {pagination}
@@ -748,7 +748,7 @@ export function FanPageLibraryManager({
                       <Checkbox
                         checked={selected}
                         onCheckedChange={(checked) => toggleSelected(asset.id, Boolean(checked))}
-                        aria-label={`Выбрать ${asset.originalName}`}
+                        aria-label={t("Выбрать {0}", asset.originalName)}
                       />
                     </div>
                   ) : null}
@@ -774,9 +774,9 @@ export function FanPageLibraryManager({
                     <div className="flex items-start justify-between gap-2">
                       <div className="grid min-w-0 gap-1">
                         <div className="flex flex-wrap gap-1.5">
-                          <Badge>{assetTypeLabels[asset.type]}</Badge>
+                          <Badge>{t(assetTypeLabels[asset.type])}</Badge>
                           {asset.type === FanPageAssetType.AVATAR ? (
-                            <Badge variant="outline">{genderLabels[asset.gender]}</Badge>
+                            <Badge variant="outline">{t(genderLabels[asset.gender])}</Badge>
                           ) : null}
                           <Badge variant="secondary" className="gap-1.5">
                             {country?.flagSvg ? (
@@ -802,7 +802,7 @@ export function FanPageLibraryManager({
                           variant="ghost"
                           disabled={isPending}
                           onClick={() => removeAsset(asset)}
-                          aria-label="Удалить картинку"
+                          aria-label={t("Удалить картинку")}
                         >
                           <Trash2 />
                         </Button>
@@ -813,7 +813,7 @@ export function FanPageLibraryManager({
                       <span>
                         {formatSize(asset.size)} · {formatDate(asset.createdAt)}
                       </span>
-                      {asset.createdByName ? <span className="truncate">Добавил: {asset.createdByName}</span> : null}
+                      {asset.createdByName ? <span className="truncate">{t("Добавил: ")}{asset.createdByName}</span> : null}
                     </div>
                   </div>
                 </article>
@@ -830,14 +830,13 @@ export function FanPageLibraryManager({
         <DialogContent className="sm:max-w-lg">
           <form onSubmit={submitUpload}>
             <DialogHeader>
-              <DialogTitle>Добавить картинку</DialogTitle>
+              <DialogTitle>{t("Добавить картинку")}</DialogTitle>
               <DialogDescription>
-                Выберите тип, geo, команду и файл для библиотеки Fan Page.
-              </DialogDescription>
+                {t("Выберите тип, geo, команду и файл для библиотеки Fan Page.")}</DialogDescription>
             </DialogHeader>
             <FieldGroup className="mt-4">
               <Field>
-                <FieldLabel>Тип</FieldLabel>
+                <FieldLabel>{t("Тип")}</FieldLabel>
                 <Select
                   value={form.type}
                   onValueChange={(value) =>
@@ -849,18 +848,18 @@ export function FanPageLibraryManager({
                   }
                 >
                   <SelectTrigger className="w-full">
-                    <span>{assetTypeLabels[form.type]}</span>
+                    <span>{t(assetTypeLabels[form.type])}</span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={FanPageAssetType.AVATAR}>Аватарки</SelectItem>
-                    <SelectItem value={FanPageAssetType.COVER}>Обложки</SelectItem>
+                    <SelectItem value={FanPageAssetType.AVATAR}>{t("Аватарки")}</SelectItem>
+                    <SelectItem value={FanPageAssetType.COVER}>{t("Обложки")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
 
               {form.type === FanPageAssetType.AVATAR ? (
                 <Field>
-                  <FieldLabel>Пол</FieldLabel>
+                  <FieldLabel>{t("Пол")}</FieldLabel>
                   <Select
                     value={form.gender}
                     onValueChange={(value) =>
@@ -874,12 +873,12 @@ export function FanPageLibraryManager({
                     }
                   >
                     <SelectTrigger className="w-full">
-                      <span>{genderLabels[form.gender]}</span>
+                      <span>{t(genderLabels[form.gender])}</span>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
-                      <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
-                      <SelectItem value={Gender.MALE}>Мужские</SelectItem>
+                      <SelectItem value={Gender.ANY}>{t("Любой пол")}</SelectItem>
+                      <SelectItem value={Gender.FEMALE}>{t("Женские")}</SelectItem>
+                      <SelectItem value={Gender.MALE}>{t("Мужские")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
@@ -895,7 +894,7 @@ export function FanPageLibraryManager({
                 >
                   <SelectTrigger className="w-full">
                     <span className="truncate text-left">
-                      {selectedCountry ? <CountryLabel country={selectedCountry} /> : "Выберите geo"}
+                      {selectedCountry ? <CountryLabel country={selectedCountry} /> : t("Выберите geo")}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
@@ -909,7 +908,7 @@ export function FanPageLibraryManager({
               </Field>
 
               <Field>
-                <FieldLabel>Команда</FieldLabel>
+                <FieldLabel>{t("Команда")}</FieldLabel>
                 <Select
                   value={form.teamId}
                   onValueChange={(value) =>
@@ -918,7 +917,7 @@ export function FanPageLibraryManager({
                 >
                   <SelectTrigger className="w-full">
                     <span className="truncate text-left">
-                      {selectedTeam ? teamLine(selectedTeam) : "Выберите команду"}
+                      {selectedTeam ? teamLine(selectedTeam) : t("Выберите команду")}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
@@ -932,7 +931,7 @@ export function FanPageLibraryManager({
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="fan-page-asset-file">Файлы</FieldLabel>
+                <FieldLabel htmlFor="fan-page-asset-file">{t("Файлы")}</FieldLabel>
                 <Input
                   id="fan-page-asset-file"
                   type="file"
@@ -948,27 +947,26 @@ export function FanPageLibraryManager({
                 />
                 {form.files.length > 0 ? (
                   <p className="max-h-24 overflow-auto text-xs text-muted-foreground">
-                    Выбрано: {form.files.length} · {form.files.map((file) => file.name).join(", ")}
+                    {t("Выбрано: ")}{form.files.length} · {form.files.map((file) => file.name).join(", ")}
                   </p>
                 ) : null}
               </Field>
 
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
-                  {error}
+                  {t(error)}
                 </p>
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" disabled={isUploading} onClick={() => setOpen(false)}>
-                Отмена
-              </Button>
+                {t("Отмена")}</Button>
               <Button
                 type="submit"
                 disabled={isPending || isUploading || form.files.length === 0 || !form.geoCode || !form.teamId}
               >
                 <UploadIcon />
-                {isUploading ? "Загрузка…" : "Загрузить"}
+                {isUploading ? t("Загрузка…") : t("Загрузить")}
               </Button>
             </DialogFooter>
           </form>
@@ -979,14 +977,14 @@ export function FanPageLibraryManager({
         <DialogContent className="sm:max-w-lg">
           <form onSubmit={submitBulkEdit}>
             <DialogHeader>
-              <DialogTitle>Массовое редактирование</DialogTitle>
+              <DialogTitle>{t("Массовое редактирование")}</DialogTitle>
               <DialogDescription>
-                Изменения применятся к выбранным картинкам: {selectedIds.length}.
+                {t("Изменения применятся к выбранным картинкам: ")}{selectedIds.length}.
               </DialogDescription>
             </DialogHeader>
             <FieldGroup className="mt-4">
               <Field>
-                <FieldLabel>Тип</FieldLabel>
+                <FieldLabel>{t("Тип")}</FieldLabel>
                 <Select
                   value={bulkEditForm.type}
                   onValueChange={(value) =>
@@ -1000,20 +998,20 @@ export function FanPageLibraryManager({
                   <SelectTrigger className="w-full">
                     <span>
                       {bulkEditForm.type === keepValue
-                        ? "Не менять"
-                        : assetTypeLabels[bulkEditForm.type as FanPageAssetType]}
+                        ? t("Не менять")
+                        : t(assetTypeLabels[bulkEditForm.type as FanPageAssetType])}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={keepValue}>Не менять</SelectItem>
-                    <SelectItem value={FanPageAssetType.AVATAR}>Аватарки</SelectItem>
-                    <SelectItem value={FanPageAssetType.COVER}>Обложки</SelectItem>
+                    <SelectItem value={keepValue}>{t("Не менять")}</SelectItem>
+                    <SelectItem value={FanPageAssetType.AVATAR}>{t("Аватарки")}</SelectItem>
+                    <SelectItem value={FanPageAssetType.COVER}>{t("Обложки")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
 
               <Field>
-                <FieldLabel>Пол</FieldLabel>
+                <FieldLabel>{t("Пол")}</FieldLabel>
                 <Select
                   value={bulkEditForm.gender}
                   onValueChange={(value) =>
@@ -1030,15 +1028,15 @@ export function FanPageLibraryManager({
                   <SelectTrigger className="w-full">
                     <span>
                       {bulkEditForm.gender === keepValue
-                        ? "Не менять"
-                        : genderLabels[bulkEditForm.gender as Gender]}
+                        ? t("Не менять")
+                        : t(genderLabels[bulkEditForm.gender as Gender])}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={keepValue}>Не менять</SelectItem>
-                    <SelectItem value={Gender.ANY}>Любой пол</SelectItem>
-                    <SelectItem value={Gender.FEMALE}>Женские</SelectItem>
-                    <SelectItem value={Gender.MALE}>Мужские</SelectItem>
+                    <SelectItem value={keepValue}>{t("Не менять")}</SelectItem>
+                    <SelectItem value={Gender.ANY}>{t("Любой пол")}</SelectItem>
+                    <SelectItem value={Gender.FEMALE}>{t("Женские")}</SelectItem>
+                    <SelectItem value={Gender.MALE}>{t("Мужские")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -1054,14 +1052,14 @@ export function FanPageLibraryManager({
                   <SelectTrigger className="w-full">
                     <span className="truncate text-left">
                       {bulkEditForm.geoCode === keepValue
-                        ? "Не менять"
+                        ? t("Не менять")
                         : bulkGeo
                           ? <CountryLabel country={bulkGeo} />
                           : bulkEditForm.geoCode}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    <SelectItem value={keepValue}>{t("Не менять")}</SelectItem>
                     {countries.map((country) => (
                       <SelectItem key={country.code} value={country.code}>
                         <CountryLabel country={country} />
@@ -1072,7 +1070,7 @@ export function FanPageLibraryManager({
               </Field>
 
               <Field>
-                <FieldLabel>Команда</FieldLabel>
+                <FieldLabel>{t("Команда")}</FieldLabel>
                 <Select
                   value={bulkEditForm.teamId}
                   onValueChange={(value) =>
@@ -1082,14 +1080,14 @@ export function FanPageLibraryManager({
                   <SelectTrigger className="w-full">
                     <span className="truncate text-left">
                       {bulkEditForm.teamId === keepValue
-                        ? "Не менять"
+                        ? t("Не менять")
                         : bulkTeam
                           ? teamLine(bulkTeam)
-                          : "Команда"}
+                          : t("Команда")}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={keepValue}>Не менять</SelectItem>
+                    <SelectItem value={keepValue}>{t("Не менять")}</SelectItem>
                     {teams.map((team) => (
                       <SelectItem key={team.id} value={team.id}>
                         {teamLine(team)}
@@ -1101,18 +1099,16 @@ export function FanPageLibraryManager({
 
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
-                  {error}
+                  {t(error)}
                 </p>
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setBulkEditOpen(false)}>
-                Отмена
-              </Button>
+                {t("Отмена")}</Button>
               <Button type="submit" disabled={isPending || selectedIds.length === 0}>
                 <Pencil />
-                Сохранить
-              </Button>
+                {t("Сохранить")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

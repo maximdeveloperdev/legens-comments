@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { listActionLogs } from "@/lib/action-log"
 import { parseActionLogsPage, parseActionLogsPageSize } from "../action-logs-params"
 import { ActionLogsTable } from "../action-logs-table"
@@ -8,17 +10,19 @@ type LogsPageProps = {
 }
 
 export default async function TrackerLogsPage({ searchParams }: LogsPageProps) {
+  const t = await getTranslations()
+
   const params = await searchParams
   const logs = await listActionLogs(2000, "tracker")
 
   return (
     <SettingsSection
-      title="Логи действий в трекере"
-      description="Кто что сделал: вход, задачи, синхронизация, профили и пользователи."
+      title={t("Логи действий в трекере")}
+      description={t("Кто что сделал: вход, задачи, синхронизация, профили и пользователи.")}
     >
       <ActionLogsTable
         clearSource="tracker"
-        emptyText="Пока нет действий. Они появятся, когда кто-то войдёт, создаст задачу или изменит данные."
+        emptyText={t("Пока нет действий. Они появятся, когда кто-то войдёт, создаст задачу или изменит данные.")}
         rows={logs.map((log) => ({
           date: log.createdAt.toISOString(),
           user: log.userName,

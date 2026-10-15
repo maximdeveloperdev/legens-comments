@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { redirect } from "next/navigation"
 import {
   Card,
@@ -11,6 +13,8 @@ import { requireAdminSession } from "@/lib/session"
 import { UsersManager } from "./users-manager"
 
 export default async function UsersPage() {
+  const t = await getTranslations()
+
   const session = await requireAdminSession()
   if (!session) {
     redirect("/constructor")
@@ -33,10 +37,9 @@ export default async function UsersPage() {
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
       <Card>
         <CardHeader>
-          <CardTitle>Юзеры</CardTitle>
+          <CardTitle>{t("Юзеры")}</CardTitle>
           <CardDescription>
-            Имя, фото, почта, пароль, роль, 2FA и активность.
-          </CardDescription>
+            {t("Имя, фото, почта, пароль, роль, 2FA и активность.")}</CardDescription>
         </CardHeader>
         <CardContent>
           <UsersManager users={users} currentUserId={session?.id ?? ""} />

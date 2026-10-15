@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { LoginForm } from "@/components/login-form"
 import { getActiveSession } from "@/lib/session"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 export default async function HomePage() {
   const user = await getActiveSession()
@@ -10,6 +11,7 @@ export default async function HomePage() {
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-background p-6 md:p-10">
+      <div className="absolute top-4 right-4"><LanguageSwitcher /></div>
       <div className="w-full max-w-sm">
         <LoginForm />
       </div>

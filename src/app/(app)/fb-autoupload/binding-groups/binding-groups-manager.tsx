@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useMemo, useState, useTransition } from "react"
 import {
   ArrowUpDownIcon,
@@ -46,6 +48,8 @@ export type BindingGroupRow = {
 }
 
 export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) {
+  const t = useTranslations()
+
   const [query, setQuery] = useState("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [createOpen, setCreateOpen] = useState(false)
@@ -106,7 +110,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
       }
       setName("")
       setCreateOpen(false)
-      setMessage("Группа создана")
+      setMessage(t("Группа создана"))
     })
   }
 
@@ -132,7 +136,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
       }
       setEditGroup(null)
       setEditName("")
-      setMessage("Группа обновлена")
+      setMessage(t("Группа обновлена"))
     })
   }
 
@@ -149,15 +153,14 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
       }
       setSelectedIds((current) => current.filter((currentId) => currentId !== id))
       setDeleteGroupTarget(null)
-      setMessage("Группа удалена")
+      setMessage(t("Группа удалена"))
     })
   }
 
   return (
     <div className="flex flex-1 flex-col gap-5 p-4 md:p-6">
       <h1 className="text-3xl font-normal tracking-normal text-foreground">
-        Группы связок
-      </h1>
+        {t("Группы связок")}</h1>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <Dialog
@@ -170,26 +173,23 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
           <DialogTrigger
             render={
               <Button type="button" className={autouploadPrimaryButtonClass}>
-                Создать группу
-              </Button>
+                {t("Создать группу")}</Button>
             }
           />
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Создать группу</DialogTitle>
+              <DialogTitle>{t("Создать группу")}</DialogTitle>
               <DialogDescription>
-                Укажите название группы связок.
-              </DialogDescription>
+                {t("Укажите название группы связок.")}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-2">
               <label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                Название группы
-              </label>
+                {t("Название группы")}</label>
               <Input
                 className="h-10 rounded-sm bg-white"
                 value={name}
                 autoFocus
-                placeholder="Например, тест"
+                placeholder={t("Например, тест")}
                 onChange={(event) => setName(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -201,23 +201,20 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
             </div>
             <DialogFooter>
               <DialogClose render={<Button type="button" variant="outline" />}>
-                Отмена
-              </DialogClose>
+                {t("Отмена")}</DialogClose>
               <Button
                 type="button"
                 className={autouploadPrimaryButtonClass}
                 disabled={isPending}
                 onClick={createGroup}
               >
-                Создать
-              </Button>
+                {t("Создать")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
         <label className="flex items-center gap-3 self-end text-sm text-muted-foreground">
-          Поиск:
-          <Input
+          {t("Поиск:")}<Input
             className="h-10 w-56 rounded-sm bg-white"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -233,7 +230,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
             <TableRow className="border-b bg-transparent hover:bg-transparent">
               <TableHead className="w-12 px-0 text-center">
                 <Checkbox
-                  aria-label="Выбрать все группы"
+                  aria-label={t("Выбрать все группы")}
                   checked={allSelected}
                   onCheckedChange={toggleAll}
                 />
@@ -245,13 +242,11 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                 </span>
               </TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Название группы
-              </TableHead>
+                {t("Название группы")}</TableHead>
               <TableHead className="w-36 text-center text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
                 <span className="inline-flex items-center gap-7">
                   <ArrowUpDownIcon className="size-4 text-muted-foreground/40" />
-                  Связок
-                  <ArrowUpDownIcon className="size-4 text-muted-foreground/40" />
+                  {t("Связок")}<ArrowUpDownIcon className="size-4 text-muted-foreground/40" />
                 </span>
               </TableHead>
               <TableHead className="w-28" />
@@ -266,7 +261,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                 >
                   <TableCell className="px-0 text-center">
                     <Checkbox
-                      aria-label={`Выбрать группу ${group.name}`}
+                      aria-label={t("Выбрать группу {0}", group.name)}
                       checked={selectedIds.includes(group.id)}
                       onCheckedChange={() => toggleGroup(group.id)}
                     />
@@ -285,7 +280,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                         variant="ghost"
                         size="icon-xs"
                         className="text-primary hover:text-primary/80"
-                        aria-label="Открыть связки в этой группе"
+                        aria-label={t("Открыть связки в этой группе")}
                       >
                         <ExternalLinkIcon className="size-4" />
                       </Button>
@@ -298,7 +293,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                         variant="ghost"
                         size="icon-xs"
                         className="text-primary hover:text-primary/80"
-                        aria-label="Редактировать группу"
+                        aria-label={t("Редактировать группу")}
                         onClick={() => openEditGroup(group)}
                       >
                         <PencilIcon className="size-4" />
@@ -308,7 +303,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                         variant="ghost"
                         size="icon-xs"
                         className="text-primary hover:text-primary/80"
-                        aria-label="Удалить группу"
+                        aria-label={t("Удалить группу")}
                         disabled={isPending}
                         onClick={() => setDeleteGroupTarget(group)}
                       >
@@ -324,8 +319,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                   colSpan={5}
                   className="text-center text-sm text-muted-foreground"
                 >
-                  Групп пока нет
-                </TableCell>
+                  {t("Групп пока нет")}</TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -334,18 +328,18 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
 
       <div className="grid items-center gap-4 text-sm text-muted-foreground md:grid-cols-3">
         <div className="flex items-center gap-3">
-          <span>Показывать</span>
+          <span>{t("Показывать")}</span>
           <Input
             className="h-10 w-20 rounded-sm bg-white text-base text-foreground"
             defaultValue="100"
           />
-          <span>на странице</span>
+          <span>{t("на странице")}</span>
         </div>
 
         <p className="text-center">
           {filteredGroups.length
-            ? `Группы с 1 до ${filteredGroups.length} из ${groups.length}`
-            : "Группы с 0 до 0 из 0"}
+            ? t("Группы с 1 до {0} из {1}", filteredGroups.length, groups.length)
+            : t("Группы с 0 до 0 из 0")}
         </p>
 
         <div className="flex items-center justify-end gap-4">
@@ -354,7 +348,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
             variant="ghost"
             size="icon-xs"
             className="text-muted-foreground/40"
-            aria-label="Предыдущая страница"
+            aria-label={t("Предыдущая страница")}
           >
             <ChevronLeftIcon className="size-4" />
           </Button>
@@ -364,7 +358,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
             variant="ghost"
             size="icon-xs"
             className="text-muted-foreground/40"
-            aria-label="Следующая страница"
+            aria-label={t("Следующая страница")}
           >
             <ChevronRightIcon className="size-4" />
           </Button>
@@ -382,15 +376,13 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Редактировать группу</DialogTitle>
+            <DialogTitle>{t("Редактировать группу")}</DialogTitle>
             <DialogDescription>
-              Измените название группы связок.
-            </DialogDescription>
+              {t("Измените название группы связок.")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
             <label className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              Название группы
-            </label>
+              {t("Название группы")}</label>
             <Input
               className="h-10 rounded-sm bg-white"
               value={editName}
@@ -406,16 +398,14 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
           </div>
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>
-              Отмена
-            </DialogClose>
+              {t("Отмена")}</DialogClose>
             <Button
               type="button"
               className={autouploadPrimaryButtonClass}
               disabled={isPending}
               onClick={updateGroup}
             >
-              Сохранить
-            </Button>
+              {t("Сохранить")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -428,16 +418,13 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Удалить группу?</DialogTitle>
+            <DialogTitle>{t("Удалить группу?")}</DialogTitle>
             <DialogDescription>
-              Группа {deleteGroupTarget?.name ?? ""} будет удалена. Это действие
-              нельзя отменить.
-            </DialogDescription>
+              {t("Группа ")}{deleteGroupTarget?.name ?? ""} {t(" будет удалена. Это действие нельзя отменить.")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" />}>
-              Отмена
-            </DialogClose>
+              {t("Отмена")}</DialogClose>
             <Button
               type="button"
               variant="destructive"
@@ -447,8 +434,7 @@ export function BindingGroupsManager({ groups }: { groups: BindingGroupRow[] }) 
                 if (deleteGroupTarget) deleteGroup(deleteGroupTarget.id)
               }}
             >
-              Удалить
-            </Button>
+              {t("Удалить")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

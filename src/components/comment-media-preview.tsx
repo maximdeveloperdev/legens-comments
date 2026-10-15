@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import Image from "next/image"
 import { commentMediaLabel, isCommentVideo } from "@/lib/comment-media"
 
@@ -12,8 +14,10 @@ export function CommentMediaPreview({ src, name = src, mime = "", className, wid
   height?: number
   controls?: boolean
 }) {
+  const t = useTranslations()
+
   if (isCommentVideo(name, mime)) {
-    return <video src={src} aria-label="Видео MP4" controls={controls} playsInline preload="metadata" width={width} height={height} className={className} />
+    return <video src={src} aria-label={t("Видео MP4")} controls={controls} playsInline preload="metadata" width={width} height={height} className={className} />
   }
-  return <Image src={src} alt={commentMediaLabel(name, mime)} width={width} height={height} className={className} loading="lazy" unoptimized={src.startsWith("blob:") || commentMediaLabel(name, mime) === "GIF"} />
+  return <Image src={src} alt={t(commentMediaLabel(name, mime))} width={width} height={height} className={className} loading="lazy" unoptimized={src.startsWith("blob:") || commentMediaLabel(name, mime) === "GIF"} />
 }

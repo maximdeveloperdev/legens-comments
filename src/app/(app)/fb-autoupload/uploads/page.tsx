@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { DateTime } from "@/components/time-zone-provider"
 import { prisma } from "@/lib/db"
 import {
@@ -10,6 +12,8 @@ import {
 } from "@/components/ui/table"
 
 export default async function FbAutouploadUploadsPage() {
+  const t = await getTranslations()
+
   const uploads = await prisma.fbAutouploadUpload.findMany({
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -25,8 +29,7 @@ export default async function FbAutouploadUploadsPage() {
   return (
     <div className="flex flex-1 flex-col gap-5 p-4 md:p-6">
       <h1 className="text-3xl font-normal tracking-normal text-foreground">
-        Заливы
-      </h1>
+        {t("Заливы")}</h1>
 
       <div className="overflow-hidden bg-white">
         <Table>
@@ -36,17 +39,13 @@ export default async function FbAutouploadUploadsPage() {
                 ID
               </TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Название
-              </TableHead>
+                {t("Название")}</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Группа
-              </TableHead>
+                {t("Группа")}</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Статус
-              </TableHead>
+                {t("Статус")}</TableHead>
               <TableHead className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
-                Дата
-              </TableHead>
+                {t("Дата")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -60,7 +59,7 @@ export default async function FbAutouploadUploadsPage() {
                     {upload.name}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {upload.group?.name ?? "Без группы"}
+                    {upload.group?.name ?? t("Без группы")}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {upload.status}
@@ -76,8 +75,7 @@ export default async function FbAutouploadUploadsPage() {
                   colSpan={5}
                   className="text-center text-sm text-muted-foreground"
                 >
-                  Заливов пока нет
-                </TableCell>
+                  {t("Заливов пока нет")}</TableCell>
               </TableRow>
             )}
           </TableBody>

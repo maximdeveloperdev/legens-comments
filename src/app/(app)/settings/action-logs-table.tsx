@@ -1,5 +1,8 @@
 "use client"
 
+import { useTranslations, useLanguage } from "@/components/language-provider"
+import { LANGUAGE_LOCALES } from "@/lib/i18n"
+
 /* eslint-disable @next/next/no-img-element */
 
 import { useMemo, useState, useTransition } from "react"
@@ -70,13 +73,15 @@ function DebugScreenshotButton({
   image: DebugImage
   onOpen: (image: DebugImage) => void
 }) {
+  const t = useTranslations()
+
   const [failed, setFailed] = useState(false)
 
   if (failed) {
     return (
       <div className="flex w-fit max-w-full items-center gap-3 rounded-md border border-dashed bg-muted/40 p-3 text-sm text-muted-foreground">
         <ImageIcon className="size-4 shrink-0" />
-        <span className="min-w-0 break-words">Debug-файл не найден или уже удалён</span>
+        <span className="min-w-0 break-words">{t("Debug-файл не найден или уже удалён")}</span>
       </div>
     )
   }
@@ -96,7 +101,7 @@ function DebugScreenshotButton({
       />
       <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
         <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate">Открыть debug-скрин</span>
+        <span className="truncate">{t("Открыть debug-скрин")}</span>
       </span>
     </button>
   )
@@ -117,6 +122,8 @@ export function ActionLogsTable({
   initialPage?: number
   initialPageSize?: number
 }) {
+  const t = useTranslations()
+
   const router = useRouter()
   const safeInitialPageSize = ACTION_LOG_PAGE_SIZES.includes(
     initialPageSize as (typeof ACTION_LOG_PAGE_SIZES)[number],
@@ -132,9 +139,10 @@ export function ActionLogsTable({
   const [isRefreshing, startRefresh] = useTransition()
 
   const { timeZone } = useTimeZone()
-  const displayRows = useMemo(() => rows.map((row) => ({ ...row, date: formatDateTime(row.date, timeZone, {
+  const language = useLanguage()
+  const displayRows = useMemo(() => rows.map((row) => ({ ...row, action: t(row.action), date: formatDateTime(row.date, timeZone, {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }) })), [rows, timeZone])
+  }, LANGUAGE_LOCALES[language]) })), [rows, timeZone, language, t])
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
     if (!needle) return displayRows
@@ -190,11 +198,11 @@ export function ActionLogsTable({
     startClear(async () => {
       const result = await clearActionLogs(clearSource)
       if (result.error) {
-        pushAppNotification("Очистка логов", result.error, { tone: "error" })
+        pushAppNotification(t("Очистка логов"), result.error, { tone: "error" })
         return
       }
       setConfirmOpen(false)
-      pushAppNotification("Логи очищены", `Удалено ${result.deleted ?? 0} записей`, {
+      pushAppNotification(t("Логи очищены"), t("Удалено {0} записей", result.deleted ?? 0), {
         tone: "success",
       })
       router.refresh()
@@ -209,25 +217,24 @@ export function ActionLogsTable({
           <Input
             value={query}
             onChange={(event) => changeQuery(event.target.value)}
-            placeholder="Поиск по дате, юзеру, действию или деталям"
+            placeholder={t("Поиск по дате, юзеру, действию или деталям")}
             className="pl-8"
-            aria-label="Поиск по логам"
+            aria-label={t("Поиск по логам")}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">
-            {filteredRows.length} из {rows.length}
+            {filteredRows.length} {t(" из ")}{rows.length}
           </Badge>
           <select
             value={pageSize}
             onChange={(event) => changePageSize(Number(event.target.value))}
             className="h-8 rounded-lg border border-input bg-background px-2 text-sm"
-            aria-label="Строк на странице"
+            aria-label={t("Строк на странице")}
           >
             {ACTION_LOG_PAGE_SIZES.map((size) => (
               <option key={size} value={size}>
-                {size} / стр.
-              </option>
+                {size} {t(" / стр.")}</option>
             ))}
           </select>
           <Button
@@ -235,8 +242,8 @@ export function ActionLogsTable({
             variant="outline"
             size="icon"
             disabled={isRefreshing}
-            title="Обновить"
-            aria-label="Обновить логи"
+            title={t("Обновить")}
+            aria-label={t("Обновить логи")}
             onClick={() => startRefresh(() => router.refresh())}
           >
             <RefreshCwIcon className={isRefreshing ? "animate-spin" : undefined} />
@@ -247,8 +254,8 @@ export function ActionLogsTable({
               variant="destructive"
               size="icon"
               disabled={rows.length === 0 || isClearing}
-              title="Очистить"
-              aria-label="Очистить логи"
+              title={t("Очистить")}
+              aria-label={t("Очистить логи")}
               onClick={() => setConfirmOpen(true)}
             >
               {isClearing ? <Trash2Icon className="animate-pulse" /> : <Trash2Icon />}
@@ -260,17 +267,17 @@ export function ActionLogsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Дата</TableHead>
-            <TableHead>Пользователь</TableHead>
-            <TableHead>Действие</TableHead>
-            <TableHead>Детали</TableHead>
+            <TableHead>{t("Дата")}</TableHead>
+            <TableHead>{t("Пользователь")}</TableHead>
+            <TableHead>{t("Действие")}</TableHead>
+            <TableHead>{t("Детали")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {visibleRows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                {rows.length === 0 ? emptyText : "По этому поиску ничего не найдено"}
+                {rows.length === 0 ? emptyText : t("По этому поиску ничего не найдено")}
               </TableCell>
             </TableRow>
           ) : (
@@ -299,7 +306,7 @@ export function ActionLogsTable({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          Страница {currentPage} из {totalPages}
+          {t("Страница ")}{currentPage} {t(" из ")}{totalPages}
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -309,16 +316,14 @@ export function ActionLogsTable({
             onClick={() => changePage(currentPage - 1)}
           >
             <ChevronLeftIcon />
-            Назад
-          </Button>
+            {t("Назад")}</Button>
           <Button
             type="button"
             variant="outline"
             disabled={currentPage >= totalPages}
             onClick={() => changePage(currentPage + 1)}
           >
-            Вперёд
-            <ChevronRightIcon />
+            {t("Вперёд")}<ChevronRightIcon />
           </Button>
         </div>
       </div>
@@ -326,19 +331,16 @@ export function ActionLogsTable({
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Очистить логи?</DialogTitle>
+            <DialogTitle>{t("Очистить логи?")}</DialogTitle>
             <DialogDescription>
-              Будут удалены все записи этого раздела. Действие нельзя отменить.
-            </DialogDescription>
+              {t("Будут удалены все записи этого раздела. Действие нельзя отменить.")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="outline" disabled={isClearing} />}>
-              Отмена
-            </DialogClose>
+              {t("Отмена")}</DialogClose>
             <Button type="button" variant="destructive" disabled={isClearing} onClick={handleClearLogs}>
               <Trash2Icon />
-              Очистить
-            </Button>
+              {t("Очистить")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -346,7 +348,7 @@ export function ActionLogsTable({
       <Dialog open={Boolean(previewImage)} onOpenChange={(open) => !open && setPreviewImage(null)}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Debug-скрин Facebook</DialogTitle>
+            <DialogTitle>{t("Debug-скрин Facebook")}</DialogTitle>
             <DialogDescription className="break-all">{previewImage?.filename}</DialogDescription>
           </DialogHeader>
           {previewImage ? (
@@ -357,10 +359,9 @@ export function ActionLogsTable({
           <DialogFooter>
             {previewImage ? (
               <Button type="button" variant="outline" render={<a href={previewImage.url} target="_blank" rel="noreferrer" />}>
-                Открыть в новой вкладке
-              </Button>
+                {t("Открыть в новой вкладке")}</Button>
             ) : null}
-            <DialogClose render={<Button type="button" />}>Закрыть</DialogClose>
+            <DialogClose render={<Button type="button" />}>{t("Закрыть")}</DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

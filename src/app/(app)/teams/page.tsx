@@ -1,3 +1,5 @@
+
+import { getTranslations } from "@/lib/i18n-server"
 import { UserRole } from "@prisma/client"
 import { redirect } from "next/navigation"
 import {
@@ -12,6 +14,8 @@ import { requireAdminSession } from "@/lib/session"
 import { TeamsManager } from "./teams-manager"
 
 export default async function TeamsPage() {
+  const t = await getTranslations()
+
   const session = await requireAdminSession()
   if (!session) {
     redirect("/constructor")
@@ -51,10 +55,9 @@ export default async function TeamsPage() {
     <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">
       <Card>
         <CardHeader>
-          <CardTitle>Команды</CardTitle>
+          <CardTitle>{t("Команды")}</CardTitle>
           <CardDescription>
-            Название команды, маркер, тимлид и байеры.
-          </CardDescription>
+            {t("Название команды, маркер, тимлид и байеры.")}</CardDescription>
         </CardHeader>
         <CardContent>
           <TeamsManager teams={teams} teamLeads={teamLeads} buyers={buyers} />

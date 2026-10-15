@@ -1,10 +1,14 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useTheme } from "next-themes"
 import { MoonIcon, SunIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export function ThemeToggle() {
+  const t = useTranslations()
+
   const { setTheme } = useTheme()
 
   return (
@@ -17,7 +21,7 @@ export function ThemeToggle() {
         const isDark = document.documentElement.classList.contains("dark")
         setTheme(isDark ? "light" : "dark")
       }}
-      aria-label="Переключить тему"
+      aria-label={t("Переключить тему")}
     >
       <SunIcon className="hidden dark:block" />
       <MoonIcon className="dark:hidden" />

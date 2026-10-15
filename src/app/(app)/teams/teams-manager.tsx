@@ -1,5 +1,7 @@
 "use client"
 
+import { useTranslations } from "@/components/language-provider"
+
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { UserRole } from "@prisma/client"
@@ -86,6 +88,8 @@ export function TeamsManager({
   teamLeads: UserOption[]
   buyers: UserOption[]
 }) {
+  const t = useTranslations()
+
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [buyerQuery, setBuyerQuery] = useState("")
@@ -177,13 +181,13 @@ export function TeamsManager({
       }
       setOpen(false)
       resetDialog()
-      setMessage(form.id ? "Команда обновлена" : "Команда создана")
+      setMessage(form.id ? t("Команда обновлена") : t("Команда создана"))
       router.refresh()
     })
   }
 
   function removeTeam(team: TeamRow) {
-    if (!confirm(`Удалить команду «${team.name}»?`)) return
+    if (!confirm(t("Удалить команду «{0}»?", team.name))) return
     const data = new FormData()
     data.set("id", team.id)
     setError("")
@@ -194,7 +198,7 @@ export function TeamsManager({
         setMessage(result.error)
         return
       }
-      setMessage("Команда удалена")
+      setMessage(t("Команда удалена"))
       router.refresh()
     })
   }
@@ -208,9 +212,9 @@ export function TeamsManager({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Поиск по команде, маркеру, тимлиду или байеру"
+              placeholder={t("Поиск по команде, маркеру, тимлиду или байеру")}
               className="pl-8"
-              aria-label="Поиск команд"
+              aria-label={t("Поиск команд")}
             />
           </div>
           <Button
@@ -220,13 +224,11 @@ export function TeamsManager({
             className="sm:w-auto"
           >
             <Plus />
-            Добавить
-          </Button>
+            {t("Добавить")}</Button>
         </div>
         {teamLeads.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Сначала создайте пользователя с ролью «Тимлид» в разделе «Юзеры».
-          </p>
+            {t("Сначала создайте пользователя с ролью «Тимлид» в разделе «Юзеры».")}</p>
         ) : null}
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </div>
@@ -234,19 +236,18 @@ export function TeamsManager({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Команда</TableHead>
-            <TableHead>Маркер</TableHead>
-            <TableHead>Тимлид</TableHead>
-            <TableHead>Байеры</TableHead>
-            <TableHead className="text-right">Действия</TableHead>
+            <TableHead>{t("Команда")}</TableHead>
+            <TableHead>{t("Маркер")}</TableHead>
+            <TableHead>{t("Тимлид")}</TableHead>
+            <TableHead>{t("Байеры")}</TableHead>
+            <TableHead className="text-right">{t("Действия")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {filteredTeams.length === 0 ? (
             <TableRow>
               <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                Команд пока нет
-              </TableCell>
+                {t("Команд пока нет")}</TableCell>
             </TableRow>
           ) : (
             filteredTeams.map((team) => (
@@ -266,7 +267,7 @@ export function TeamsManager({
                       </span>
                     </div>
                   ) : (
-                    <span className="text-muted-foreground">Не назначен</span>
+                    <span className="text-muted-foreground">{t("Не назначен")}</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -280,7 +281,7 @@ export function TeamsManager({
                       <Badge variant="outline">+{team.buyers.length - 3}</Badge>
                     ) : null}
                     {team.buyers.length === 0 ? (
-                      <span className="text-muted-foreground">Нет байеров</span>
+                      <span className="text-muted-foreground">{t("Нет байеров")}</span>
                     ) : null}
                   </div>
                 </TableCell>
@@ -291,7 +292,7 @@ export function TeamsManager({
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => openEdit(team)}
-                      aria-label="Редактировать"
+                      aria-label={t("Редактировать")}
                     >
                       <Pencil />
                     </Button>
@@ -301,7 +302,7 @@ export function TeamsManager({
                       size="icon-sm"
                       onClick={() => removeTeam(team)}
                       disabled={isPending}
-                      aria-label="Удалить"
+                      aria-label={t("Удалить")}
                     >
                       <Trash2 />
                     </Button>
@@ -324,15 +325,14 @@ export function TeamsManager({
           <form onSubmit={submitTeam}>
             <DialogHeader>
               <DialogTitle>
-                {form.id ? "Редактировать команду" : "Новая команда"}
+                {form.id ? t("Редактировать команду") : t("Новая команда")}
               </DialogTitle>
               <DialogDescription>
-                Укажите название, маркер, тимлида и байеров команды.
-              </DialogDescription>
+                {t("Укажите название, маркер, тимлида и байеров команды.")}</DialogDescription>
             </DialogHeader>
             <FieldGroup className="mt-4">
               <Field>
-                <FieldLabel htmlFor="team-name">Название команды</FieldLabel>
+                <FieldLabel htmlFor="team-name">{t("Название команды")}</FieldLabel>
                 <Input
                   id="team-name"
                   value={form.name}
@@ -343,19 +343,19 @@ export function TeamsManager({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="team-marker">Маркер</FieldLabel>
+                <FieldLabel htmlFor="team-marker">{t("Маркер")}</FieldLabel>
                 <Input
                   id="team-marker"
                   value={form.marker}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, marker: event.target.value }))
                   }
-                  placeholder="Например, team-1"
+                  placeholder={t("Например, team-1")}
                   required
                 />
               </Field>
               <Field>
-                <FieldLabel>Тимлид</FieldLabel>
+                <FieldLabel>{t("Тимлид")}</FieldLabel>
                 <Select
                   value={form.teamLeadId}
                   onValueChange={(value) =>
@@ -366,7 +366,7 @@ export function TeamsManager({
                     <span className="min-w-0 truncate text-left">
                       {selectedTeamLead
                         ? userLine(selectedTeamLead)
-                        : "Выберите тимлида"}
+                        : t("Выберите тимлида")}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
@@ -380,10 +380,9 @@ export function TeamsManager({
               </Field>
               <Field>
                 <div className="flex items-center justify-between gap-3">
-                  <FieldLabel>Байеры</FieldLabel>
+                  <FieldLabel>{t("Байеры")}</FieldLabel>
                   <span className="text-xs text-muted-foreground">
-                    {form.buyerIds.length} выбрано
-                  </span>
+                    {form.buyerIds.length} {t(" выбрано")}</span>
                 </div>
                 <div className="rounded-lg border">
                   <div className="relative border-b">
@@ -391,17 +390,16 @@ export function TeamsManager({
                     <Input
                       value={buyerQuery}
                       onChange={(event) => setBuyerQuery(event.target.value)}
-                      placeholder="Поиск байера"
+                      placeholder={t("Поиск байера")}
                       className="border-0 pl-8 focus-visible:ring-0"
-                      aria-label="Поиск байеров"
+                      aria-label={t("Поиск байеров")}
                     />
                   </div>
                   <div className="max-h-52 overflow-y-auto p-2">
                     {filteredBuyers.length === 0 ? (
                       <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
                         <UsersRound className="size-4" />
-                        Байеров не нашли
-                      </div>
+                        {t("Байеров не нашли")}</div>
                     ) : (
                       filteredBuyers.map((buyer) => (
                         <label
@@ -413,7 +411,7 @@ export function TeamsManager({
                             onCheckedChange={(checked) =>
                               toggleBuyer(buyer.id, checked === true)
                             }
-                            aria-label={`Выбрать ${buyer.name}`}
+                            aria-label={t("Выбрать {0}", buyer.name)}
                           />
                           <span className="grid min-w-0">
                             <span className="truncate font-medium">{buyer.name}</span>
@@ -429,16 +427,15 @@ export function TeamsManager({
               </Field>
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
-                  {error}
+                  {t(error)}
                 </p>
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Отмена
-              </Button>
+                {t("Отмена")}</Button>
               <Button type="submit" disabled={isPending}>
-                {isPending ? "Сохранение…" : "Сохранить"}
+                {isPending ? t("Сохранение…") : t("Сохранить")}
               </Button>
             </DialogFooter>
           </form>

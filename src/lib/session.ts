@@ -4,6 +4,7 @@ import { UserRole } from "@prisma/client";
 import { SESSION_COOKIE } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { isUserRole } from "@/lib/user-role";
+import { cache } from "react";
 
 export type SessionUser = {
   id: string;
@@ -19,6 +20,7 @@ export type ActiveSessionUser = {
   role: UserRole;
   avatarUrl: string | null;
   timeZone: string;
+  language: string;
 };
 
 function getSecret() {
@@ -78,7 +80,7 @@ export async function getSession(): Promise<SessionUser | null> {
   }
 }
 
-export async function getActiveSession(): Promise<ActiveSessionUser | null> {
+export const getActiveSession = cache(async (): Promise<ActiveSessionUser | null> => {
   const session = await getSession();
   if (!session) return null;
 
@@ -92,6 +94,7 @@ export async function getActiveSession(): Promise<ActiveSessionUser | null> {
       active: true,
       avatarUrl: true,
       timeZone: true,
+      language: true,
     },
   });
 
@@ -104,8 +107,9 @@ export async function getActiveSession(): Promise<ActiveSessionUser | null> {
     role: user.role,
     avatarUrl: user.avatarUrl,
     timeZone: user.timeZone,
+    language: user.language,
   };
-}
+});
 
 export async function requireAdminSession(): Promise<ActiveSessionUser | null> {
   const user = await getActiveSession();

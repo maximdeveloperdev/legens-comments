@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation"
 import { NotificationsMenu } from "@/components/notifications-menu"
 import { TimeZoneSwitcher } from "@/components/time-zone-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { LanguageSwitcher } from "@/components/language-switcher"
+import { useTranslations } from "@/components/language-provider"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -17,6 +19,7 @@ import { getDashboardTitle } from "@/lib/nav"
 import { PanelLeftIcon } from "lucide-react"
 
 export function SiteHeader({ userKey }: { userKey: string }) {
+  const t = useTranslations()
   const { toggleSidebar } = useSidebar()
   const pathname = usePathname()
   const title = getDashboardTitle(pathname)
@@ -29,6 +32,7 @@ export function SiteHeader({ userKey }: { userKey: string }) {
           className="h-8 w-8"
           variant="ghost"
           size="icon"
+          aria-label={t("Переключить боковую панель")}
           onClick={toggleSidebar}
         >
           <PanelLeftIcon />
@@ -40,13 +44,14 @@ export function SiteHeader({ userKey }: { userKey: string }) {
         <Breadcrumb className="hidden sm:block">
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbPage>{title}</BreadcrumbPage>
+              <BreadcrumbPage>{t(title)}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
         <div className="ml-auto flex items-center gap-1">
           <NotificationsMenu userKey={userKey} />
           <TimeZoneSwitcher />
+          <LanguageSwitcher />
           <ThemeToggle />
         </div>
       </div>
