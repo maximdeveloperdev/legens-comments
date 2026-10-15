@@ -526,7 +526,7 @@ export function UsersManager({
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>{t(userRoleLabel(form.role))}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={UserRole.ADMIN}>{t("Админ")}</SelectItem>

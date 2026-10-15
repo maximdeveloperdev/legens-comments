@@ -109,7 +109,7 @@ function SelectField({
       <input type="hidden" name={name ?? label} value={value} />
       <Select value={value} onValueChange={(nextValue) => setValue(String(nextValue))}>
         <SelectTrigger className={controlClass}>
-          <SelectValue />
+          <SelectValue>{(selected) => t(String(selected ?? ""))}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (

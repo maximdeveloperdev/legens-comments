@@ -42,7 +42,7 @@ function SelectField({
         }}
       >
         <SelectTrigger className="h-12 w-full rounded-sm bg-card px-4 text-base">
-          <SelectValue />
+          <SelectValue>{(selected) => t(String(selected ?? ""))}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
@@ -141,7 +141,7 @@ function RuleForm({ onBack }: { onBack: () => void }) {
               <div className="grid gap-4 xl:grid-cols-[1fr_300px_1fr]">
                 <Select defaultValue="Показы">
                   <SelectTrigger className="h-12 w-full rounded-sm bg-card px-4 text-base">
-                    <SelectValue />
+                    <SelectValue>{(selected) => t(String(selected ?? ""))}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Показы">{t("Показы")}</SelectItem>
@@ -151,7 +151,7 @@ function RuleForm({ onBack }: { onBack: () => void }) {
                 </Select>
                 <Select defaultValue="=">
                   <SelectTrigger className="h-12 w-full rounded-sm bg-card px-4 text-base">
-                    <SelectValue />
+                    <SelectValue>{(selected) => t(String(selected ?? ""))}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="=">=</SelectItem>
