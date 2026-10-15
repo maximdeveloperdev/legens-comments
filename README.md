@@ -87,6 +87,12 @@ Task permission checks (team profiles, shared `ALL`, rejected foreign profiles, 
 npm run test:access
 ```
 
+Error screenshots are linked to their originating queue job. Users and farmers can read their own screenshots; team leads can also read their current team's screenshots; administrators can read all files. `GET` and `HEAD` enforce the same access check. Legacy files without an unambiguous job and user owner remain admin-only.
+
+```bash
+npm run test:debug-access
+```
+
 ## VPS Deploy with AdsPower
 
 Target server: Ubuntu 24.04/22.04, Docker Compose, AdsPower running on the host in headless Local API mode.

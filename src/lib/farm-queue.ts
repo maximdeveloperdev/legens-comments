@@ -98,6 +98,7 @@ async function resolveJobMessage(job: FarmJob, log: (line: { level: "info" | "ok
   const post = await readFacebookPostForAi({
     url: job.url,
     profileId: job.profileId,
+    jobId: job.id,
     ignoreQueueBusy: true,
   })
   const generated = await generateCommentsWithGpt({
@@ -245,6 +246,7 @@ async function runFarmJob(job: FarmJob) {
     const result = await runFacebookComment(
       {
         profileId: job.profileId,
+        jobId: job.id,
         url: job.url,
         message,
         photoPath: job.photoPath || undefined,

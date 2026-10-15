@@ -1,5 +1,6 @@
 import { access, mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { chromium, type Browser, type Frame, type Locator, type Page } from "playwright-core"
 import {
   checkAdsPowerProfileProxy,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/adspower"
 import { replaceFacebookFans, type SyncedFan } from "@/lib/facebook-fans"
 import { profileGeoFromName } from "@/lib/profile-geo"
+import { prisma } from "@/lib/db"
 
 export type SwitchLogLevel = "info" | "ok" | "error"
 
@@ -113,19 +115,22 @@ function safeFilePart(value: string) {
 
 async function saveFailureArtifact(
   page: Page | undefined,
-  options: { profileId: string; phase: string; message: string },
+  options: { profileId: string; phase: string; message: string; jobId?: string },
   log: (line: SwitchLog) => void,
 ) {
   if (!page) return
   try {
     await mkdir(FACEBOOK_DEBUG_DIR, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-    const base = `${stamp}-${safeFilePart(options.profileId)}-${safeFilePart(options.phase)}`
+    const base = `${stamp}-${safeFilePart(options.profileId)}-${safeFilePart(options.phase)}-${randomUUID()}`
     const screenshotPath = path.join(FACEBOOK_DEBUG_DIR, `${base}.png`)
     const htmlPath = path.join(FACEBOOK_DEBUG_DIR, `${base}.html`)
     const screenshot = await page.screenshot({ fullPage: false, timeout: 6000 }).catch(() => null)
     if (screenshot) {
       await writeFile(screenshotPath, screenshot)
+      await prisma.facebookDebugArtifact.create({
+        data: { filename: `${base}.png`, farmJobId: options.jobId || null },
+      })
     }
     const html = await page.content().catch(() => "")
     let htmlSaved = false
@@ -1165,7 +1170,7 @@ async function waitForFacebookReady(page: Page, profileId: string, log: (line: S
   throw new Error(`Facebook не загрузился: ${currentUrl}${bodyText ? ` · ${bodyText.slice(0, 160).replace(/\s+/g, " ")}` : ""}`)
 }
 
-async function openFacebookPage(profileId: string, log: (line: SwitchLog) => void) {
+async function openFacebookPage(profileId: string, log: (line: SwitchLog) => void, jobId?: string) {
   log({
     level: "info",
     text: `Проверяем прокси AdsPower ${profileId}`,
@@ -1224,7 +1229,7 @@ async function openFacebookPage(profileId: string, log: (line: SwitchLog) => voi
     await waitForFacebookReady(page, profileId, log)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Facebook не загрузился"
-    await saveFailureArtifact(page, { profileId, phase: "facebook-ready", message }, log)
+    await saveFailureArtifact(page, { profileId, phase: "facebook-ready", message, jobId }, log)
     disconnectBrowser(browser)
     throw error
   }
@@ -1243,12 +1248,12 @@ export type CapturedFacebookPost = {
 }
 
 export async function captureFacebookPost(
-  input: { profileId: string; url: string },
+  input: { profileId: string; url: string; jobId?: string },
   onLog: (line: SwitchLog) => void,
 ): Promise<CapturedFacebookPost> {
   let browser: Browser | undefined
   try {
-    const opened = await openFacebookPage(input.profileId, onLog)
+    const opened = await openFacebookPage(input.profileId, onLog, input.jobId)
     browser = opened.browser
     const page = opened.page
 
@@ -4800,6 +4805,7 @@ async function subscribeAuthor(page: Page, log: (line: SwitchLog) => void, postU
 export async function runFacebookComment(
   input: {
     profileId: string
+    jobId?: string
     url: string
     message: string
     photoPath?: string
@@ -4821,7 +4827,7 @@ export async function runFacebookComment(
   let browser: Browser | undefined
   let page: Page | undefined
   try {
-    const opened = await openFacebookPage(id, onLog)
+    const opened = await openFacebookPage(id, onLog, input.jobId)
     browser = opened.browser
     page = opened.page
 
@@ -4875,7 +4881,7 @@ export async function runFacebookComment(
           ? "Лайк не поставился"
           : "Комментарий не отправился"
     onLog({ level: "error", text: message })
-    await saveFailureArtifact(page, { profileId: id, phase: "job", message }, onLog)
+    await saveFailureArtifact(page, { profileId: id, phase: "job", message, jobId: input.jobId }, onLog)
     disconnectBrowser(browser)
     onLog({ level: "info", text: "Закрываем профиль после ошибки, чтобы очередь шла дальше" })
     const stopped = await stopAdsPowerBrowser(id)

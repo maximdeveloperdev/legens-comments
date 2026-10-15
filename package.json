@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test:facebook": "node --test tests/facebook-page-switch.test.cjs",
     "test:access": "node --test tests/farm-profile-access.test.cjs",
+    "test:debug-access": "node --test tests/facebook-debug-access.test.cjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",

@@ -185,10 +185,20 @@ model FarmJob {
   replies      FarmJob[]     @relation("FarmJobReplies")
   taskId       String
   task         FarmTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  debugArtifacts FacebookDebugArtifact[]
 
   @@index([status, createdAt])
   @@index([taskId, createdAt])
   @@index([replyToJobId])
+}
+
+model FacebookDebugArtifact {
+  filename  String   @id
+  createdAt DateTime @default(now())
+  farmJobId String?
+  farmJob   FarmJob? @relation(fields: [farmJobId], references: [id], onDelete: SetNull)
+
+  @@index([farmJobId])
 }
 
 model FanFormatJob {

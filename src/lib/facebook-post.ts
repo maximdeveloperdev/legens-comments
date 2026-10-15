@@ -107,6 +107,7 @@ export async function readFacebookPost(url: string) {
 export async function readFacebookPostForAi(input: {
   url: string
   profileId?: string
+  jobId?: string
   ignoreQueueBusy?: boolean
 }): Promise<FacebookPostRead> {
   const preview = await readFacebookPost(input.url)
@@ -126,7 +127,7 @@ export async function readFacebookPostForAi(input: {
 
   try {
     const captured = await captureFacebookPost(
-      { profileId: input.profileId, url: input.url },
+      { profileId: input.profileId, url: input.url, jobId: input.jobId },
       (line) => {
         void writeActionLog({
           userName: "ChatGPT",
