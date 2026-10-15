@@ -1,6 +1,7 @@
 export const COMMENT_MEDIA_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/mp4,.mp4,.gif"
 export const MAX_COMMENT_IMAGE_SIZE = 10 * 1024 * 1024
-export const MAX_COMMENT_VIDEO_SIZE = 50 * 1024 * 1024
+// Remote AdsPower uploads must stay strictly below Playwright's 50 MiB boundary.
+export const MAX_COMMENT_VIDEO_SIZE = 50_000_000
 export const MAX_COMMENT_MEDIA_TOTAL_SIZE = 70 * 1024 * 1024
 export const COMMENT_MEDIA_HINT = "Фото и GIF — до 10 МБ, MP4 — до 50 МБ. Один файл к комментарию."
 

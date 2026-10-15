@@ -20,7 +20,8 @@ test("supported formats have canonical extensions, including files with no brows
 
 test("GIFs and images are limited to 10 MB; videos to 50 MB", () => {
   const image = { name: "a.gif", type: "image/gif", size: 10 * 1024 * 1024 }
-  const video = { name: "a.mp4", type: "video/mp4", size: 50 * 1024 * 1024 }
+  const video = { name: "a.mp4", type: "video/mp4", size: 50_000_000 }
+  assert.ok(media.MAX_COMMENT_VIDEO_SIZE < 50 * 1024 * 1024)
   assert.equal(media.commentMediaError(image), null); assert.equal(media.commentMediaError(video), null)
   assert.match(media.commentMediaError({ ...image, size: image.size + 1 }), /10 МБ/)
   assert.match(media.commentMediaError({ ...video, size: video.size + 1 }), /50 МБ/)
