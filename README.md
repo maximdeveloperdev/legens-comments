@@ -81,6 +81,12 @@ npx playwright-core install chromium --only-shell
 npm run test:facebook
 ```
 
+Task permission checks (team profiles, shared `ALL`, rejected foreign profiles, and multipart/copy actions) run against isolated database and AdsPower adapters:
+
+```bash
+npm run test:access
+```
+
 ## VPS Deploy with AdsPower
 
 Target server: Ubuntu 24.04/22.04, Docker Compose, AdsPower running on the host in headless Local API mode.

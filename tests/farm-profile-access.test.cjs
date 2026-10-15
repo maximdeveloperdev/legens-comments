@@ -1,0 +1,196 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const assert = require("node:assert/strict")
+const { readFileSync } = require("node:fs")
+const path = require("node:path")
+const vm = require("node:vm")
+const { test } = require("node:test")
+const ts = require("typescript")
+
+// Load the actual server actions with isolated DB, AdsPower and queue adapters.
+// Tests never create production tasks or start Facebook/AdsPower browsers.
+function fixture(options = {}) {
+  const calls = { tasks: 0, jobs: [], scheduled: 0, rewrites: 0, files: 0, profiles: 0, teams: [] }
+  const user = { id: "actor", role: options.role || "USER", name: "Actor" }
+  const profiles = options.profiles || [
+    { id: "own", name: "[RED][GB] Team profile" },
+    { id: "other", name: "[BLUE][FR] Another team" },
+    { id: "common", name: "[ all ][ES] Shared" },
+    { id: "unmarked", name: "Profile without a team" },
+    { id: "misleading", name: "[BLUE][ALL] Not shared" },
+  ]
+  const db = {
+    team: { findMany: async (query) => {
+      calls.teams.push(query)
+      if (options.dbThrows) throw new Error("DB unavailable")
+      return (options.markers || [" red "]).map((marker) => ({ marker }))
+    } },
+    farmTask: {
+      findFirst: async () => ({ id: "old-task", name: "Old task", action: "mixed", jobs: (options.sourceProfiles || ["own"]).map((profileId, index) => ({
+        id: `old-${index}`, profileId, action: "comment", fanName: "Fan", message: "Existing comment", aiComment: false,
+        photoPath: "", url: "https://www.facebook.com/1/posts/2/", replyToJobId: null,
+      })) }),
+      create: async () => { calls.tasks++; return { id: "new-task" } },
+    },
+    farmJob: { createMany: async ({ data }) => { calls.jobs.push(...data); return { count: data.length } } },
+    $transaction: async (callback) => callback(db),
+  }
+  const adapters = {
+    "@/lib/db": { prisma: db },
+    "@/lib/adspower": { listAdsPowerProfiles: async () => {
+      calls.profiles++
+      if (options.apiThrows) throw new Error("AdsPower unavailable")
+      return { ok: options.apiOk !== false, profiles }
+    } },
+    "@/lib/session": { getActiveSession: async () => options.anonymous ? null : user },
+    "@/lib/action-log": { writeTrackerLog: async () => {} },
+    "@/lib/farm-queue": { kickFarmQueue: () => { throw new Error("Worker must never run in these tests") } },
+    "@/lib/farm-queue-access": { getFarmQueueAccess: async () => ({ kind: "all" }), farmTaskAccessWhere: () => undefined },
+    "@/lib/farm-comment-auto-rewrite": { rewriteFarmJobsForAntiSpam: async ({ jobs }) => {
+      calls.rewrites++; return { ok: true, jobs, rewritten: 0 }
+    } },
+    "next/cache": { revalidatePath: () => {} },
+    "next/server": { after: () => { calls.scheduled++ } },
+    "node:fs/promises": { mkdir: async () => {}, writeFile: async () => { calls.files++ } },
+  }
+  const cache = new Map()
+  function load(relative) {
+    if (cache.has(relative)) return cache.get(relative)
+    const file = path.join(__dirname, "../", relative)
+    const compiled = ts.transpileModule(readFileSync(file, "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    const sandbox = { exports: {}, process, console, Buffer, File, FormData, URL,
+      require: (name) => {
+        if (Object.hasOwn(adapters, name)) return adapters[name]
+        if (name.startsWith("@/")) return load(`src/${name.slice(2)}.ts`)
+        return require(name)
+      },
+    }
+    vm.runInNewContext(compiled, sandbox, { filename: file })
+    cache.set(relative, sandbox.exports)
+    return sandbox.exports
+  }
+  return { calls, user, access: load("src/lib/adspower-profile-access.ts"), actions: load("src/app/actions/farm-queue.ts") }
+}
+
+function input(profileIds) {
+  return { name: "Access test", action: "mixed", jobs: profileIds.map((profileId, index) => ({
+    profileId, clientKey: `job-${index}`, action: index ? "comment_like" : "comment", message: index ? "" : "Test comment",
+    replyToKey: index ? "job-0" : undefined, url: "https://www.facebook.com/1/posts/2/",
+  })) }
+}
+
+function noSideEffects(calls) {
+  assert.equal(calls.tasks, 0)
+  assert.equal(calls.jobs.length, 0)
+  assert.equal(calls.scheduled, 0)
+  assert.equal(calls.rewrites, 0)
+  assert.equal(calls.files, 0)
+}
+
+for (const role of ["USER", "TEAM_LEAD", "FARMER"]) {
+  test(`${role}: own team and ALL can create a task with parent dependencies`, async () => {
+    const { actions, calls } = fixture({ role })
+    const result = await actions.enqueueFarmTask(input(["own", "common"]))
+    assert.equal(result.total, 2)
+    assert.equal(calls.tasks, 1)
+    assert.equal(calls.scheduled, 1)
+    assert.equal(calls.jobs[1].replyToJobId, calls.jobs[0].id)
+    assert.equal(calls.teams[0].where.OR[0].teamLeadId, "actor")
+    assert.equal(calls.teams[0].where.OR[1].buyers.some.userId, "actor")
+  })
+
+  test(`${role}: one foreign reply/like profile rejects the whole batch before any side effects`, async () => {
+    const { actions, calls } = fixture({ role })
+    const result = await actions.enqueueFarmTask(input(["own", "other"]))
+    assert.match(result.error, /Нет доступа/)
+    noSideEffects(calls)
+  })
+
+  test(`${role}: duplicating an accessible old task rechecks its current profiles`, async () => {
+    const { actions, calls } = fixture({ role, sourceProfiles: ["own", "other"] })
+    const result = await actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"] })
+    assert.match(result.error, /Нет доступа/)
+    noSideEffects(calls)
+  })
+}
+
+test("unknown, unmarked and misleading ALL-in-second-bracket profiles are denied", async () => {
+  for (const id of ["unknown", "unmarked", "misleading"]) {
+    const { actions, calls } = fixture()
+    assert.match((await actions.enqueueFarmTask(input([id]))).error, /Нет доступа/)
+    noSideEffects(calls)
+  }
+})
+
+test("users without a team can use only common ALL profiles", async () => {
+  const { access, user } = fixture({ markers: [] })
+  assert.equal(await access.getFarmProfileAccessError(user, ["common"]), null)
+  assert.match(await access.getFarmProfileAccessError(user, ["own"]), /Нет доступа/)
+})
+
+test("multiple assigned teams are allowed and profile IDs are deduplicated", async () => {
+  const { access, user, calls } = fixture({ role: "TEAM_LEAD", markers: ["RED", "BLUE"] })
+  assert.equal(await access.getFarmProfileAccessError(user, ["own", "other", "common", "own"]), null)
+  assert.equal(calls.profiles, 1)
+})
+
+test("lookup failures, including partial AdsPower responses, fail closed", async () => {
+  for (const options of [{ apiOk: false }, { apiThrows: true }, { dbThrows: true }]) {
+    const { actions, calls } = fixture(options)
+    assert.match((await actions.enqueueFarmTask(input(["own"]))).error, /Не удалось проверить доступ/)
+    noSideEffects(calls)
+  }
+})
+
+test("a forged client profile name or team does not authorize a foreign profile ID", async () => {
+  const { actions, calls } = fixture()
+  const payload = input(["other"])
+  Object.assign(payload.jobs[0], { name: "[ALL] Shared", team: "RED", role: "ADMIN" })
+  assert.match((await actions.enqueueFarmTask(payload)).error, /Нет доступа/)
+  noSideEffects(calls)
+})
+
+test("multipart requests authorize profiles before uploading any photos", async () => {
+  const { actions, calls } = fixture()
+  const form = new FormData()
+  form.set("payload", JSON.stringify(input(["other"])))
+  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  assert.match((await actions.enqueueFarmTaskForm(form)).error, /Нет доступа/)
+  noSideEffects(calls)
+})
+
+test("authorized multipart requests retain the global photo on comments", async () => {
+  const { actions, calls } = fixture()
+  const form = new FormData()
+  form.set("payload", JSON.stringify(input(["own", "common"])))
+  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  assert.equal((await actions.enqueueFarmTaskForm(form)).total, 2)
+  assert.equal(calls.files, 1)
+  assert.match(calls.jobs[0].photoPath, /^\/uploads\/farm-comments\//)
+  assert.equal(calls.jobs[1].photoPath, "")
+})
+
+test("copying permitted profiles still creates the task", async () => {
+  const { actions, calls } = fixture({ sourceProfiles: ["own", "common"] })
+  const result = await actions.duplicateFarmTask({ taskId: "old-task", urls: ["https://www.facebook.com/1/posts/3/"] })
+  assert.equal(result.total, 2)
+  assert.equal(calls.tasks, 1)
+  assert.equal(calls.scheduled, 1)
+})
+
+test("admin access remains unrestricted and does not depend on team or profile lookup", async () => {
+  const { actions, calls } = fixture({ role: "ADMIN", apiThrows: true, dbThrows: true })
+  assert.equal((await actions.enqueueFarmTask(input(["other", "common"]))).total, 2)
+  assert.equal(calls.profiles, 0)
+  assert.equal(calls.teams.length, 0)
+})
+
+test("anonymous multipart submissions cannot write files or create tasks", async () => {
+  const { actions, calls } = fixture({ anonymous: true })
+  const form = new FormData()
+  form.set("payload", JSON.stringify(input(["own"])))
+  form.set("photo", new File(["photo"], "test.png", { type: "image/png" }))
+  assert.match((await actions.enqueueFarmTaskForm(form)).error, /войти/)
+  noSideEffects(calls)
+})

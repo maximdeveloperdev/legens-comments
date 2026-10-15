@@ -1,7 +1,8 @@
 import { listAdsPowerProfiles } from "@/lib/adspower"
+import { getAllowedProfileTeamMarkers, isAdsPowerProfileAllowed } from "@/lib/adspower-profile-access"
 import { prisma } from "@/lib/db"
 import { listFacebookFansByProfile } from "@/lib/facebook-fans"
-import { profileDisplayGeo, profileTeamMarkerFromName } from "@/lib/profile-geo"
+import { profileDisplayGeo } from "@/lib/profile-geo"
 import { getActiveSession } from "@/lib/session"
 import { ConstructorFarm } from "./constructor-farm"
 
@@ -22,22 +23,6 @@ function queueScope(role: string | undefined) {
   return "own"
 }
 
-async function teamMarkersForUser(userId: string | undefined, role: string | undefined) {
-  if (!userId || role === "ADMIN") return null
-
-  const teams = await prisma.team.findMany({
-    where: {
-      OR: [
-        { teamLeadId: userId },
-        { buyers: { some: { userId } } },
-      ],
-    },
-    select: { marker: true },
-  })
-
-  return new Set(["ALL", ...teams.map((team) => team.marker.trim().toUpperCase()).filter(Boolean)])
-}
-
 export default async function ConstructorPage({ searchParams }: ConstructorPageProps) {
   const user = await getActiveSession()
   const { tab } = await searchParams
@@ -48,13 +33,10 @@ export default async function ConstructorPage({ searchParams }: ConstructorPageP
       orderBy: { nameRu: "asc" },
       select: { code: true, nameRu: true, flagSvg: true },
     }),
-    teamMarkersForUser(user?.id, user?.role),
+    user ? getAllowedProfileTeamMarkers(user) : Promise.resolve(new Set<string>()),
   ])
   const filteredAdsPowerProfiles = allowedMarkers
-    ? result.profiles.filter((profile) => {
-        const marker = profileTeamMarkerFromName(profile.name)
-        return marker ? allowedMarkers.has(marker) : false
-      })
+    ? result.profiles.filter((profile) => isAdsPowerProfileAllowed(profile, allowedMarkers))
     : result.profiles
   const fansByProfile = await listFacebookFansByProfile(filteredAdsPowerProfiles.map((profile) => profile.id))
   const countryCodes = new Set(countryRows.map((country) => country.code.toUpperCase()))

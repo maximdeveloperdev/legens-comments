@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache"
 import { after } from "next/server"
 import { writeTrackerLog } from "@/lib/action-log"
 import { stopAdsPowerBrowser } from "@/lib/adspower"
+import { getFarmProfileAccessError } from "@/lib/adspower-profile-access"
 import { rewriteFarmJobsForAntiSpam } from "@/lib/farm-comment-auto-rewrite"
 import { kickFarmQueue } from "@/lib/farm-queue"
 import { farmTaskAccessWhere, getFarmQueueAccess } from "@/lib/farm-queue-access"
@@ -132,7 +133,7 @@ function isFacebookUrl(value: string) {
 
 async function createFarmTask(
   input: EnqueueFarmInput,
-  photoPaths: Map<string, string> = new Map(),
+  formData?: FormData,
 ): Promise<EnqueueFarmResult> {
   const session = await getActiveSession()
   if (!session) {
@@ -144,7 +145,7 @@ async function createFarmTask(
     return { error: "Неизвестное действие" }
   }
 
-  const jobs = input.jobs
+  let jobs = input.jobs
     .map((job) => {
       const jobAction = job.action && FARM_ACTIONS.has(job.action) ? job.action : action === "mixed" ? "comment" : action
       const needsMessage = !MESSAGELESS_ACTIONS.has(jobAction)
@@ -157,10 +158,8 @@ async function createFarmTask(
         aiComment: needsMessage && job.aiComment === true,
         clientKey: (job.clientKey || "").trim(),
         replyToKey: (job.replyToKey || "").trim(),
-        photoPath:
-          needsMessage
-            ? photoPaths.get(job.photoKey || "") || photoPaths.get("__global__") || ""
-            : "",
+        photoKey: job.photoKey || "",
+        photoPath: "",
       }
     })
     .filter((job) => job.profileId && isFacebookUrl(job.url) && (MESSAGELESS_ACTIONS.has(job.action) || job.aiComment || job.message))
@@ -173,6 +172,28 @@ async function createFarmTask(
   }
   if (jobs.some((job) => job.message.length > 8000)) {
     return { error: "Сообщение слишком длинное" }
+  }
+  const accessError = await getFarmProfileAccessError(session, jobs.map((job) => job.profileId))
+  if (accessError) return { error: accessError }
+
+  if (formData) {
+    const photoPaths = new Map<string, string>()
+    const photo = formData.get("photo")
+    const saved = await saveCommentPhoto(photo instanceof File ? photo : null)
+    if (saved.error) return { error: saved.error }
+    if (saved.photoPath) photoPaths.set("__global__", saved.photoPath)
+    for (const key of new Set(jobs.map((job) => job.photoKey).filter(Boolean))) {
+      const file = formData.get(`photo:${key}`)
+      const savedForJob = await saveCommentPhoto(file instanceof File ? file : null)
+      if (savedForJob.error) return { error: savedForJob.error }
+      if (savedForJob.photoPath) photoPaths.set(key, savedForJob.photoPath)
+    }
+    jobs = jobs.map((job) => ({
+      ...job,
+      photoPath: MESSAGELESS_ACTIONS.has(job.action)
+        ? ""
+        : photoPaths.get(job.photoKey) || photoPaths.get("__global__") || "",
+    }))
   }
   let finalJobs = jobs
   let rewritten = 0
@@ -276,27 +297,7 @@ export async function enqueueFarmTaskForm(formData: FormData): Promise<EnqueueFa
     return { error: "Не удалось прочитать данные задачи" }
   }
 
-  const photo = formData.get("photo")
-  const saved = await saveCommentPhoto(photo instanceof File ? photo : null)
-  if (saved.error) {
-    return { error: saved.error }
-  }
-  const photoPaths = new Map<string, string>()
-  if (saved.photoPath) photoPaths.set("__global__", saved.photoPath)
-
-  const photoKeys = [
-    ...new Set(input.jobs.map((job) => job.photoKey).filter((key): key is string => Boolean(key))),
-  ]
-  for (const key of photoKeys) {
-    const file = formData.get(`photo:${key}`)
-    const savedForJob = await saveCommentPhoto(file instanceof File ? file : null)
-    if (savedForJob.error) {
-      return { error: savedForJob.error }
-    }
-    if (savedForJob.photoPath) photoPaths.set(key, savedForJob.photoPath)
-  }
-
-  return createFarmTask(input, photoPaths)
+  return createFarmTask(input, formData)
 }
 
 export async function stopFarmTask(taskId?: string): Promise<{ error?: string; stopped?: number }> {
@@ -456,6 +457,9 @@ export async function duplicateFarmTask(input: {
   })
   if (!task) return { error: "Задача не найдена или нет доступа" }
   if (task.jobs.length === 0) return { error: "В задаче нет комментариев для копирования" }
+
+  const accessError = await getFarmProfileAccessError(session, task.jobs.map((job) => job.profileId))
+  if (accessError) return { error: accessError }
 
   const originalUrls = [...new Set(task.jobs.map((job) => job.url).filter(Boolean))]
   if (newUrls.length > 1 && newUrls.length !== originalUrls.length) {
