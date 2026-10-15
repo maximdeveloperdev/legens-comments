@@ -1,5 +1,7 @@
 "use server"
 
+import { formatDateTime } from "@/lib/time-zones"
+
 import { revalidatePath } from "next/cache"
 import type { Prisma } from "@prisma/client"
 
@@ -184,7 +186,7 @@ export async function createFbAutouploadBinding(
   const explicitName = String(formData.get("name") ?? "").trim()
   const created = await prisma.fbAutouploadBinding.create({
     data: {
-      name: explicitName || `Связка ${new Date().toLocaleString("ru-RU")}`,
+      name: explicitName || `Связка ${formatDateTime(new Date(), session.timeZone)}`,
       createdBy: session.id,
       config: formDataToConfig(formData),
     },

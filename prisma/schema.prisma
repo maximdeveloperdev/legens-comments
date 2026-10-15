@@ -24,6 +24,7 @@ model User {
   twoFactorSecret  String?
   avatarUrl        String?
   active           Boolean        @default(true)
+  timeZone         String         @default("Europe/Kyiv")
   createdAt        DateTime       @default(now())
   commentSets      CommentSet[]
   ledTeams         Team[]         @relation("TeamLead")

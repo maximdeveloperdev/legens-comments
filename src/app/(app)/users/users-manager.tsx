@@ -1,13 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import { UserRole } from "@prisma/client"
 import { Camera, Eye, EyeOff, Pencil, Plus, RefreshCw, SearchIcon, ShieldOff, Trash2, UserX } from "lucide-react"
 import {
   bulkUpdateUsers,
-  createUser,
   deleteUser,
-  updateUser,
 } from "@/app/actions/users"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -99,6 +98,7 @@ export function UsersManager({
   users: UserRow[]
   currentUserId: string
 }) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormValues>(emptyForm)
   const [error, setError] = useState<string>()
@@ -166,13 +166,15 @@ export function UsersManager({
     }
     if (action === "twoFactor") data.set("disableTwoFactor", "true")
     if (action === "active") data.set("disableActive", "true")
-    const result = await bulkUpdateUsers(data)
-    setBulkPending(false)
-    if (result.error) {
-      setBulkError(result.error)
-      return
+    try {
+      const result = await bulkUpdateUsers(data)
+      if (result.error) { setBulkError(result.error); return }
+      setSelectedIds([])
+    } catch {
+      setBulkError("Не удалось обновить пользователей. Обновите страницу и проверьте результат.")
+    } finally {
+      setBulkPending(false)
     }
-    setSelectedIds([])
   }
 
   function openCreate() {
@@ -201,6 +203,7 @@ export function UsersManager({
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (pending) return
     setPending(true)
     setError(undefined)
 
@@ -214,25 +217,32 @@ export function UsersManager({
     data.set("active", String(form.active))
     if (form.avatarFile) data.set("avatar", form.avatarFile)
 
-    const result = form.id ? await updateUser(data) : await createUser(data)
-    setPending(false)
-
-    if (result.error) {
-      setError(result.error)
-      return
+    try {
+      const response = await fetch("/api/users", {
+        method: form.id ? "PUT" : "POST", body: data, signal: AbortSignal.timeout(20000),
+      })
+      const result = await response.json()
+      if (!response.ok || result.error) {
+        setError(result.error || "Не удалось сохранить пользователя")
+        return
+      }
+      setOpen(false)
+      router.refresh()
+    } catch {
+      setError("Ответ сервера не получен. Обновите список: пользователь мог сохраниться. После проверки можно повторить попытку.")
+    } finally {
+      setPending(false)
     }
-
-    setOpen(false)
   }
 
   async function onDelete(id: string) {
     if (!confirm("Удалить пользователя?")) return
     const data = new FormData()
     data.set("id", id)
-    const result = await deleteUser(data)
-    if (result.error) {
-      alert(result.error)
-    }
+    try {
+      const result = await deleteUser(data)
+      if (result.error) alert(result.error)
+    } catch { alert("Не удалось удалить пользователя. Обновите страницу и проверьте результат.") }
   }
 
   return (
@@ -249,7 +259,7 @@ export function UsersManager({
               aria-label="Поиск юзеров"
             />
           </div>
-          <Button type="button" onClick={openCreate} className="sm:w-auto">
+          <Button type="button" disabled={pending} onClick={openCreate} className="sm:w-auto">
             <Plus />
             Добавить
           </Button>
@@ -387,8 +397,8 @@ export function UsersManager({
         </TableBody>
       </Table>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={open} onOpenChange={(value) => { if (!pending) setOpen(value) }}>
+        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
           <form onSubmit={onSubmit}>
             <DialogHeader>
               <DialogTitle>{isEdit ? "Редактировать юзера" : "Новый юзер"}</DialogTitle>
@@ -562,11 +572,12 @@ export function UsersManager({
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
                   {error}
+                  <button type="button" className="ml-2 underline" onClick={() => router.refresh()}>Обновить список</button>
                 </p>
               ) : null}
             </FieldGroup>
             <DialogFooter className="mt-4">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>
                 Отмена
               </Button>
               <Button type="submit" disabled={pending}>

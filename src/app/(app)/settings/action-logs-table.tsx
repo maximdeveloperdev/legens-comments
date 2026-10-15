@@ -3,6 +3,8 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useMemo, useState, useTransition } from "react"
+import { useTimeZone } from "@/components/time-zone-provider"
+import { formatDateTime } from "@/lib/time-zones"
 import { useRouter } from "next/navigation"
 import {
   ChevronLeftIcon,
@@ -129,16 +131,20 @@ export function ActionLogsTable({
   const [isClearing, startClear] = useTransition()
   const [isRefreshing, startRefresh] = useTransition()
 
+  const { timeZone } = useTimeZone()
+  const displayRows = useMemo(() => rows.map((row) => ({ ...row, date: formatDateTime(row.date, timeZone, {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }) })), [rows, timeZone])
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return rows
-    return rows.filter((row) =>
+    if (!needle) return displayRows
+    return displayRows.filter((row) =>
       [row.date, row.user, row.action, row.detail]
         .join(" ")
         .toLowerCase()
         .includes(needle),
     )
-  }, [query, rows])
+  }, [query, displayRows])
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
   const currentPage = Math.min(page, totalPages)

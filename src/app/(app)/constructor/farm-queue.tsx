@@ -2,6 +2,8 @@
 
 import { CommentMediaPreview } from "@/components/comment-media-preview"
 import { commentMediaLabel } from "@/lib/comment-media"
+import { DateTime, useTimeZone } from "@/components/time-zone-provider"
+import { formatDateTime } from "@/lib/time-zones"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
@@ -164,10 +166,7 @@ const statusFilterOptions: Array<{ value: QueueStatusFilter; label: string }> = 
 ]
 
 function formatWhen(value: string) {
-  return new Date(value).toLocaleString("ru-RU", {
-    dateStyle: "short",
-    timeStyle: "short",
-  })
+  return <DateTime value={value} />
 }
 
 function formatDuration(ms: number | null) {
@@ -196,7 +195,7 @@ function TaskMetaList({ task, compact = false }: { task: QueueTask; compact?: bo
       {rows.map(([label, value]) => (
         <div key={label} className={compact ? "flex min-w-0 gap-1" : "flex min-w-0 gap-1.5"}>
           <dt className="shrink-0 font-medium text-foreground">{label}:</dt>
-          <dd className="min-w-0 truncate text-muted-foreground" title={value}>
+          <dd className="min-w-0 truncate text-muted-foreground" title={typeof value === "string" ? value : undefined}>
             {value}
           </dd>
         </div>
@@ -1384,6 +1383,7 @@ export function FarmQueue({
         .sort((left, right) => left.localeCompare(right, "ru")),
     [visibleTasks],
   )
+  const { timeZone } = useTimeZone()
   const filteredTasks = useMemo(() => {
     if (!tableTools) return visibleTasks
     const needle = query.trim().toLowerCase()
@@ -1405,7 +1405,7 @@ export function FarmQueue({
           action,
           status,
           String(task.total),
-          formatWhen(task.createdAt),
+          formatDateTime(task.createdAt, timeZone),
           ...task.jobs.flatMap((job) => [
             job.fanName,
             job.profileId,
@@ -1427,7 +1427,7 @@ export function FarmQueue({
         ? right.createdAt.localeCompare(left.createdAt)
         : left.createdAt.localeCompare(right.createdAt),
     )
-  }, [query, sortOrder, statusFilter, tableTools, taskFilters, teamFilter, visibleTasks])
+  }, [query, sortOrder, timeZone, statusFilter, tableTools, taskFilters, teamFilter, visibleTasks])
   const ownerStats = useMemo(() => buildOwnerStats(filteredTasks), [filteredTasks])
   const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize))
   const currentPage = Math.min(page, totalPages)

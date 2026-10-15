@@ -1,5 +1,7 @@
 "use client"
 
+import { DateTime } from "@/components/time-zone-provider"
+
 import { useEffect, useMemo, useState, useTransition } from "react"
 import Image from "next/image"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -126,10 +128,7 @@ function parsePageSizeParam(value: string | null) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString("ru-RU", {
-    dateStyle: "short",
-    timeStyle: "short",
-  })
+  return <DateTime value={value} />
 }
 
 function formatSize(value: number) {

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import { NotificationsMenu } from "@/components/notifications-menu"
+import { TimeZoneSwitcher } from "@/components/time-zone-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Breadcrumb,
@@ -45,6 +46,7 @@ export function SiteHeader({ userKey }: { userKey: string }) {
         </Breadcrumb>
         <div className="ml-auto flex items-center gap-1">
           <NotificationsMenu userKey={userKey} />
+          <TimeZoneSwitcher />
           <ThemeToggle />
         </div>
       </div>

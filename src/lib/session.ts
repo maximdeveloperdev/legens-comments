@@ -18,6 +18,7 @@ export type ActiveSessionUser = {
   name: string;
   role: UserRole;
   avatarUrl: string | null;
+  timeZone: string;
 };
 
 function getSecret() {
@@ -90,6 +91,7 @@ export async function getActiveSession(): Promise<ActiveSessionUser | null> {
       role: true,
       active: true,
       avatarUrl: true,
+      timeZone: true,
     },
   });
 
@@ -101,6 +103,7 @@ export async function getActiveSession(): Promise<ActiveSessionUser | null> {
     name: user.name,
     role: user.role,
     avatarUrl: user.avatarUrl,
+    timeZone: user.timeZone,
   };
 }
 

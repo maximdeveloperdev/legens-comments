@@ -1,4 +1,4 @@
-import { formatActionLogDate, listActionLogs } from "@/lib/action-log"
+import { listActionLogs } from "@/lib/action-log"
 import { parseActionLogsPage, parseActionLogsPageSize } from "../action-logs-params"
 import { ActionLogsTable } from "../action-logs-table"
 import { SettingsSection } from "../settings-section"
@@ -20,7 +20,7 @@ export default async function TrackerLogsPage({ searchParams }: LogsPageProps) {
         clearSource="tracker"
         emptyText="Пока нет действий. Они появятся, когда кто-то войдёт, создаст задачу или изменит данные."
         rows={logs.map((log) => ({
-          date: formatActionLogDate(log.createdAt),
+          date: log.createdAt.toISOString(),
           user: log.userName,
           action: log.action,
           detail: log.detail,

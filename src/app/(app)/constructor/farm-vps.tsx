@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import Image from "next/image"
+import { DateTime } from "@/components/time-zone-provider"
 import { useRouter } from "next/navigation"
 import { LayoutGrid, Loader2, Play, RefreshCw, SearchIcon, Square } from "lucide-react"
 import { startAdsPowerProfile, stopAdsPowerProfile } from "@/app/actions/adspower"
@@ -14,11 +15,7 @@ import { cn } from "cn"
 import type { CountryInfo } from "./farm-comments"
 
 function formatUnix(value: number) {
-  if (!value) return "—"
-  return new Date(value * 1000).toLocaleString("ru-RU", {
-    dateStyle: "short",
-    timeStyle: "short",
-  })
+  return value ? <DateTime value={new Date(value * 1000).toISOString()} /> : "—"
 }
 
 function groupKey(profile: AdsPowerProfile, byGeo: boolean, countries: Record<string, CountryInfo>) {

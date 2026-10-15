@@ -27,15 +27,11 @@ import {
   setAppNotificationsUser,
   type AppNotification,
 } from "@/lib/app-notifications"
+import { DateTime } from "@/components/time-zone-provider"
 import { cn } from "cn"
 
 function formatWhen(iso: string) {
-  return new Date(iso).toLocaleString("ru-RU", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return <DateTime value={iso} options={{ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }} />
 }
 
 function notificationIcon(tone: AppNotification["tone"]) {

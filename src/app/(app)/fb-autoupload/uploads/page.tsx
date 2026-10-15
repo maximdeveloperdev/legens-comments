@@ -1,3 +1,4 @@
+import { DateTime } from "@/components/time-zone-provider"
 import { prisma } from "@/lib/db"
 import {
   Table,
@@ -65,7 +66,7 @@ export default async function FbAutouploadUploadsPage() {
                     {upload.status}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {upload.createdAt.toLocaleString("ru-RU")}
+                    <DateTime value={upload.createdAt.toISOString()} options={{ day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }} />
                   </TableCell>
                 </TableRow>
               ))
