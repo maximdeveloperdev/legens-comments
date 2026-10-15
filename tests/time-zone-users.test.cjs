@@ -38,13 +38,15 @@ function fixture(options = {}) {
 function userForm() { const form = new FormData(); for (const [key, value] of Object.entries({ name: "New user", email: "new@example.invalid", password: "validpassword", role: "USER", active: "false" })) form.set(key, value); return form }
 function request(url, body, method = "PUT", origin = "https://comments.legd.team") { return new Request("https://comments.legd.team" + url, { method, headers: { Origin: origin, ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) }, body }) }
 
-test("Ukraine and every supported European IANA zone are represented; every listed zone formats dates", () => {
+test("Ukraine and supported European IANA zones except Moscow are represented; every listed zone formats dates", () => {
   const { zones } = fixture()
   const canonical = (zone) => new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone
   const offered = new Set(zones.TIME_ZONES.map(([zone]) => canonical(zone)))
-  for (const zone of Intl.supportedValuesOf("timeZone").filter((zone) => zone.startsWith("Europe/"))) assert.ok(offered.has(canonical(zone)), zone)
+  for (const zone of Intl.supportedValuesOf("timeZone").filter((zone) => zone.startsWith("Europe/") && zone !== "Europe/Moscow")) assert.ok(offered.has(canonical(zone)), zone)
   assert.equal(zones.DEFAULT_TIME_ZONE, "Europe/Kyiv")
   assert.equal(zones.normalizeTimeZone("Europe/Kiev"), "Europe/Kyiv")
+  assert.equal(zones.isAllowedTimeZone("Europe/Moscow"), false)
+  assert.equal(zones.normalizeTimeZone("Europe/Moscow"), "Europe/Kyiv")
   for (const [zone] of zones.TIME_ZONES) assert.notEqual(zones.formatDateTime("2026-10-15T12:00:00Z", zone), "—")
 })
 
@@ -67,7 +69,7 @@ for (const role of ["USER", "TEAM_LEAD", "ADMIN"]) {
 }
 
 test("anonymous, invalid-zone and cross-site preferences never mutate accounts", async () => {
-  for (const [options, zone, origin, status] of [[{ anonymous: true }, "Europe/Kyiv", undefined, 401], [{}, "invalid", undefined, 400], [{}, "Asia/Tokyo", undefined, 400], [{}, "Europe/Kyiv", "https://outside.invalid", 403]]) {
+  for (const [options, zone, origin, status] of [[{ anonymous: true }, "Europe/Kyiv", undefined, 401], [{}, "invalid", undefined, 400], [{}, "Asia/Tokyo", undefined, 400], [{}, "Europe/Moscow", undefined, 400], [{}, "Europe/Kyiv", "https://outside.invalid", 403]]) {
     const { preferences, calls } = fixture(options)
     const response = await preferences.PUT(request("/api/preferences/time-zone", JSON.stringify({ timeZone: zone }), "PUT", origin))
     assert.equal(response.status, status); assert.equal(calls.updated.length, 0)

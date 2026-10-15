@@ -40,7 +40,6 @@ export const TIME_ZONES = [
   ["Atlantic/Madeira", "Португалия — Мадейра"],
   ["Atlantic/Azores", "Португалия — Азорские острова"],
   ["Europe/Kaliningrad", "Россия — Калининград"],
-  ["Europe/Moscow", "Россия — Москва"],
   ["Europe/Kirov", "Россия — Киров"],
   ["Europe/Volgograd", "Россия — Волгоград"],
   ["Europe/Astrakhan", "Россия — Астрахань"],
